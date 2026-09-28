@@ -2779,8 +2779,15 @@ public partial class WorldClient
                     Reason = reason,
                     MountDisplayID = (uint) mountDisplayId,
                 };
-                // After the batch whose Values changed the mount or scale has reached the client.
-                GetSession().ToClient.AfterBatch(height, CollisionHeightHold);
+                // At login the player's create can itself be deferred for item hotfixes.
+                // AfterBatch would release at the end of the current Values batch, before
+                // that create. Once the player exists, retain the normal batch ordering.
+                if (ModernVersion.IsWotLKClassicOrLater &&
+                    guid == GetSession().GameState.CurrentPlayerGuid &&
+                    !GetSession().GameState.ClientHasPlayerObject)
+                    GetSession().ToClient.When(OutboxEvent.GuidKnown(guid), height, PlayerGuidSubjectHold);
+                else
+                    GetSession().ToClient.AfterBatch(height, CollisionHeightHold);
             }
         }
     }
