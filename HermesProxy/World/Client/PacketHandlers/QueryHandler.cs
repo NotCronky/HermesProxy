@@ -772,14 +772,18 @@ public partial class WorldClient
         if (entry.UpdateObject.ObjectUpdates.Count != 0 ||
             entry.UpdateObject.DestroyedGuids.Count != 0 ||
             entry.UpdateObject.OutOfRangeGuids.Count != 0)
+        {
             SendPacketToClient(entry.UpdateObject);
+            MarkPlayerCreateQueued(entry.UpdateObject);
+        }
 
         // Player Values that landed while this batch was held (issue #300): the stance a warrior
         // logs in with, a mount's display id. They are claimed and sent inline rather than left to
         // the GuidKnown notify, which would only run them after this method returns — a nested
         // release appends to the running release run — and so after the world-ready handshake
         // below. Claimed in registration order, and only ever after the create above.
-        if (ModernVersion.IsWotLKClassicOrLater && session.ToClient.HasPending)
+        if (ModernVersion.IsWotLKClassicOrLater &&
+            session.GameState.ClientHasPlayerObject && session.ToClient.HasPending)
         {
             foreach (var playerValues in ClaimHeldPlayerValues(session))
             {

@@ -81,6 +81,7 @@ internal sealed class LegacyHandlerHarness
     {
         var guid = AddKnownObject(legacyGuid, ObjectType.Player);
         Session.GameState.CurrentPlayerGuid = guid;
+        Session.GameState.ClientHasPlayerObject = true;
         return guid;
     }
 
