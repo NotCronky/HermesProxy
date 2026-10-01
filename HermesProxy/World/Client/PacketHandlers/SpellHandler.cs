@@ -1622,6 +1622,10 @@ public partial class WorldClient
             return;
         }
 
+        // Issue #330: some legacy aura ids mean something else in the 3.4.3 Spell DB2.
+        if (ModernVersion.Build == ClientVersionBuild.V3_4_3_54261)
+            spellId = AuraSpellRemap.ToModern(spellId);
+
         AuraDataInfo data = new AuraDataInfo
         {
             SpellID = spellId,

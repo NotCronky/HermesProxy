@@ -155,9 +155,9 @@ Each needs a judgement call against the client or WowPacketParser.
 
 Counts per file rather than line numbers, so unrelated edits do not churn this file.
 
-217 sites across 55 files.
+220 sites across 55 files.
 
-### `ModernVersion.Build` compared by equality — 217 sites
+### `ModernVersion.Build` compared by equality — 220 sites
 
 | file | build compared | sites |
 |---|---|---:|
@@ -167,12 +167,13 @@ Counts per file rather than line numbers, so unrelated edits do not churn this f
 | `HermesProxy/World/Server/Packets/SpellPackets.cs` | `V3_4_3_54261` | 15 |
 | `HermesProxy/World/Objects/MovementInfo.cs` | `V3_4_3_54261` | 12 |
 | `HermesProxy/World/Client/PacketHandlers/PetHandler.cs` | `V3_4_3_54261` | 8 |
+| `HermesProxy/World/Client/PacketHandlers/SpellHandler.cs` | `V3_4_3_54261` | 8 |
 | `HermesProxy/World/Server/Packets/QuestPackets.cs` | `V3_4_3_54261` | 8 |
 | `HermesProxy/World/Client/PacketHandlers/QueryHandler.cs` | `V3_4_3_54261` | 7 |
-| `HermesProxy/World/Client/PacketHandlers/SpellHandler.cs` | `V3_4_3_54261` | 7 |
 | `HermesProxy/World/Client/PacketHandlers/CharacterHandler.cs` | `V3_4_3_54261` | 5 |
 | `HermesProxy/World/Server/Packets/GroupPackets.cs` | `V3_4_3_54261` | 5 |
 | `HermesProxy/World/Server/Packets/MailPackets.cs` | `V3_4_3_54261` | 5 |
+| `HermesProxy/World/Client/PacketHandlers/GroupHandler.cs` | `V3_4_3_54261` | 4 |
 | `HermesProxy/World/Client/PacketHandlers/MovementHandler.cs` | `V3_4_3_54261` | 4 |
 | `HermesProxy/World/Client/PacketHandlers/QuestHandler.cs` | `V3_4_3_54261` | 4 |
 | `HermesProxy/World/Server/Packets/BattleGroundPackets.cs` | `V3_4_3_54261` | 4 |
@@ -182,11 +183,11 @@ Counts per file rather than line numbers, so unrelated edits do not churn this f
 | `HermesProxy/World/Server/Systems/ToySystem.cs` | `V3_4_3_54261` | 4 |
 | `HermesProxy/World/Client/PacketHandlers/CombatHandler.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/EquipmentSetHandler.cs` | `V3_4_3_54261` | 3 |
-| `HermesProxy/World/Client/PacketHandlers/GroupHandler.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/LootHandler.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Server/Systems/BattlegroundSystem.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Server/Systems/EquipmentSetSystem.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Server/Systems/PetSystem.cs` | `V3_4_3_54261` | 3 |
+| `HermesProxy/World/Server/Systems/SpellSystem.cs` | `V3_4_3_54261` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/LFGHandler.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/World/Client/PacketHandlers/NPCHandler.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/World/Client/PacketHandlers/TalentHandler.cs` | `V3_4_3_54261` | 2 |
@@ -200,7 +201,6 @@ Counts per file rather than line numbers, so unrelated edits do not churn this f
 | `HermesProxy/World/Server/Systems/CharacterSystem.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/World/Server/Systems/ItemSystem.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/World/Server/Systems/MiscSystem.cs` | `V3_4_3_54261` | 2 |
-| `HermesProxy/World/Server/Systems/SpellSystem.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/World/Server/WorldSocket.cs` | `V3_4_3_54261` | 2 |
 | `HermesProxy/VersionChecker.cs` | `V3_4_3_54261` | 1 |
 | `HermesProxy/World/Client/PacketHandlers/MiscHandler.cs` | `V3_4_3_54261` | 1 |

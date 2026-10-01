@@ -343,8 +343,21 @@ public static class SpellSystem
     [HandlesCmsg(Opcode.CMSG_CANCEL_AURA)]
     public static void HandleCancelAura(in CancelAura aura, in SessionContext ctx)
     {
+        if (ModernVersion.Build != ClientVersionBuild.V3_4_3_54261)
+        {
+            SendCancelAura(aura.SpellID, ctx);
+            return;
+        }
+
+        // The client cancels the id it was shown, which may stand for several legacy ranks.
+        foreach (uint legacySpellId in AuraSpellRemap.ToLegacyCancelCandidates(aura.SpellID))
+            SendCancelAura(legacySpellId, ctx);
+    }
+
+    static void SendCancelAura(uint spellId, in SessionContext ctx)
+    {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_AURA);
-        packet.WriteUInt32(aura.SpellID);
+        packet.WriteUInt32(spellId);
         ctx.SendPacketToServer(packet);
     }
 
