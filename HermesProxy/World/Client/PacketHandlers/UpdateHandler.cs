@@ -3868,7 +3868,11 @@ public partial class WorldClient
             {
                 ushort genderAndInebriation = (ushort)(updates[PLAYER_BYTES_3].UInt32Value & 0xFFFF);
                 updateData.EnsurePlayerData().NativeSex = (byte)(genderAndInebriation & 0x1);
-                updateData.EnsurePlayerData().Inebriation = (byte)(genderAndInebriation & 0xFFFE);
+                // WotLK stores the drunkenness percentage in byte 1; older clients
+                // pack a 16-bit drunk value together with the gender bit.
+                updateData.EnsurePlayerData().Inebriation = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056)
+                    ? (byte)(genderAndInebriation >> 8)
+                    : (byte)(genderAndInebriation & 0xFFFE);
                 updateData.EnsurePlayerData().PvpTitle = (byte)((updates[PLAYER_BYTES_3].UInt32Value >> 16) & 0xFF); // city protector
                 byte playerBytes3High = (byte)((updates[PLAYER_BYTES_3].UInt32Value >> 24) & 0xFF);
                 // Byte 3 changed meaning when PvP ranks were removed. Vanilla/TBC keep the
