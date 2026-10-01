@@ -227,6 +227,18 @@ public partial class WorldClient
         SendPacketToClient(sound);
     }
 
+    // The modern client prints its "You feel tipsy" / "You drink the X and feel drunk" lines from
+    // this packet, not from the Inebriation field. Vanilla servers never send it.
+    [HandlesSmsg(Opcode.SMSG_CROSSED_INEBRIATION_THRESHOLD)]
+    internal void HandleCrossedInebriationThreshold(WorldPacket packet)
+    {
+        CrossedInebriationThreshold threshold = new();
+        threshold.Guid = packet.ReadGuid().To128(GetSession().GameState);
+        threshold.Threshold = packet.ReadInt32();
+        threshold.ItemID = packet.ReadInt32();
+        SendPacketToClient(threshold);
+    }
+
     [HandlesSmsg(Opcode.SMSG_TRIGGER_CINEMATIC)]
     internal void HandleTriggerCinematic(WorldPacket packet)
     {

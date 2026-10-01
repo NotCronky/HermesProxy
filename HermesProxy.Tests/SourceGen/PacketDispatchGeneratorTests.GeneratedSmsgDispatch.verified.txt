@@ -802,6 +802,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleCriteriaUpdate(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleCrossedInebriationThreshold_SMSG_CROSSED_INEBRIATION_THRESHOLD(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleCrossedInebriationThreshold(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleDeathReleaseLoc_SMSG_DEATH_RELEASE_LOC(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleDeathReleaseLoc(packet);
@@ -2458,6 +2463,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CREATE_CHAR] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCreateChar_SMSG_CREATE_CHAR;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CRITERIA_DELETED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCriteriaDeleted_SMSG_CRITERIA_DELETED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CRITERIA_UPDATE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCriteriaUpdate_SMSG_CRITERIA_UPDATE;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CROSSED_INEBRIATION_THRESHOLD] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCrossedInebriationThreshold_SMSG_CROSSED_INEBRIATION_THRESHOLD;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_DEATH_RELEASE_LOC] = &Thunk_HermesProxy_World_Client_WorldClient_HandleDeathReleaseLoc_SMSG_DEATH_RELEASE_LOC;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_DEFENSE_MESSAGE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleDefenseMessage_SMSG_DEFENSE_MESSAGE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_DELETE_CHAR] = &Thunk_HermesProxy_World_Client_WorldClient_HandleDeleteChar_SMSG_DELETE_CHAR;
@@ -2928,6 +2934,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_CREATE_CHAR,
             global::HermesProxy.World.Enums.Opcode.SMSG_CRITERIA_DELETED,
             global::HermesProxy.World.Enums.Opcode.SMSG_CRITERIA_UPDATE,
+            global::HermesProxy.World.Enums.Opcode.SMSG_CROSSED_INEBRIATION_THRESHOLD,
             global::HermesProxy.World.Enums.Opcode.SMSG_DEATH_RELEASE_LOC,
             global::HermesProxy.World.Enums.Opcode.SMSG_DEFENSE_MESSAGE,
             global::HermesProxy.World.Enums.Opcode.SMSG_DELETE_CHAR,
