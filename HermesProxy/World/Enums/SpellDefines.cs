@@ -1664,11 +1664,4 @@ public static class KnownSpellIds
     // counterpart for lock rows the V3_4_3 client believes are plain "open" — see
     // GameObjectLockRemap and issue #269.
     public const uint OpeningAttacking = 8386;
-
-    // Prayer of Mending aura on its current target. 41635 is the rank 1 aura on 3.3.5a and
-    // the only one the 3.4.3 client uses, for every rank. The rank 2/3 auras still exist in
-    // its Spell DB2 as SPELL_AURA_MOD_VISIBILITY_RANGE — see AuraSpellRemap and issue #330.
-    public const uint PrayerOfMendingAura = 41635;
-    public const uint PrayerOfMendingAuraRank2 = 48110;
-    public const uint PrayerOfMendingAuraRank3 = 48111;
 }
