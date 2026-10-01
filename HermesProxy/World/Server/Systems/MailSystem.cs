@@ -101,7 +101,7 @@ public static class MailSystem
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_SEND_MAIL);
         packet.WriteGuid(mail.Mailbox.To64());
-        packet.WriteCString(mail.Target);
+        packet.WriteCString(LegacyPlayerName.StripRealmSuffix(mail.Target));
         packet.WriteCString(mail.Subject);
         packet.WriteCString(mail.Body);
         packet.WriteInt32(mail.StationeryID);

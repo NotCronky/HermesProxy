@@ -122,17 +122,18 @@ public static class GuildSystem
     [HandlesCmsg(Opcode.CMSG_GUILD_INVITE_BY_NAME)]
     public static void HandleGuildInviteByName(in GuildInviteByName invite, in SessionContext ctx)
     {
+        ReadOnlySpan<char> name = LegacyPlayerName.StripRealmSuffix(invite.Name);
         if (invite.ArenaTeamId == 0)
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_INVITE_BY_NAME);
-            packet.WriteCString(invite.Name);
+            packet.WriteCString(name);
             ctx.SendPacketToServer(packet);
         }
         else
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_ARENA_TEAM_INVITE);
             packet.WriteUInt32(invite.ArenaTeamId);
-            packet.WriteCString(invite.Name);
+            packet.WriteCString(name);
             ctx.SendPacketToServer(packet);
         }
     }
@@ -208,7 +209,7 @@ public static class GuildSystem
     public static void HandleGuildSetGuildMaster(in GuildSetGuildMaster master, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_SET_GUILD_MASTER);
-        packet.WriteCString(master.NewMasterName);
+        packet.WriteCString(LegacyPlayerName.StripRealmSuffix(master.NewMasterName));
         ctx.SendPacketToServer(packet);
     }
 

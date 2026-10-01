@@ -137,13 +137,14 @@ public static class ChatSystem
     [HandlesCmsg(Opcode.CMSG_CHAT_MESSAGE_WHISPER)]
     public static void HandleChatMessageWhisper(in ChatMessageWhisper whisper, in SessionContext ctx)
     {
+        string target = LegacyPlayerName.StripRealmSuffixToString(whisper.Target);
         var toBeSentTextParts = ConvertTextMessageIntoMaxLengthParts(whisper.Text);
         foreach (string text in toBeSentTextParts)
         {
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
-                ctx.GetSession().WorldClient!.SendMessageChatWotLK(ChatMessageTypeWotLK.Whisper, whisper.Language, text, "", whisper.Target);
+                ctx.GetSession().WorldClient!.SendMessageChatWotLK(ChatMessageTypeWotLK.Whisper, whisper.Language, text, "", target);
             else
-                ctx.GetSession().WorldClient!.SendMessageChatVanilla(ChatMessageTypeVanilla.Whisper, whisper.Language, text, "", whisper.Target);
+                ctx.GetSession().WorldClient!.SendMessageChatVanilla(ChatMessageTypeVanilla.Whisper, whisper.Language, text, "", target);
         }
     }
 
@@ -267,16 +268,17 @@ public static class ChatSystem
         string text = packet.Params.Prefix + '\t' + packet.Params.Text;
         string channelName = packet.ChannelGuid.IsEmpty() ? "" :
             ctx.GetSession().GameState.GetChannelName((int)packet.ChannelGuid.GetCounter());
+        string target = LegacyPlayerName.StripRealmSuffixToString(packet.Target);
 
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
         {
             ChatMessageTypeWotLK chatMsg = packet.Params.Type.CastEnum<ChatMessageTypeWotLK>();
-            ctx.GetSession().WorldClient!.SendMessageChatWotLK(chatMsg, language, text, channelName, packet.Target);
+            ctx.GetSession().WorldClient!.SendMessageChatWotLK(chatMsg, language, text, channelName, target);
         }
         else
         {
             ChatMessageTypeVanilla chatMsg = packet.Params.Type.CastEnum<ChatMessageTypeVanilla>();
-            ctx.GetSession().WorldClient!.SendMessageChatVanilla(chatMsg, language, text, channelName, packet.Target);
+            ctx.GetSession().WorldClient!.SendMessageChatVanilla(chatMsg, language, text, channelName, target);
         }
     }
 
