@@ -1237,6 +1237,33 @@ public class InvalidatePlayer : ServerPacket, ISpanWritable
     public WowGuid128 Guid;
 }
 
+public class CrossedInebriationThreshold : ServerPacket, ISpanWritable
+{
+    public CrossedInebriationThreshold() : base(Opcode.SMSG_CROSSED_INEBRIATION_THRESHOLD) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Guid);
+        _worldPacket.WriteInt32(Threshold);
+        _worldPacket.WriteInt32(ItemID);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 4 + 4;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Guid.Low, Guid.High);
+        writer.WriteInt32(Threshold);
+        writer.WriteInt32(ItemID);
+        return writer.Position;
+    }
+
+    public WowGuid128 Guid;
+    public int Threshold;
+    public int ItemID;
+}
+
 public class ZoneUnderAttack : ServerPacket, ISpanWritable
 {
     public ZoneUnderAttack() : base(Opcode.SMSG_ZONE_UNDER_ATTACK) { }

@@ -1387,6 +1387,22 @@ public partial class WorldClient
         }
     }
 
+    /// <summary>
+    /// Vanilla/TBC drunkenness (low 16 bits of PLAYER_BYTES_3, gender in bit 0) as the 0-100
+    /// percentage modern clients expect. The legacy scale is 256 per percent: a drink adds
+    /// damage * 256 and sobering takes 256 every 10 s, but the value runs up to 0xFFFF.
+    /// </summary>
+    internal static byte LegacyDrunkValueToInebriation(ushort genderAndDrunk)
+    {
+        int drunk = genderAndDrunk & 0xFFFE;
+        int percent = Math.Min(drunk >> 8, 100);
+        // Keep the server's own state: legacy GetDrunkenstateByValue says smashed from 23000
+        // (89.8%) and tipsy for anything nonzero, where the modern cutoffs are 90 and 1.
+        if (drunk >= 23000)
+            return (byte)Math.Max(percent, 90);
+        return (byte)(drunk != 0 ? Math.Max(percent, 1) : 0);
+    }
+
     // Refilled for every Values block this client reads, instead of two fresh BitArrays per block
     // (21 MB over an 18-minute Alterac Valley). Safe because each block's masks are consumed by
     // StoreObjectUpdate before the next block is read, nothing keeps a reference to either, and a
@@ -3868,11 +3884,11 @@ public partial class WorldClient
             {
                 ushort genderAndInebriation = (ushort)(updates[PLAYER_BYTES_3].UInt32Value & 0xFFFF);
                 updateData.EnsurePlayerData().NativeSex = (byte)(genderAndInebriation & 0x1);
-                // WotLK stores the drunkenness percentage in byte 1; older clients
+                // WotLK stores the drunkenness percentage in byte 1; vanilla/TBC
                 // pack a 16-bit drunk value together with the gender bit.
                 updateData.EnsurePlayerData().Inebriation = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056)
                     ? (byte)(genderAndInebriation >> 8)
-                    : (byte)(genderAndInebriation & 0xFFFE);
+                    : LegacyDrunkValueToInebriation(genderAndInebriation);
                 updateData.EnsurePlayerData().PvpTitle = (byte)((updates[PLAYER_BYTES_3].UInt32Value >> 16) & 0xFF); // city protector
                 byte playerBytes3High = (byte)((updates[PLAYER_BYTES_3].UInt32Value >> 24) & 0xFF);
                 // Byte 3 changed meaning when PvP ranks were removed. Vanilla/TBC keep the
