@@ -1622,6 +1622,9 @@ public partial class WorldClient
             return;
         }
 
+        // Before the visual lookup below, so the client also gets the remapped spell's visual.
+        spellId = AuraSpellRemap.ToModern(spellId);
+
         AuraDataInfo data = new AuraDataInfo
         {
             SpellID = spellId,

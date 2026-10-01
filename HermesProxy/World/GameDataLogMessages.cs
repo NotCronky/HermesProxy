@@ -38,4 +38,9 @@ internal static partial class GameDataLogMessages
         Message = "[ItemSparseHotfixSize] item={ItemId} buildTotal={BuildTotal}")]
     public static partial void ItemSparseHotfixSize(
         ILogger logger, string SourceFile, string NetDir, int ItemId, uint BuildTotal);
+
+    [LoggerMessage(EventId = 705, Level = LogLevel.Error,
+        Message = "Skipping malformed row {Row} in {Path}")]
+    public static partial void MalformedCsvRow(
+        ILogger logger, string SourceFile, string NetDir, int Row, string Path);
 }

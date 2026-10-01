@@ -691,6 +691,7 @@ public static partial class GameData
             LoadItemDisplayIdToFileDataId,
             LoadAreaTriggerRemap,
             LoadAreaTriggerProximity,
+            AuraSpellRemap.Load,
             LoadBattlegrounds,
             LoadCurrencyTypes,
             LoadChatChannels,
