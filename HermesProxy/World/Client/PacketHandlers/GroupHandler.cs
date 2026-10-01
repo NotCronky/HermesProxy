@@ -1171,6 +1171,8 @@ public partial class WorldClient
 
             PartyMemberAuraStates aura = new PartyMemberAuraStates();
             aura.SpellId = wotlk ? packet.ReadUInt32() : packet.ReadUInt16();
+            if (ModernVersion.Build == ClientVersionBuild.V3_4_3_54261)
+                aura.SpellId = AuraSpellRemap.ToModern(aura.SpellId);
             packet.ReadUInt8(); // aura flags / charge byte (unused by modern packet)
             if (aura.SpellId != 0)
             {
