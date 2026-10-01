@@ -37,7 +37,7 @@ public static class SocialSystem
     public static void HandleAddFriend(in AddFriend friend, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_ADD_FRIEND);
-        packet.WriteCString(friend.Name);
+        packet.WriteCString(LegacyPlayerName.StripRealmSuffix(friend.Name));
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             packet.WriteCString(friend.Note);
         ctx.SendPacketToServer(packet);
@@ -47,7 +47,7 @@ public static class SocialSystem
     public static void HandleAddIgnore(in AddIgnore ignore, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_ADD_IGNORE);
-        packet.WriteCString(ignore.Name);
+        packet.WriteCString(LegacyPlayerName.StripRealmSuffix(ignore.Name));
         ctx.SendPacketToServer(packet);
     }
 

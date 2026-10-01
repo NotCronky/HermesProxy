@@ -647,6 +647,34 @@ public class SpanPacketRoundTripTests
         Assert.Equal(name, reader.ReadCString());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("hello")]
+    [InlineData("héllo wörld 你好")]
+    public void WriteCString_Span_MatchesStringOverload(string value)
+    {
+        Span<byte> fromStringBuffer = stackalloc byte[64];
+        var fromString = new SpanPacketWriter(fromStringBuffer);
+        fromString.WriteCString(value);
+
+        Span<byte> fromSpanBuffer = stackalloc byte[64];
+        var fromSpan = new SpanPacketWriter(fromSpanBuffer);
+        fromSpan.WriteCString(value.AsSpan());
+
+        Assert.Equal(fromString.GetWrittenSpan().ToArray(), fromSpan.GetWrittenSpan().ToArray());
+    }
+
+    [Fact]
+    public void WriteCString_SpanSlice_WritesOnlyTheSlice()
+    {
+        Span<byte> buffer = stackalloc byte[64];
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteCString("Brannoch-Duskhollow".AsSpan(0, 8));
+
+        var reader = new SpanPacketReader(writer.GetWrittenSpan());
+        Assert.Equal("Brannoch", reader.ReadCString());
+    }
+
     // ---- WriteBits round-trip coverage ----
     // These tests pin down the exact wire output of WriteBits across bit widths,
     // starting positions, and value patterns. They MUST pass against the current

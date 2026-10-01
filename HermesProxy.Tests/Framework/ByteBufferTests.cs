@@ -741,6 +741,32 @@ public class ByteBufferWriteStringRoundTripTests
         Assert.Equal(value, reader.ReadCString());
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("hello")]
+    [InlineData("héllo wörld 你好")]
+    [InlineData("Test 🎮 游戏")]
+    public void WriteCString_Span_MatchesStringOverload(string value)
+    {
+        using var fromString = new ByteBuffer();
+        fromString.WriteCString(value);
+
+        using var fromSpan = new ByteBuffer();
+        fromSpan.WriteCString(value.AsSpan());
+
+        Assert.Equal(fromString.GetData(), fromSpan.GetData());
+    }
+
+    [Fact]
+    public void WriteCString_SpanSlice_WritesOnlyTheSlice()
+    {
+        using var writer = new ByteBuffer();
+        writer.WriteCString("Brannoch-Duskhollow".AsSpan(0, 8));
+
+        using var reader = new ByteBuffer(writer.GetData());
+        Assert.Equal("Brannoch", reader.ReadCString());
+    }
+
     [Fact]
     public void WriteString_Empty_WritesNothing()
     {

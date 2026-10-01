@@ -531,11 +531,18 @@ public class ByteBuffer : IDisposable
     /// went through.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteCString(string? str)
+    public void WriteCString(string? str) => WriteCString(str.AsSpan());
+
+    /// <summary>
+    /// Span form of <see cref="WriteCString(string?)"/>, so a caller writing part of a string
+    /// (a name with its realm suffix cut off) does not have to allocate the substring.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void WriteCString(ReadOnlySpan<char> str)
     {
         FlushBits();
 
-        if (string.IsNullOrEmpty(str))
+        if (str.IsEmpty)
         {
             EnsureCapacity(1);
             _buffer[_position] = 0;

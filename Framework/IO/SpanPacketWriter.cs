@@ -224,11 +224,14 @@ public ref struct SpanPacketWriter
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void WriteCString(string? value)
+    public void WriteCString(string? value) => WriteCString(value.AsSpan());
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void WriteCString(ReadOnlySpan<char> value)
     {
         FlushBits();
 
-        if (!string.IsNullOrEmpty(value))
+        if (!value.IsEmpty)
             _position += Encoding.UTF8.GetBytes(value, _buffer.Slice(_position));
 
         _buffer[_position++] = 0;
