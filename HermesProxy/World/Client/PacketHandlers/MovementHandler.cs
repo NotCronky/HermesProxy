@@ -97,6 +97,19 @@ public partial class WorldClient
         moveUpdate.MoverGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
         moveUpdate.MoveInfo = new();
         moveUpdate.MoveInfo.ReadMovementInfoLegacy(packet, GetSession().GameState);
+
+        // A legacy server keeps sending heartbeats for a unit it is moving along a spline, flagged
+        // MOVEFLAG_SPLINE_ENABLED — AzerothCore does it about twice a second for players it drives
+        // that way, which is every playerbot. The legacy client ignores them while the spline
+        // runs. The modern movement flags have no such bit, so the update reaches the client as
+        // ordinary moving-forward input: it abandons the spline from SMSG_ON_MONSTER_MOVE, snaps
+        // the unit to the heartbeat and extrapolates from there until the next spline or heartbeat
+        // pulls it back — the rubber-banding seen on bots. The spline already carries the motion,
+        // and a modern server sends no heartbeats for server-driven movement either.
+        if (((MovementFlagWotLK)moveUpdate.MoveInfo.Flags).HasAnyFlag(MovementFlagWotLK.SplineEnabled) &&
+            moveUpdate.MoverGUID != GetSession().GameState.CurrentPlayerGuid)
+            return;
+
         moveUpdate.MoveInfo.Flags = (uint)(((MovementFlagWotLK)moveUpdate.MoveInfo.Flags).CastFlags<MovementFlagWotLK, MovementFlagModern>());
         moveUpdate.MoveInfo.ValidateMovementInfo();
         SendPacketToClient(moveUpdate);
