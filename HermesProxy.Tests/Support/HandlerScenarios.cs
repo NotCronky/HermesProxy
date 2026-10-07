@@ -102,6 +102,20 @@ internal sealed class AlteracValleyScenario
         packet.WritePackedGuid(LegacyOtherPlayers[0]);
     });
 
+    /// <summary>
+    /// AzerothCore's fake summon cast from Pet::LoadPetFromDB: no target data at all, only so the
+    /// client starts the summon spell's cooldown.
+    /// </summary>
+    public byte[] BuildPetSummonSpellGo() => LegacyPacketBuilder.Build(Opcode.SMSG_SPELL_GO, packet =>
+    {
+        packet.WritePackedGuid(LegacyOtherPlayers[0]);
+        packet.WritePackedGuid(LegacyOtherPlayers[0]);
+        packet.WriteUInt8(0);                    // cast count
+        packet.WriteUInt32(52150);               // Raise Dead (pet)
+        packet.WriteUInt32(256);                 // cast flags
+        packet.WriteUInt32(0);                   // server time
+    });
+
     public byte[] BuildSpellStart() => LegacyPacketBuilder.Build(Opcode.SMSG_SPELL_START, packet =>
     {
         packet.WritePackedGuid(LegacyCreatures[0]);

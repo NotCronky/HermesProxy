@@ -733,6 +733,15 @@ public partial class WorldClient
             // so the malformed packet comes from the backend, not from us. Bound each entry
             // on the real payload and keep what parsed, which also names the offending
             // spell in the log instead of leaving only a raw hex dump.
+            //
+            // A packet that ends right here is not malformed: AzerothCore's Pet::LoadPetFromDB
+            // fakes the summon spell's cast when a pet is loaded (a Death Knight zoning with
+            // Raise Dead 52150), so the client starts its cooldown. It carries caster, spell,
+            // flags 0x100 and a zero time and nothing more, and reaches everyone nearby. Read on,
+            // the hit count came from past the end of the packet.
+            if (!packet.CanRead(1))
+                return dbdata;
+
             var hitCount = packet.ReadUInt8();
             for (var i = 0; i < hitCount; i++)
             {

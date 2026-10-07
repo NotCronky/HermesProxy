@@ -94,6 +94,18 @@ public class LegacyHandlerWireTests
         Assert.Equal(SpellGoGolden, SentHex());
     }
 
+    [Fact]
+    public void SpellGo_WithoutTargetData_IsForwardedWithNoTargets()
+    {
+        _harness.Deliver(Opcode.SMSG_SPELL_GO, _scenario.BuildPetSummonSpellGo(), _harness.Client.HandleSpellGo);
+
+        var sent = Assert.Single(_harness.ClientWire.Sent);
+        Assert.Equal(Opcode.SMSG_SPELL_GO, sent.Opcode);
+        var go = Assert.IsType<SpellGo>(sent.Packet);
+        Assert.Equal(52150, go.Cast.SpellID);
+        Assert.Empty(go.Cast.HitTargets);
+    }
+
     private static readonly string[] ValuesBatchGolden =
     [
         "SMSG_POWER_UPDATE:01A0010408010000007210000000",
