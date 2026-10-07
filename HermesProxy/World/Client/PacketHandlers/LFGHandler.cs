@@ -143,6 +143,11 @@ public partial class WorldClient
                 status.Joined = true;
         }
 
+        if (status.Slots.Count > 0)
+            GetSession().GameState.LfgQueuedSlots = new List<uint>(status.Slots);
+        else if (!status.LfgJoined)
+            GetSession().GameState.LfgQueuedSlots = [];
+
         if (Log.IsDebugEnabled)
             Log.Print(LogType.Debug,
             $"LFG[diag]: DFUpdateStatus(player/party) subType={status.SubType} reason={status.Reason} " +
@@ -183,14 +188,21 @@ public partial class WorldClient
     }
 
     /// <summary>
-    /// The dungeon a 3.3.5a queue status names, as the typed slot a native server sends there
-    /// (TrinityCore <c>SendLfgQueueStatus</c>: <c>GetLFGDungeonEntry(dungeonId)</c>). AzerothCore
-    /// sends the bare dungeon id - for a random queue, one of the dungeons it expanded to - which
-    /// matches no slot the client queued for.
+    /// The slot a queue status reports, which has to be one the client queued for.
     /// </summary>
+    /// <remarks>
+    /// The client's queue tooltip (QueueStatusFrame.lua QueueStatusEntry_SetUpLFG) takes its
+    /// active queue from the queue status and then reads the roles (GetLFGInfoServer) and the
+    /// role counts (GetLFGQueueStats) under that dungeon. A 3.3.5a server reports the first
+    /// dungeon a random queue expanded to (dungeon 205 while queued for Random Lich King Heroic,
+    /// 262), so both lookups missed and the tooltip showed nothing but the time in queue.
+    /// </remarks>
     private uint ToQueueStatusSlot(uint dungeonId)
     {
         uint slot = GetSession().GameState.GetLfgSlotForDungeon(dungeonId);
+        var queued = GetSession().GameState.LfgQueuedSlots;
+        if (queued.Count > 0 && !queued.Contains(slot))
+            return queued[0];
         // Not in the server's lists: a dungeon the random queue expanded to, so a plain dungeon.
         return (slot & 0xFF000000) != 0 ? slot : LfgSlots.PackSlot(LfgSlots.LfgTypeDungeon, slot);
     }

@@ -618,6 +618,8 @@ public sealed class GameSessionData
 
     public byte LfgRequestedRoles;
     public readonly HashSet<uint> LfgKnownDungeonIds = new();
+    // The slots the client was last told it is queued for (SMSG_LFG_UPDATE_STATUS).
+    public List<uint> LfgQueuedSlots = [];
 
     // Dungeon ID -> the full LFG slot (dungeon ID with the type in the high byte) the legacy
     // backend used for it. SMSG_LFG_PLAYER_INFO / SMSG_LFG_PARTY_INFO carry full slots, but
