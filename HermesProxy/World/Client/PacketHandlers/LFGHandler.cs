@@ -169,7 +169,7 @@ public partial class WorldClient
     {
         DFQueueStatus status = new DFQueueStatus();
         status.Ticket = MakeLfgTicket();
-        status.Slot = packet.ReadUInt32();
+        status.Slot = ToQueueStatusSlot(packet.ReadUInt32());
         status.AvgWaitTime = (uint)packet.ReadInt32();
         status.AvgWaitTimeMe = (uint)packet.ReadInt32();
         status.AvgWaitTimeByRole[0] = (uint)packet.ReadInt32(); // Tank
@@ -180,6 +180,19 @@ public partial class WorldClient
         status.LastNeeded[2] = packet.ReadUInt8();
         status.QueuedTime = packet.ReadUInt32();
         SendPacketToClient(status);
+    }
+
+    /// <summary>
+    /// The dungeon a 3.3.5a queue status names, as the typed slot a native server sends there
+    /// (TrinityCore <c>SendLfgQueueStatus</c>: <c>GetLFGDungeonEntry(dungeonId)</c>). AzerothCore
+    /// sends the bare dungeon id - for a random queue, one of the dungeons it expanded to - which
+    /// matches no slot the client queued for.
+    /// </summary>
+    private uint ToQueueStatusSlot(uint dungeonId)
+    {
+        uint slot = GetSession().GameState.GetLfgSlotForDungeon(dungeonId);
+        // Not in the server's lists: a dungeon the random queue expanded to, so a plain dungeon.
+        return (slot & 0xFF000000) != 0 ? slot : LfgSlots.PackSlot(LfgSlots.LfgTypeDungeon, slot);
     }
 
     [HandlesSmsg(Opcode.SMSG_LFG_PROPOSAL_UPDATE)]
