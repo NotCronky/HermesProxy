@@ -113,7 +113,8 @@ public partial class WorldClient
     }
 
     /// <summary>
-    /// A speed change aimed at the player's own guid, held until the client has the player object.
+    /// A speed or movement-flag change (can fly, water walk, hover, gravity, feather fall) aimed at
+    /// the player's own guid, held until the client has the player object.
     /// </summary>
     /// <remarks>
     /// Same window as the held player Values (issue #300), one packet class further out. The server
@@ -637,7 +638,9 @@ public partial class WorldClient
         flag.MoveCounter = packet.ReadUInt32();
         if (flag.MoverGUID == GetSession().GameState.CurrentPlayerGuid)
             TrackOwnMoveFlagChange(opcode);
-        SendPacketToClient(flag);
+        // Held like a speed change: logging in on a flying mount sends SET_CAN_FLY before the
+        // player's create, and a dropped one left the mount unable to take off until remounted.
+        SendPlayerMovementPacket(flag, flag.MoverGUID);
     }
 
     [HandlesSmsg(Opcode.SMSG_COMPRESSED_MOVES)]
