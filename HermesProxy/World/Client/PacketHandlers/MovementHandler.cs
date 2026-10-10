@@ -154,6 +154,47 @@ public partial class WorldClient
         session.ToClient.When(OutboxEvent.GuidKnown(moverGuid), packet, PlayerMoveSpeedHold);
     }
 
+    /// <summary>
+    /// The player's can-fly changes, held while the client is in its spawn fall.
+    /// </summary>
+    /// <remarks>
+    /// A 3.4.3 client spawns falling until it has found the ground, and SET_CAN_FLY landing in
+    /// that window turns the fall into flight: logging in on a flying mount left the player flying
+    /// at ground level. A native server never sends it then; the can-fly state is in the player's
+    /// create. AzerothCore sends UNSET/SET_CAN_FLY right after the create, so they wait here until
+    /// the client's first movement without Falling (MovementSystem.HandlePlayerMove releases them),
+    /// or 2 s, so a player who really logs in mid-air still gets to fly before falling far.
+    /// </remarks>
+    // Shares the speed hold's kind (A = 1 tells it apart): a new HoldKeyKind is an enum value,
+    // which hot reload cannot add to a running proxy.
+    internal static readonly HoldKey PlayerSpawnCanFlyKey = new(HoldKeyKind.PlayerMoveSpeed, A: 1);
+
+    private static readonly HoldOptions PlayerSpawnCanFlyHold = new(
+        Timeout: TimeSpan.FromSeconds(2),
+        OnTimeout: OutboxTimeoutAction.Release,
+        Key: PlayerSpawnCanFlyKey);
+
+    void SendOwnCanFlyChange(MoveSetFlag flag)
+    {
+        var session = GetSession();
+        if (!session.GameState.ClientKnownGuids.Contains(flag.MoverGUID))
+        {
+            // The create is still held; the spawn fall starts when it goes out.
+            session.ToClient.When(OutboxEvent.GuidKnown(flag.MoverGUID), () => HoldUntilLanded(flag), PlayerMoveSpeedHold);
+            return;
+        }
+        HoldUntilLanded(flag);
+    }
+
+    void HoldUntilLanded(MoveSetFlag flag)
+    {
+        var session = GetSession();
+        if (session.GameState.OwnSpawnFallPending)
+            session.ToClient.Delay(PlayerSpawnCanFlyHold.Timeout!.Value, flag, PlayerSpawnCanFlyHold);
+        else
+            SendPacketToClient(flag);
+    }
+
     // Handlers for SMSG opcodes coming the legacy world server
     [HandlesSmsg(Opcode.MSG_MOVE_START_FORWARD)]
     [HandlesSmsg(Opcode.MSG_MOVE_START_BACKWARD)]
@@ -640,7 +681,12 @@ public partial class WorldClient
             TrackOwnMoveFlagChange(opcode);
         // Held like a speed change: logging in on a flying mount sends SET_CAN_FLY before the
         // player's create, and a dropped one left the mount unable to take off until remounted.
-        SendPlayerMovementPacket(flag, flag.MoverGUID);
+        if (opcode is Opcode.SMSG_MOVE_SET_CAN_FLY or Opcode.SMSG_MOVE_UNSET_CAN_FLY &&
+            ModernVersion.Build == ClientVersionBuild.V3_4_3_54261 &&
+            flag.MoverGUID == GetSession().GameState.CurrentPlayerGuid)
+            SendOwnCanFlyChange(flag);
+        else
+            SendPlayerMovementPacket(flag, flag.MoverGUID);
     }
 
     [HandlesSmsg(Opcode.SMSG_COMPRESSED_MOVES)]

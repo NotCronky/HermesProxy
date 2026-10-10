@@ -344,6 +344,9 @@ public sealed class GameSessionData
     // checks) then send SMSG_CAST_FAILED. Keep the last completed one so that
     // fail can still be forwarded instead of disappearing.
     public ClientCastRequest? LastCompletedNormalCast;
+    // Set when the player's create goes to the client, cleared by the first movement packet the
+    // client sends without Falling. See MovementHandler.SendOwnCanFlyChange.
+    public bool OwnSpawnFallPending;
     public ConcurrentQueue<ClientCastRequest> PendingPetCasts = new();  // pet spell casts (queue for proper FIFO handling)
     public WowGuid64 LastLootTargetGuid;
     public List<WowGuid128>? MasterLootCandidates;
