@@ -321,6 +321,18 @@ public static class ChatSystem
         ctx.SendPacketToServer(packet);
     }
 
+    /// <summary>
+    /// The client clearing its emote state (it moved, or stopped a looping emote), which the 3.4.3
+    /// packet carries no data for. A 3.3.5a client says the same with emote 0, EMOTE_ONESHOT_NONE.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_EMOTE)]
+    public static void HandleEmote(in EmptyClientPacket emote, in SessionContext ctx)
+    {
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_EMOTE);
+        packet.WriteUInt32(0); // EMOTE_ONESHOT_NONE
+        ctx.SendPacketToServer(packet);
+    }
+
     [HandlesCmsg(Opcode.CMSG_CHAT_REGISTER_ADDON_PREFIXES)]
     public static void HandleChatRegisterAddonPrefixes(in ChatRegisterAddonPrefixes addons, in SessionContext ctx)
     {
