@@ -77,7 +77,7 @@ public partial class WorldClient
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
                 packet.ReadUInt16(); // Message Size
 
-            mail.MailID = packet.ReadInt32();
+            mail.MailID = packet.ReadUInt32(); // unsigned, as the server writes it and as SMSG_MAIL_COMMAND_RESULT reads it
             mail.SenderType = (MailType)packet.ReadUInt8();
             switch (mail.SenderType) // Read GUID if MailType.Normal, int32 (entry) if not
             {
@@ -222,7 +222,10 @@ public partial class WorldClient
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
         {
             mailItem.Position = packet.ReadUInt8();
-            mailItem.AttachID = packet.ReadInt32();
+            // The item's low guid, unsigned as the server writes it. Read signed, a guid past 2^31
+            // reached the client sign-extended while SMSG_MAIL_COMMAND_RESULT named it unsigned, so
+            // the client could not match the result to its take and Open All stalled on it.
+            mailItem.AttachID = packet.ReadUInt32();
         }
 
         mailItem.Item.ItemID = packet.ReadUInt32();
