@@ -92,7 +92,9 @@ public sealed class RealmManager
             existingRealms[p.Key] = p.Value.Name;
 
         var realm = new Realm();
-        realm.Name = name;
+        // SetName, not Name: it also fills the normalized name the auth response carries. Without
+        // one the client cannot name its own realm and builds every full player name as "Name-".
+        realm.SetName(name);
         realm.ExternalAddress = externalAddress;
 
         realm.Port = port;
