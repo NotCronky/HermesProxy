@@ -882,6 +882,12 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.MovementSystem.HandleEjectPassenger(in packet, in ctx);
     }
 
+    private static void Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleEmote_CMSG_EMOTE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.EmptyClientPacketCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.ChatSystem.HandleEmote(in packet, in ctx);
+    }
+
     private static void Thunk_HermesProxy_World_Server_Systems_TaxiSystem_HandleEnableTaxiNode_CMSG_ENABLE_TAXI_NODE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.InteractWithNPCCodec.Read(ref reader, out var packet);
@@ -2852,6 +2858,7 @@ internal static unsafe class GeneratedCmsgDispatch
         }
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DUEL_RESPONSE] = &Thunk_HermesProxy_World_Server_Systems_DuelSystem_HandleDuelResponse_CMSG_DUEL_RESPONSE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_EJECT_PASSENGER] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleEjectPassenger_CMSG_EJECT_PASSENGER;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_EMOTE] = &Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleEmote_CMSG_EMOTE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_ENABLE_TAXI_NODE] = &Thunk_HermesProxy_World_Server_Systems_TaxiSystem_HandleEnableTaxiNode_CMSG_ENABLE_TAXI_NODE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_ENUM_CHARACTERS] = &Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleEnumCharacters_CMSG_ENUM_CHARACTERS;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_FAR_SIGHT] = &Thunk_HermesProxy_World_Server_Systems_MiscSystem_HandleFarSight_CMSG_FAR_SIGHT;
@@ -3342,6 +3349,7 @@ internal static unsafe class GeneratedCmsgDispatch
             global::HermesProxy.World.Enums.Opcode.CMSG_DO_READY_CHECK,
             global::HermesProxy.World.Enums.Opcode.CMSG_DUEL_RESPONSE,
             global::HermesProxy.World.Enums.Opcode.CMSG_EJECT_PASSENGER,
+            global::HermesProxy.World.Enums.Opcode.CMSG_EMOTE,
             global::HermesProxy.World.Enums.Opcode.CMSG_ENABLE_TAXI_NODE,
             global::HermesProxy.World.Enums.Opcode.CMSG_ENUM_CHARACTERS,
             global::HermesProxy.World.Enums.Opcode.CMSG_FAR_SIGHT,
