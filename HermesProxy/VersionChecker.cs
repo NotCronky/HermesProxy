@@ -152,6 +152,17 @@ public static class VersionChecker
     }
 
     /// <summary>
+    /// The expansion level a modern Classic client expects: 0-indexed (Classic = 0, TBC = 1,
+    /// WotLK = 2). <see cref="GetExpansionVersion"/> returns the 1-indexed major, which is one
+    /// too high. A client told the realm is one expansion ahead treats its quest/mob green range
+    /// as unsupported (its <c>GetQuestGreenRange</c> indexes a per-expansion table and returns 0
+    /// past the last one), so every mob and quest below the player renders grey. Used by the BNet
+    /// auth response and by <c>SMSG_INITIAL_SETUP</c>.
+    /// </summary>
+    internal static byte GetClientExpansionLevel(ClientVersionBuild legacyBuild)
+        => (byte)(GetExpansionVersion(legacyBuild) - 1);
+
+    /// <summary>
     /// Which release line an expansion/major pair belongs to. Every re-released expansion picked a
     /// major number above anything the original line ever shipped, so the split is a per-expansion
     /// threshold rather than one rule; a new Classic expansion adds one arm here and nowhere else.

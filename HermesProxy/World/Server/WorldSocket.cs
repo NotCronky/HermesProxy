@@ -1166,8 +1166,11 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         if (code == BattlenetRpcErrorCode.Ok)
         {
             response.SuccessInfo = new AuthResponse.AuthSuccessInfo();
-            response.SuccessInfo.ActiveExpansionLevel = (byte)LegacyVersion.ExpansionVersion;
-            response.SuccessInfo.AccountExpansionLevel = (byte)LegacyVersion.ExpansionVersion;
+            // 0-indexed expansion (Classic=0, TBC=1, WotLK=2). LegacyVersion.ExpansionVersion is
+            // the 1-indexed major; advertising it verbatim puts the client one expansion ahead,
+            // which zeroes its quest/mob green range. SMSG_INITIAL_SETUP uses the same mapping.
+            response.SuccessInfo.ActiveExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
+            response.SuccessInfo.AccountExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
             response.SuccessInfo.VirtualRealmAddress = _realmId.GetAddress();
             response.SuccessInfo.Time = (uint)Time.UnixTime;
 
