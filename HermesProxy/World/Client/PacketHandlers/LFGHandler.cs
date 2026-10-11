@@ -143,6 +143,11 @@ public partial class WorldClient
                 status.Joined = true;
         }
 
+        if (status.Slots.Count > 0)
+            GetSession().GameState.LfgQueuedSlots = new List<uint>(status.Slots);
+        else if (!status.LfgJoined)
+            GetSession().GameState.LfgQueuedSlots = [];
+
         if (Log.IsDebugEnabled)
             Log.Print(LogType.Debug,
             $"LFG[diag]: DFUpdateStatus(player/party) subType={status.SubType} reason={status.Reason} " +
@@ -169,7 +174,7 @@ public partial class WorldClient
     {
         DFQueueStatus status = new DFQueueStatus();
         status.Ticket = MakeLfgTicket();
-        status.Slot = packet.ReadUInt32();
+        status.Slot = ToQueueStatusSlot(packet.ReadUInt32());
         status.AvgWaitTime = (uint)packet.ReadInt32();
         status.AvgWaitTimeMe = (uint)packet.ReadInt32();
         status.AvgWaitTimeByRole[0] = (uint)packet.ReadInt32(); // Tank
@@ -180,6 +185,26 @@ public partial class WorldClient
         status.LastNeeded[2] = packet.ReadUInt8();
         status.QueuedTime = packet.ReadUInt32();
         SendPacketToClient(status);
+    }
+
+    /// <summary>
+    /// The slot a queue status reports, which has to be one the client queued for.
+    /// </summary>
+    /// <remarks>
+    /// The client's queue tooltip (QueueStatusFrame.lua QueueStatusEntry_SetUpLFG) takes its
+    /// active queue from the queue status and then reads the roles (GetLFGInfoServer) and the
+    /// role counts (GetLFGQueueStats) under that dungeon. A 3.3.5a server reports the first
+    /// dungeon a random queue expanded to (dungeon 205 while queued for Random Lich King Heroic,
+    /// 262), so both lookups missed and the tooltip showed nothing but the time in queue.
+    /// </remarks>
+    private uint ToQueueStatusSlot(uint dungeonId)
+    {
+        uint slot = GetSession().GameState.GetLfgSlotForDungeon(dungeonId);
+        var queued = GetSession().GameState.LfgQueuedSlots;
+        if (queued.Count > 0 && !queued.Contains(slot))
+            return queued[0];
+        // Not in the server's lists: a dungeon the random queue expanded to, so a plain dungeon.
+        return (slot & 0xFF000000) != 0 ? slot : LfgSlots.PackSlot(LfgSlots.LfgTypeDungeon, slot);
     }
 
     [HandlesSmsg(Opcode.SMSG_LFG_PROPOSAL_UPDATE)]
