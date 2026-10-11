@@ -176,6 +176,24 @@ public partial class WorldClient
         SendPacketToClient(party);
     }
 
+    /// <summary>
+    /// Reads the group-type flags at the head of <c>SMSG_GROUP_LIST</c>. 2.x (2.4.3 / CMaNGOS)
+    /// writes two separate bytes — isRaid, then isBattleground; 3.3.x packs them into a single
+    /// bitmask (BG = 0x01, Raid = 0x02, Lfg = 0x08). Reading the 2.x form as packed shifts every
+    /// following field by one byte, so the member count is misread and the member loop runs off
+    /// the end of the packet.
+    /// </summary>
+    internal static (bool IsRaid, bool IsBattleground, bool IsLfg) ReadGroupTypeFlags(WorldPacket packet, bool packed)
+    {
+        if (packed)
+        {
+            byte groupType = packet.ReadUInt8();
+            return ((groupType & 0x02) != 0, (groupType & 0x01) != 0, (groupType & 0x08) != 0);
+        }
+
+        return (packet.ReadUInt8() != 0, packet.ReadUInt8() != 0, false);
+    }
+
     [HandlesSmsg(Opcode.SMSG_GROUP_LIST, AddedIn = ClientVersionBuild.V2_0_1_6180)]
     internal void HandleGroupListTBC(WorldPacket packet)
     {
@@ -183,12 +201,8 @@ public partial class WorldClient
         GetSession().GameState.LastMasterLootSentTarget = default;
         PartyUpdate party = new PartyUpdate();
         party.SequenceNum = GetSession().GameState.GroupUpdateCounter++;
-        // Wire format on 2.x/3.3.x is a single byte of flags, not two bools.
-        // TC/CMaNGOS agree: BG/FakeRaid=0x01, Raid=0x02, Lfg=0x08.
-        byte groupType = packet.ReadUInt8();
-        bool isBattleground = (groupType & 0x01) != 0;
-        bool isRaid = (groupType & 0x02) != 0;
-        bool isLfg = (groupType & 0x08) != 0;
+        var (isRaid, isBattleground, isLfg) =
+            ReadGroupTypeFlags(packet, LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958));
         byte ownSubGroup = packet.ReadUInt8();
         byte ownGroupFlags = packet.ReadUInt8();
         byte ownRoles = 0;
