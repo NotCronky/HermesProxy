@@ -119,6 +119,13 @@ public static class MovementSystem
         // the deck offset side by side. Not every packet: a rider sends a dozen a second.
         ref readonly MovementInfo moveInfo = ref movement.MoveInfo;
         var gameState = ctx.GetSession().GameState;
+        // The client has found the ground after spawning: can-fly changes held for it can go.
+        if (gameState.OwnSpawnFallPending && movement.Guid == gameState.CurrentPlayerGuid &&
+            !moveInfo.Flags.HasAnyFlag(MovementFlagModern.Falling | MovementFlagModern.FallingFar))
+        {
+            gameState.OwnSpawnFallPending = false;
+            ctx.ToClient.Release(Client.WorldClient.PlayerSpawnCanFlyKey);
+        }
         bool takesSeatFromTransport = false;
         if (moveInfo.TransportGuid != gameState.LastReportedTransportGuid)
         {
