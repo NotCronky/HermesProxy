@@ -165,9 +165,7 @@ public partial class WorldClient
     /// the client's first movement without Falling (MovementSystem.HandlePlayerMove releases them),
     /// or 2 s, so a player who really logs in mid-air still gets to fly before falling far.
     /// </remarks>
-    // Shares the speed hold's kind (A = 1 tells it apart): a new HoldKeyKind is an enum value,
-    // which hot reload cannot add to a running proxy.
-    internal static readonly HoldKey PlayerSpawnCanFlyKey = new(HoldKeyKind.PlayerMoveSpeed, A: 1);
+    internal static readonly HoldKey PlayerSpawnCanFlyKey = new(HoldKeyKind.PlayerSpawnCanFly);
 
     private static readonly HoldOptions PlayerSpawnCanFlyHold = new(
         Timeout: TimeSpan.FromSeconds(2),
@@ -682,7 +680,7 @@ public partial class WorldClient
         // Held like a speed change: logging in on a flying mount sends SET_CAN_FLY before the
         // player's create, and a dropped one left the mount unable to take off until remounted.
         if (opcode is Opcode.SMSG_MOVE_SET_CAN_FLY or Opcode.SMSG_MOVE_UNSET_CAN_FLY &&
-            ModernVersion.Build == ClientVersionBuild.V3_4_3_54261 &&
+            ModernVersion.IsWotLKClassicOrLater &&
             flag.MoverGUID == GetSession().GameState.CurrentPlayerGuid)
             SendOwnCanFlyChange(flag);
         else
