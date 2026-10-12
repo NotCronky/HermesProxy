@@ -124,14 +124,22 @@ public partial class BnetServices
 
         var rawLastPlayedChar = GetSession().AccountMetaDataMgr.GetLastSelectedCharacter();
         if (!rawLastPlayedChar.HasValue)
+        {
+            BnetServicesLogMessages.NoLastRealmStored(_melServer, _sourceFile, _netDirNone, BuildSessionPrefix());
             return BattlenetRpcErrorCode.Ok;
+        }
         var lastPlayedChar = rawLastPlayedChar.Value;
 
         GetSession().AuthClient.WaitOrRequestRealmList();
 
         var realm = GetSession().RealmManager.GetRealms().FirstOrDefault(r => r.Name == lastPlayedChar.realmName && !r.Flags.HasFlag(RealmFlags.Offline));
         if (realm == null)
+        {
+            // What a change of legacy server looks like: the stored answer names the other server's realm.
+            BnetServicesLogMessages.LastRealmNotOffered(_melServer, _sourceFile, _netDirNone, BuildSessionPrefix(),
+                lastPlayedChar.realmName, GetSession().RealmManager.GetRealms().Count);
             return BattlenetRpcErrorCode.UtilServerFailedToSerializeResponse;
+        }
 
         byte[] compressedRealmEntry = GetSession().RealmManager.GetCompressdRealmEntryJSON(realm, GetSession().Build);
         if (compressedRealmEntry.Length == 0)
@@ -142,6 +150,8 @@ public partial class BnetServices
         response.Attribute.AddBlob("Param_CharacterGUID", ByteString.CopyFrom(BitConverter.GetBytes(lastPlayedChar.charLowerGuid)));
         response.Attribute.AddInt("Param_LastPlayedTime", lastPlayedChar.lastLoginUnixSec);
 
+        BnetServicesLogMessages.LastRealmAnswered(_melServer, _sourceFile, _netDirNone, BuildSessionPrefix(),
+            lastPlayedChar.charName.Length == 0 ? "none stored" : lastPlayedChar.charName, lastPlayedChar.realmName);
         return BattlenetRpcErrorCode.Ok;
     }
 
@@ -183,6 +193,10 @@ public partial class BnetServices
         var compressedCharCount = Json.Deflate("JSONRealmCharacterCountList", realmCharacterCounts);
         response.Attribute.AddBlob("Param_CharacterCountList", ByteString.CopyFrom(compressedCharCount));
 
+        // The client asks for the list when it shows its realm selection: after a login without
+        // a last realm, on "Change Realm", and again every so often while the window stays open.
+        BnetServicesLogMessages.RealmSelectionSent(_melServer, _sourceFile, _netDirNone, BuildSessionPrefix(),
+            GetSession().RealmManager.GetRealms().Count);
         return BattlenetRpcErrorCode.Ok;
     }
 
@@ -191,6 +205,10 @@ public partial class BnetServices
         Variant? realmAddress = Params.LookupByKey("Param_RealmAddress");
         if (realmAddress == null)
             return BattlenetRpcErrorCode.WowServicesInvalidJoinTicket;
+
+        uint address = (uint)realmAddress.UintValue;
+        var joined = GetSession().RealmManager.GetRealms().FirstOrDefault(r => r.Id.GetAddress() == address);
+        BnetServicesLogMessages.JoiningRealm(_melServer, _sourceFile, _netDirNone, BuildSessionPrefix(), joined?.Name ?? "?");
 
         return GetSession().RealmManager.JoinRealm(GetSession(), (uint)realmAddress.UintValue, GetSession().Build, GetRemoteIpEndPoint().Address, _clientSecret, GetSession().GameAccountInfo.Name, response);
     }

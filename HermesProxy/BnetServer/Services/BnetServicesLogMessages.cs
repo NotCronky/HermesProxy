@@ -73,4 +73,64 @@ internal static partial class BnetServicesLogMessages
         string SourceFile,
         string NetDir,
         string MethodName);
+
+    // 505-509: which realm a client goes to after logging in. A client that gets a last realm
+    // joins it at once; one that does not opens its realm selection and waits for a click, which
+    // from the outside looks like a login that hangs.
+
+    [LoggerMessage(
+        EventId = 505,
+        Level = LogLevel.Information,
+        Message = "{Prefix} Last realm of this account: '{Realm}' (last character: {Character}). The client goes straight to that realm.")]
+    public static partial void LastRealmAnswered(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        string Prefix,
+        string Character,
+        string Realm);
+
+    [LoggerMessage(
+        EventId = 506,
+        Level = LogLevel.Information,
+        Message = "{Prefix} No last realm is stored for this account. The client opens its realm selection.")]
+    public static partial void NoLastRealmStored(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        string Prefix);
+
+    [LoggerMessage(
+        EventId = 507,
+        Level = LogLevel.Information,
+        Message = "{Prefix} The last realm of this account, '{Realm}', is not among the {Count} realm(s) of this server (or is offline). The client opens its realm selection.")]
+    public static partial void LastRealmNotOffered(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        string Prefix,
+        string Realm,
+        int Count);
+
+    [LoggerMessage(
+        EventId = 508,
+        Level = LogLevel.Information,
+        Message = "{Prefix} Realm selection: sent the client {Count} realm(s).")]
+    public static partial void RealmSelectionSent(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        string Prefix,
+        int Count);
+
+    [LoggerMessage(
+        EventId = 509,
+        Level = LogLevel.Information,
+        Message = "{Prefix} Joining realm '{Realm}'.")]
+    public static partial void JoiningRealm(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        string Prefix,
+        string Realm);
 }
