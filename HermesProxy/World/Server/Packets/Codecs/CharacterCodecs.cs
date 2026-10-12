@@ -252,6 +252,51 @@ public static class CharacterRenameRequestCodec
     }
 }
 
+public static class CharRaceOrFactionChangeCodec
+{
+    public static void Read(ref SpanPacketReader r, out CharRaceOrFactionChange packet)
+    {
+        bool factionChange = r.HasBit();
+        uint nameLength = r.ReadBits<uint>(6);
+        WowGuid128 guid = r.ReadPackedGuid128();
+        var sex = (Gender)r.ReadUInt8();
+        var raceId = (Race)r.ReadUInt8();
+
+        // Newer engines put InitialRaceID between RaceID and the count. Tell the two shapes apart by
+        // whether the rest of the packet adds up with it.
+        var peek = r;
+        peek.ReadUInt8();
+        if (peek.CanReadCount(4) && r.Remaining == 1 + 4 + nameLength + 8L * peek.ReadUInt32())
+            r.ReadUInt8();
+
+        uint customizationCount = r.ReadUInt32();
+        string name = r.ReadString(nameLength);
+        var customizations = new List<ChrCustomizationChoice>();
+        for (var i = 0; i < customizationCount; ++i)
+            customizations.Add(new ChrCustomizationChoice(r.ReadUInt32(), r.ReadUInt32()));
+
+        customizations.Sort();
+        packet = new CharRaceOrFactionChange(guid, factionChange, name, sex, raceId, customizations);
+    }
+}
+
+public static class CharCustomizeCodec
+{
+    public static void Read(ref SpanPacketReader r, out CharCustomize packet)
+    {
+        WowGuid128 guid = r.ReadPackedGuid128();
+        var sex = (Gender)r.ReadUInt8();
+        uint customizationCount = r.ReadUInt32();
+        var customizations = new List<ChrCustomizationChoice>();
+        for (var i = 0; i < customizationCount; ++i)
+            customizations.Add(new ChrCustomizationChoice(r.ReadUInt32(), r.ReadUInt32()));
+
+        customizations.Sort();
+        string name = r.ReadString(r.ReadBits<uint>(6));
+        packet = new CharCustomize(guid, name, sex, customizations);
+    }
+}
+
 public static class SetPlayerDeclinedNamesCodec
 {
     public static void Read(ref SpanPacketReader r, out SetPlayerDeclinedNames packet)

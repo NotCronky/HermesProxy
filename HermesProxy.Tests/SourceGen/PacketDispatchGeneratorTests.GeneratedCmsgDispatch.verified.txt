@@ -438,10 +438,22 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.CharacterSystem.HandleCharacterRenameRequest(in packet, in ctx);
     }
 
+    private static void Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharCustomize_CMSG_CHAR_CUSTOMIZE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.CharCustomizeCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.CharacterSystem.HandleCharCustomize(in packet, in ctx);
+    }
+
     private static void Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharDelete_CMSG_CHAR_DELETE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.CharDeleteCodec.Read(ref reader, out var packet);
         global::HermesProxy.World.Server.Systems.CharacterSystem.HandleCharDelete(in packet, in ctx);
+    }
+
+    private static void Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharRaceOrFactionChange_CMSG_CHAR_RACE_OR_FACTION_CHANGE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.CharRaceOrFactionChangeCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.CharacterSystem.HandleCharRaceOrFactionChange(in packet, in ctx);
     }
 
     private static void Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleAddonMessage_CMSG_CHAT_ADDON_MESSAGE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
@@ -2718,7 +2730,9 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CAST_SPELL] = &Thunk_HermesProxy_World_Server_Systems_SpellSystem_HandleCastSpell_CMSG_CAST_SPELL;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHANGE_REALM_TICKET] = &Thunk_HermesProxy_World_Server_Systems_SessionSystem_HandleChangeRealmTicket_CMSG_CHANGE_REALM_TICKET;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHARACTER_RENAME_REQUEST] = &Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharacterRenameRequest_CMSG_CHARACTER_RENAME_REQUEST;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_CUSTOMIZE] = &Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharCustomize_CMSG_CHAR_CUSTOMIZE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_DELETE] = &Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharDelete_CMSG_CHAR_DELETE;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_RACE_OR_FACTION_CHANGE] = &Thunk_HermesProxy_World_Server_Systems_CharacterSystem_HandleCharRaceOrFactionChange_CMSG_CHAR_RACE_OR_FACTION_CHANGE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_ADDON_MESSAGE] = &Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleAddonMessage_CMSG_CHAT_ADDON_MESSAGE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_ADDON_MESSAGE_TARGETED] = &Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleAddonMessageTargeted_CMSG_CHAT_ADDON_MESSAGE_TARGETED;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_CHANNEL_ANNOUNCEMENTS] = &Thunk_HermesProxy_World_Server_Systems_ChatSystem_HandleChatChannelCommand_CMSG_CHAT_CHANNEL_ANNOUNCEMENTS;
@@ -3283,7 +3297,9 @@ internal static unsafe class GeneratedCmsgDispatch
             global::HermesProxy.World.Enums.Opcode.CMSG_CAST_SPELL,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHANGE_REALM_TICKET,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHARACTER_RENAME_REQUEST,
+            global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_CUSTOMIZE,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_DELETE,
+            global::HermesProxy.World.Enums.Opcode.CMSG_CHAR_RACE_OR_FACTION_CHANGE,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_ADDON_MESSAGE,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_ADDON_MESSAGE_TARGETED,
             global::HermesProxy.World.Enums.Opcode.CMSG_CHAT_CHANNEL_ANNOUNCEMENTS,

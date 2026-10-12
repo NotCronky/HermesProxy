@@ -181,6 +181,9 @@ public sealed class GameSessionData
     // look up the FirstLogin entry by name, and stamp its GUID into the reply.
     public string? PendingCreateCharName;
     public byte? PendingCreateCharLegacyResult;
+    // The character a race, faction or appearance change was sent for. The legacy failure replies
+    // carry only the result code, but the modern ones name the character.
+    public WowGuid128 PendingCharServiceGuid;
     public bool IsInternalCharEnumPending;
     public WowGuid128 CurrentPlayerGuid;
     public long CurrentPlayerCreateTime;

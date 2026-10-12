@@ -1738,3 +1738,88 @@ public class SetPlayerDeclinedNamesResult : ServerPacket
     public int ResultCode;
     public WowGuid128 Player;
 }
+
+/// <summary>
+/// The paid-service race or faction change a character flagged for it submits from the character
+/// create screen. The legacy server takes the two as separate opcodes with the same body.
+/// </summary>
+public readonly record struct CharRaceOrFactionChange(WowGuid128 Guid, bool FactionChange, string Name, Gender Sex,
+    Race RaceId, List<ChrCustomizationChoice> Customizations);
+
+/// <summary>
+/// The paid-service appearance change (name, sex and customizations) for a character flagged for it.
+/// </summary>
+public readonly record struct CharCustomize(WowGuid128 Guid, string Name, Gender Sex,
+    List<ChrCustomizationChoice> Customizations);
+
+public sealed class CharFactionChangeResult : ServerPacket
+{
+    public CharFactionChangeResult() : base(Opcode.SMSG_CHAR_FACTION_CHANGE_RESULT) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt8(Result);
+        _worldPacket.WritePackedGuid128(Guid);
+        _worldPacket.WriteBit(Display != null);
+        _worldPacket.FlushBits();
+
+        if (Display != null)
+        {
+            _worldPacket.WriteBits(Display.Name.GetByteCount(), 6);
+            _worldPacket.WriteUInt8((byte)Display.Sex);
+            _worldPacket.WriteUInt8((byte)Display.RaceId);
+            _worldPacket.WriteInt32(Display.Customizations.Count);
+            _worldPacket.WriteString(Display.Name);
+            foreach (ChrCustomizationChoice customization in Display.Customizations)
+                customization.WriteCreate(_worldPacket);
+        }
+    }
+
+    public byte Result;
+    public WowGuid128 Guid;
+    public CharFactionChangeDisplay? Display;
+}
+
+public sealed class CharFactionChangeDisplay
+{
+    public string Name = "";
+    public Gender Sex;
+    public Race RaceId;
+    public List<ChrCustomizationChoice> Customizations = [];
+}
+
+public sealed class CharCustomizeSuccess : ServerPacket
+{
+    public CharCustomizeSuccess() : base(Opcode.SMSG_CHAR_CUSTOMIZE_SUCCESS) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Guid);
+        _worldPacket.WriteUInt8((byte)Sex);
+        _worldPacket.WriteInt32(Customizations.Count);
+        foreach (ChrCustomizationChoice customization in Customizations)
+            customization.WriteCreate(_worldPacket);
+        _worldPacket.WriteBits(Name.GetByteCount(), 6);
+        _worldPacket.FlushBits();
+        _worldPacket.WriteString(Name);
+    }
+
+    public WowGuid128 Guid;
+    public Gender Sex;
+    public List<ChrCustomizationChoice> Customizations = [];
+    public string Name = "";
+}
+
+public sealed class CharCustomizeFailure : ServerPacket
+{
+    public CharCustomizeFailure() : base(Opcode.SMSG_CHAR_CUSTOMIZE_FAILURE) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt8(Result);
+        _worldPacket.WritePackedGuid128(Guid);
+    }
+
+    public byte Result;
+    public WowGuid128 Guid;
+}

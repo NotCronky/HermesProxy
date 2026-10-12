@@ -459,6 +459,72 @@ public static class CharacterSystem
     }
 
     /// <summary>
+    /// Forwards a paid-service race or faction change from the character create screen.
+    /// </summary>
+    /// <remarks>
+    /// The client only offers it for a character the legacy enumeration flagged, so the legacy
+    /// server has the opcodes. Its appearance bytes come in a different order than in char create.
+    /// </remarks>
+    [HandlesCmsg(Opcode.CMSG_CHAR_RACE_OR_FACTION_CHANGE)]
+    public static void HandleCharRaceOrFactionChange(in CharRaceOrFactionChange change, in SessionContext ctx)
+    {
+        Opcode legacyOpcode = change.FactionChange ? Opcode.CMSG_CHAR_FACTION_CHANGE : Opcode.CMSG_CHAR_RACE_CHANGE;
+        if (LegacyVersion.GetCurrentOpcode(legacyOpcode) == 0)
+        {
+            ctx.SendPacketToClient(new CharFactionChangeResult { Result = ModernCharCreateError(), Guid = change.Guid });
+            return;
+        }
+
+        ctx.GetSession().GameState.PendingCharServiceGuid = change.Guid;
+
+        WorldPacket packet = new WorldPacket(legacyOpcode);
+        packet.WriteGuid(change.Guid.To64());
+        packet.WriteCString(change.Name);
+        packet.WriteUInt8((byte)change.Sex);
+        WriteLegacyServiceAppearance(packet, change.Customizations);
+        packet.WriteUInt8((byte)change.RaceId);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// Forwards a paid-service appearance change (name, sex, customizations).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_CHAR_CUSTOMIZE)]
+    public static void HandleCharCustomize(in CharCustomize customize, in SessionContext ctx)
+    {
+        if (LegacyVersion.GetCurrentOpcode(Opcode.CMSG_CHAR_CUSTOMIZE) == 0)
+        {
+            ctx.SendPacketToClient(new CharCustomizeFailure { Result = ModernCharCreateError(), Guid = customize.Guid });
+            return;
+        }
+
+        ctx.GetSession().GameState.PendingCharServiceGuid = customize.Guid;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAR_CUSTOMIZE);
+        packet.WriteGuid(customize.Guid.To64());
+        packet.WriteCString(customize.Name);
+        packet.WriteUInt8((byte)customize.Sex);
+        WriteLegacyServiceAppearance(packet, customize.Customizations);
+        ctx.SendPacketToServer(packet);
+    }
+
+    // The legacy paid-service requests read skin, hair color, hair style, facial hair, face; the
+    // replies and char create use skin, face, hair style, hair color, facial hair.
+    private static void WriteLegacyServiceAppearance(WorldPacket packet, List<ChrCustomizationChoice> customizations)
+    {
+        CharacterCustomizations.ConvertModernCustomizationsToLegacy(customizations,
+            out byte skin, out byte face, out byte hairStyle, out byte hairColor, out byte facialHair);
+        packet.WriteUInt8(skin);
+        packet.WriteUInt8(hairColor);
+        packet.WriteUInt8(hairStyle);
+        packet.WriteUInt8(facialHair);
+        packet.WriteUInt8(face);
+    }
+
+    private static byte ModernCharCreateError()
+        => (byte)Enum.Parse(ModernVersion.GetResponseCodesEnum()!, "CharCreateError");
+
+    /// <summary>
     /// Forwards the five grammatical cases a Russian client submits for one of its characters.
     /// </summary>
     /// <remarks>

@@ -125,10 +125,11 @@ public partial class WorldClient
                     char1.VisualItems[EquipmentSlot.Bag1 + j].DisplayEnchantId = packet.ReadUInt32();
             }
 
-            // Reset Flags2 — the legacy CustomizationFlags read above are not the same field as
-            // the modern Flags2, and stale bits there cause the 3.4.3 client to silently drop
-            // the character entry.
-            char1.Flags2 = 0;
+            // Keep only the paid-service bits of the legacy CustomizationFlags read above: the modern
+            // Flags2 uses the same three for the appearance, race and faction change buttons, and
+            // any other stale bit there causes the 3.4.3 client to silently drop the character entry.
+            char1.Flags2 &= (uint)(CharacterCustomizeFlags.Customize | CharacterCustomizeFlags.Faction |
+                CharacterCustomizeFlags.Race);
             char1.Flags3 = 0;
             char1.Flags4 = 0;
             char1.ProfessionIds[0] = 0;
@@ -898,6 +899,79 @@ public partial class WorldClient
             rename.Name = packet.ReadCString();
         }
         SendPacketToClient(rename);
+    }
+
+    // The legacy reply carries the character only on success; the modern one always names it, so a
+    // failure takes the GUID the request was sent for.
+    [HandlesSmsg(Opcode.SMSG_CHAR_FACTION_CHANGE_RESULT)]
+    internal void HandleCharFactionChangeResult(WorldPacket packet)
+    {
+        GameSessionData state = GetSession().GameState;
+        byte legacyResult = packet.ReadUInt8();
+
+        CharFactionChangeResult result = new();
+        result.Result = ModernVersion.ConvertResponseCodesValue(legacyResult);
+        result.Guid = state.PendingCharServiceGuid;
+        if (legacyResult == 0)
+        {
+            result.Guid = packet.ReadGuid().To128(state);
+            string name = packet.ReadCString();
+            var sex = (Gender)packet.ReadUInt8();
+            ReadLegacyServiceAppearance(packet, out byte skin, out byte face, out byte hairStyle, out byte hairColor,
+                out byte facialHair);
+            var raceId = (Race)packet.ReadUInt8();
+            result.Display = new CharFactionChangeDisplay
+            {
+                Name = name,
+                Sex = sex,
+                RaceId = raceId,
+                Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern(raceId, sex, skin, face,
+                    hairStyle, hairColor, facialHair),
+            };
+        }
+        state.PendingCharServiceGuid = default;
+        SendPacketToClient(result);
+    }
+
+    [HandlesSmsg(Opcode.SMSG_CHAR_CUSTOMIZE)]
+    internal void HandleCharCustomizeResult(WorldPacket packet)
+    {
+        GameSessionData state = GetSession().GameState;
+        byte legacyResult = packet.ReadUInt8();
+        WowGuid128 pendingGuid = state.PendingCharServiceGuid;
+        state.PendingCharServiceGuid = default;
+
+        if (legacyResult != 0)
+        {
+            SendPacketToClient(new CharCustomizeFailure
+            {
+                Result = ModernVersion.ConvertResponseCodesValue(legacyResult),
+                Guid = pendingGuid,
+            });
+            return;
+        }
+
+        CharCustomizeSuccess success = new();
+        success.Guid = packet.ReadGuid().To128(state);
+        success.Name = packet.ReadCString();
+        success.Sex = (Gender)packet.ReadUInt8();
+        ReadLegacyServiceAppearance(packet, out byte skin, out byte face, out byte hairStyle, out byte hairColor,
+            out byte facialHair);
+        Race raceId = state.OwnCharacters.FirstOrDefault(c => c.CharacterGuid == success.Guid)?.RaceId ?? Race.None;
+        success.Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern(raceId, success.Sex, skin,
+            face, hairStyle, hairColor, facialHair);
+        SendPacketToClient(success);
+    }
+
+    // Skin, face, hair style, hair color, facial hair: the reply order on both paid services.
+    private static void ReadLegacyServiceAppearance(WorldPacket packet, out byte skin, out byte face,
+        out byte hairStyle, out byte hairColor, out byte facialHair)
+    {
+        skin = packet.ReadUInt8();
+        face = packet.ReadUInt8();
+        hairStyle = packet.ReadUInt8();
+        hairColor = packet.ReadUInt8();
+        facialHair = packet.ReadUInt8();
     }
 
     // Result codes are the same two values on both eras, so this is a GUID width change and

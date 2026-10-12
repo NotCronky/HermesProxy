@@ -712,6 +712,16 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleCharacterRenameResult(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleCharCustomizeResult_SMSG_CHAR_CUSTOMIZE(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleCharCustomizeResult(packet);
+    }
+
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleCharFactionChangeResult_SMSG_CHAR_FACTION_CHANGE_RESULT(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleCharFactionChangeResult(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleServerChatMessageVanilla_SMSG_CHAT(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleServerChatMessageVanilla(packet);
@@ -2456,6 +2466,8 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHANNEL_NOTIFY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleChannelNotify_SMSG_CHANNEL_NOTIFY;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHARACTER_LOGIN_FAILED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCharacterLoginFailed_SMSG_CHARACTER_LOGIN_FAILED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHARACTER_RENAME_RESULT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCharacterRenameResult_SMSG_CHARACTER_RENAME_RESULT;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHAR_CUSTOMIZE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCharCustomizeResult_SMSG_CHAR_CUSTOMIZE;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHAR_FACTION_CHANGE_RESULT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleCharFactionChangeResult_SMSG_CHAR_FACTION_CHANGE_RESULT;
         {
             if (global::HermesProxy.LegacyVersion.RemovedInVersion(global::HermesProxy.Enums.ClientVersionBuild.V2_0_1_6180))
                 table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_CHAT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleServerChatMessageVanilla_SMSG_CHAT;
@@ -2935,6 +2947,8 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_CHANNEL_NOTIFY,
             global::HermesProxy.World.Enums.Opcode.SMSG_CHARACTER_LOGIN_FAILED,
             global::HermesProxy.World.Enums.Opcode.SMSG_CHARACTER_RENAME_RESULT,
+            global::HermesProxy.World.Enums.Opcode.SMSG_CHAR_CUSTOMIZE,
+            global::HermesProxy.World.Enums.Opcode.SMSG_CHAR_FACTION_CHANGE_RESULT,
             global::HermesProxy.World.Enums.Opcode.SMSG_CHAT,
             global::HermesProxy.World.Enums.Opcode.SMSG_CHAT_PLAYER_NOTFOUND,
             global::HermesProxy.World.Enums.Opcode.SMSG_CHAT_SERVER_MESSAGE,
