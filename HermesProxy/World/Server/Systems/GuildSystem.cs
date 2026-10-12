@@ -453,12 +453,21 @@ public static class GuildSystem
         packet.WriteUInt8(item.BankSlot);
         packet.WriteUInt32(0); // item id
         packet.WriteBool(true); // auto store
+        // A count, the direction, and a second count. From 3.0.2 both counts are 32 bits wide:
+        // AzerothCore, TrinityCore and cMaNGOS all read u32, u8, u32. A one-byte second count
+        // leaves the packet three bytes short, and the server drops it without a word.
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        {
             packet.WriteUInt32(0); // auto store count
+            packet.WriteBool(true); // to char
+            packet.WriteUInt32(0); // always 0
+        }
         else
+        {
             packet.WriteUInt8(0); // auto store count
-        packet.WriteBool(true); // to char
-        packet.WriteUInt8(0); // unknown
+            packet.WriteBool(true); // to char
+            packet.WriteUInt8(0); // always 0
+        }
         ctx.SendPacketToServer(packet);
     }
 
