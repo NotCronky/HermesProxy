@@ -11,6 +11,7 @@ namespace HermesProxy;
 [JsonSerializable(typeof(PlayerSettings.InternalStorage))]
 [JsonSerializable(typeof(CollectionFavorites))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
+[JsonSerializable(typeof(Dictionary<string, List<CharacterTemplateEntry>>))]
 internal sealed partial class HermesJsonContext : JsonSerializerContext
 {
 }

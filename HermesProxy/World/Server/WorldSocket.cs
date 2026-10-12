@@ -1287,6 +1287,7 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
             }
 
             response.SuccessInfo.AvailableClasses = availableRaces;
+            CharacterTemplates.AddTemplates(response.SuccessInfo, realm.Name);
         }
 
         if (queuePos != 0)

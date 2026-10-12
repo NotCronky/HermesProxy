@@ -108,4 +108,22 @@ internal static partial class CharacterEnumLogMessages
     public static partial void ActionButtonsWrite(
         ILogger logger, string SourceFile, int legacyCount, int nonZeroSlots, int paddedTo,
         byte reason, string sample);
+
+    [LoggerMessage(
+        EventId = 421,
+        Level = LogLevel.Information,
+        Message = "[CharacterTemplates] offering {Count} character templates on '{Realm}'")]
+    public static partial void TemplatesOffered(ILogger logger, string SourceFile, int count, string realm);
+
+    [LoggerMessage(
+        EventId = 422,
+        Level = LogLevel.Information,
+        Message = "[CharacterTemplates] create character '{Name}' with template {TemplateSet}")]
+    public static partial void TemplateCreate(ILogger logger, string SourceFile, string name, uint templateSet);
+
+    [LoggerMessage(
+        EventId = 423,
+        Level = LogLevel.Warning,
+        Message = "[CharacterTemplates] can't read {File}: {Error}. No templates offered.")]
+    public static partial void TemplatesLoadFailed(ILogger logger, string SourceFile, string file, string error);
 }

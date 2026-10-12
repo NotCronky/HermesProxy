@@ -126,6 +126,7 @@ public static class CharacterSystem
         packet.WriteUInt8(hairColor);
         packet.WriteUInt8(facialhair);
         packet.WriteUInt8(0); // outfit
+        CharacterTemplates.AppendToLegacyCreate(packet, charCreate.CreateInfo.Name, charCreate.CreateInfo.TemplateSet);
         ctx.SendPacketToServer(packet);
     }
 
