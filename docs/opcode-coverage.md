@@ -86,7 +86,7 @@ Each of these has more than one codec, chosen by build range at table-build time
 anyone adding a client this is the short list worth checking first: a layout that already
 changed once is the most likely to have changed again.
 
-26 packets across 52 codecs.
+27 packets across 54 codecs.
 
 | packet | codec | axis | added in | removed in |
 |---|---|---|---|---|
@@ -108,6 +108,8 @@ changed once is the most likely to have changed again.
 | `ChatMessageEmote` | `ChatMessageEmoteCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `ChatMessageWhisper` | `ChatMessageWhisperCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `ChatMessageWhisper` | `ChatMessageWhisperCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `DFSetRolesPkt` | `DFSetRolesPktCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
+| `DFSetRolesPkt` | `DFSetRolesPktCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `DoReadyCheck` | `DoReadyCheckCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `DoReadyCheck` | `DoReadyCheckCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `JoinChannel` | `JoinChannelCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
