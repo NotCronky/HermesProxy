@@ -38,12 +38,13 @@ $dotnetArgs += @('run', '--') + $AppArgs
 # An edit dotnet watch cannot patch in (a new enum member, a method with stackalloc, a changed
 # static initializer) restarts the proxy instead of asking at a prompt nobody is watching.
 $env:DOTNET_WATCH_RESTART_ON_RUDE_EDIT = '1'
+# dotnet watch marks its lines with emoji, which a classic console window draws as empty boxes.
+$env:DOTNET_WATCH_SUPPRESS_EMOJIS = '1'
 
 # What an edit came to (applied, compile error, restart and why) is said by dotnet watch on the
-# console and nowhere else. The lines that say it are kept in a file beside the hermes logs.
-# Not the proxy's lines, which are in the hermes log already. And the rest of what --verbose
-# prints for every saved file (a dozen lines of its own bookkeeping) goes neither to the file nor
-# to the window.
+# console and nowhere else. The lines that say it are kept in a file beside the hermes logs, and
+# shown in the window in a colour of their own. The rest of what --verbose prints for every saved
+# file (a dozen lines of its own bookkeeping) goes neither to the file nor to the window.
 $watchLog = Join-Path $hermesDir 'bin\Debug\Logs\dotnet-watch.log'
 [void](New-Item -ItemType Directory -Path (Split-Path $watchLog -Parent) -Force)
 Write-Host "[hermes-watch] log: $watchLog"
@@ -52,37 +53,57 @@ $watchLines = @(
     'changes applied in'                                # patched in
     'Unable to apply|: error [A-Z]+\d+|ENC\d+'          # not patched in, and why
     'Restart is needed|Hot reload session started'      # a restart, and the proxy that followed it
-    'Exited with error|Waiting for a file to change|Fix the error'
-    '^Build (succeeded|FAILED)|^Time Elapsed'
+    'Exited with error|exited with exit code [1-9]|Waiting for a file to change|Fix the error'
 ) -join '|'
 # Shown in the window, not worth a line in the file.
 $windowOnly = 'Press Ctrl\+R|Building .+proj'
 # Every patch repeats the project's compiler warnings. Only the ENC ones are about the edit.
 $noise = ': warning (?!ENC)[A-Z]+\d+'
 
-# dotnet watch writes UTF-8; read as the console's code page its markers turn to mojibake.
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $writer = [IO.StreamWriter]::new($watchLog, $false, [Text.UTF8Encoding]::new($false))
 $writer.AutoFlush = $true
 
+# dotnet watch writes its own lines to stderr and leaves stdout to the proxy. Only stderr is read
+# here: the proxy keeps the console as its stdout, as under dotnet run. Piped, its log lost its
+# colours (Serilog drops its theme for a pipe) and the window showed the escape codes of the
+# category letter as text.
+$start = [Diagnostics.ProcessStartInfo]::new('dotnet')
+foreach ($argument in $dotnetArgs) { $start.ArgumentList.Add($argument) }
 # dotnet watch starts the app in its own working directory, and the proxy reads appsettings.json
 # from there, so it has to be the project folder.
-Push-Location $hermesDir
+$start.WorkingDirectory = $hermesDir
+$start.UseShellExecute = $false
+$start.RedirectStandardError = $true
+$start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+
+$watch = [Diagnostics.Process]::Start($start)
 try {
-    & dotnet @dotnetArgs 2>&1 | ForEach-Object {
-        $line = [string]$_
+    while ($null -ne ($line = $watch.StandardError.ReadLine())) {
         $text = $line.TrimStart()
-        $kept = $text -match $watchLines -and $text -notmatch $noise
-        if ($kept -or -not $text.StartsWith('dotnet watch') -or $text -match $windowOnly) {
-            [Console]::Out.WriteLine($line)
+        if (-not $text.StartsWith('dotnet watch')) {
+            # the proxy's own stderr (a crash trace, a refused configuration) and dotnet run's
+            [Console]::Error.WriteLine($line)
+            continue
         }
+
+        $kept = $text -match $watchLines -and $text -notmatch $noise
         if ($kept) {
             $writer.WriteLine("$([DateTime]::Now.ToString('HH:mm:ss')) $text")
         }
+        if ($kept -or $text -match $windowOnly) {
+            $colour = if ($text -match 'changes applied in') { 'Green' }
+                      elseif ($text -match 'error|Unable to apply|Exited with|exited with exit code') { 'Red' }
+                      elseif ($text -match 'Restart is needed|ENC\d+') { 'Yellow' }
+                      else { 'Cyan' }
+            Write-Host $text -ForegroundColor $colour
+        }
     }
-    exit $LASTEXITCODE
+    $watch.WaitForExit()
+    exit $watch.ExitCode
 }
 finally {
     $writer.Dispose()
-    Pop-Location
+    # Ctrl+C reaches dotnet watch and the proxy as well, and they shut down by themselves (the
+    # proxy closes its listeners and drains its log). Only what is still there afterwards is killed.
+    if (-not $watch.WaitForExit(15000)) { $watch.Kill($true) }
 }
