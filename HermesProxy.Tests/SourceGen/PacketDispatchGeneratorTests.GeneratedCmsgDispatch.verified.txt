@@ -865,9 +865,15 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.LfgSystem.HandleDFProposalResponse(in packet, in ctx);
     }
 
-    private static void Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    private static void Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES_DFSetRolesPktCodecPreWotLKClassic(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
-        global::HermesProxy.World.Server.Packets.DFSetRolesPktCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Packets.DFSetRolesPktCodecPreWotLKClassic.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.LfgSystem.HandleDFSetRoles(in packet, in ctx);
+    }
+
+    private static void Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES_DFSetRolesPktCodecWotLKClassic(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.DFSetRolesPktCodecWotLKClassic.Read(ref reader, out var packet);
         global::HermesProxy.World.Server.Systems.LfgSystem.HandleDFSetRoles(in packet, in ctx);
     }
 
@@ -2872,7 +2878,12 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_JOIN] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFJoin_CMSG_DF_JOIN;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_LEAVE] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFLeave_CMSG_DF_LEAVE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_PROPOSAL_RESPONSE] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFProposalResponse_CMSG_DF_PROPOSAL_RESPONSE;
-        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_SET_ROLES] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES;
+        {
+            if (!global::HermesProxy.ModernVersion.AddedInVersion(3, 4, 3))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_SET_ROLES] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES_DFSetRolesPktCodecPreWotLKClassic;
+            else if (global::HermesProxy.ModernVersion.AddedInVersion(3, 4, 3))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_SET_ROLES] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFSetRoles_CMSG_DF_SET_ROLES_DFSetRolesPktCodecWotLKClassic;
+        }
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_TELEPORT] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFTeleport_CMSG_DF_TELEPORT;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DISMISS_CRITTER] = &Thunk_HermesProxy_World_Server_Systems_BattlePetSystem_HandleDismissCritter_CMSG_DISMISS_CRITTER;
         {
