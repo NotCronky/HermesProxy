@@ -82,7 +82,6 @@ internal sealed class ProxyHostedService : BackgroundService
             Log.Print(LogType.Storage, $"Old: {Environment.CurrentDirectory}");
             Environment.CurrentDirectory = Path.GetDirectoryName(AppContext.BaseDirectory)!;
             Log.Print(LogType.Storage, $"New: {Environment.CurrentDirectory}");
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
 
         Log.Configure(_loggingOptions.Value.ToLogBootstrapOptions());

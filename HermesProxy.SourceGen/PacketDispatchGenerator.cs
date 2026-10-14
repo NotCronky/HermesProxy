@@ -439,17 +439,22 @@ public sealed class PacketDispatchGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine($"internal static unsafe class {className}");
         sb.AppendLine("{");
+        // Both fields are static readonly except in a Debug build, where Rebuild assigns them
+        // again after a hot reload. A Release build is the one that is measured and shipped, and
+        // there the JIT is to keep treating the table as a constant.
+        string tableType = DelegateType(legacyShape) + "[]";
+        string claimedType = $"global::System.Collections.Frozen.FrozenSet<{OpcodeFullName}>";
         sb.AppendLine("    /// <summary>Indexed by (uint)Opcode. A null slot means no handler covers the opcode for");
         sb.AppendLine("    /// the running build; the dispatch site logs it and drops the packet.</summary>");
-        sb.Append("    private static readonly ").Append(DelegateType(legacyShape)).AppendLine("[] _table = BuildTable();");
+        EmitTableField(sb, "private", tableType, "_table", "BuildTable()");
         sb.AppendLine();
         sb.AppendLine("    /// <summary>Opcodes this table owns. DispatchRegistryTests asserts each resolves to a");
         sb.AppendLine("    /// thunk and that the count never falls below what was converted.</summary>");
-        sb.Append("    internal static readonly global::System.Collections.Frozen.FrozenSet<")
-          .Append(OpcodeFullName).AppendLine("> ClaimedOpcodes = BuildClaimed();");
+        EmitTableField(sb, "internal", claimedType, "ClaimedOpcodes", "BuildClaimed()");
         sb.AppendLine();
         EmitGet(sb, legacyShape);
         EmitEnsureInitialized(sb, className);
+        EmitRebuild(sb);
         EmitThunks(sb, usable, legacyShape);
         EmitBuildTable(sb, usable, versionClass, legacyShape);
         EmitBuildClaimed(sb, usable);
@@ -544,6 +549,36 @@ public sealed class PacketDispatchGenerator : IIncrementalGenerator
         sb.AppendLine("        _ = _table.Length;");
         sb.AppendLine("        _ = ClaimedOpcodes.Count;");
         sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    private static void EmitTableField(StringBuilder sb, string accessibility, string type, string name, string initializer)
+    {
+        sb.AppendLine("#if DEBUG");
+        sb.AppendLine($"    {accessibility} static {type} {name} = {initializer};");
+        sb.AppendLine("#else");
+        sb.AppendLine($"    {accessibility} static readonly {type} {name} = {initializer};");
+        sb.AppendLine("#endif");
+    }
+
+    private static void EmitRebuild(StringBuilder sb)
+    {
+        sb.AppendLine("#if DEBUG");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Builds the table again, for the handlers a hot reload added, removed or re-ranged.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    /// <remarks>");
+        sb.AppendLine("    /// A hot reload patches BuildTable but no runtime runs a static initializer a second");
+        sb.AppendLine("    /// time, so a handler attributed while the proxy runs would be patched in and never");
+        sb.AppendLine("    /// called. HotReloadHandler calls this after every patch. Debug builds only: the runtime");
+        sb.AppendLine("    /// takes patches for those alone.");
+        sb.AppendLine("    /// </remarks>");
+        sb.AppendLine("    internal static void Rebuild()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        _table = BuildTable();");
+        sb.AppendLine("        ClaimedOpcodes = BuildClaimed();");
+        sb.AppendLine("    }");
+        sb.AppendLine("#endif");
         sb.AppendLine();
     }
 

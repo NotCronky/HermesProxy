@@ -27,6 +27,10 @@ SMSG  WorldClient
 
 The tables are `static readonly` arrays of function pointers indexed by universal opcode, built
 once per process. Every inbound opcode goes through them; there is no reflective fallback any more.
+A Debug build is the one exception to "once": there the two fields are assignable and the generator
+emits `Rebuild()`, which `HotReloadHandler` calls after every hot reload patch, so that a handler
+attributed while the proxy runs is reachable (root [CLAUDE.md](../../../CLAUDE.md), "Dev Loop").
+A Release build has neither.
 The only CMSGs outside the table are the connection-level ones `WorldSocket.ReadData`
 switches on first (ping, auth, keep-alive, encryption ack, connect-to), which still use
 `ClientPacket`.

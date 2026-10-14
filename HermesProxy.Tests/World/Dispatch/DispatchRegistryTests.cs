@@ -157,6 +157,36 @@ public class DispatchRegistryTests
             $"{(isModern ? "CMSG" : "SMSG")} opcodes are claimed but have no thunk: {string.Join(", ", unresolved)}");
     }
 
+#if DEBUG
+    /// <summary>
+    /// <c>Rebuild</c> exists for a hot reload, where it makes a handler attributed while the proxy
+    /// runs reachable. With nothing patched it has to put back exactly what was there: the same
+    /// opcodes claimed, each on the thunk it had.
+    /// </summary>
+    [Fact]
+    public unsafe void RebuildWithNothingPatchedLeavesBothTablesAsTheyWere()
+    {
+        var cmsgClaimed = GeneratedCmsgDispatch.ClaimedOpcodes;
+        var smsgClaimed = GeneratedSmsgDispatch.ClaimedOpcodes;
+        var cmsgThunks = cmsgClaimed.ToDictionary(o => o, o => (nint)GeneratedCmsgDispatch.Get(o));
+        var smsgThunks = smsgClaimed.ToDictionary(o => o, o => (nint)GeneratedSmsgDispatch.Get(o));
+
+        GeneratedCmsgDispatch.Rebuild();
+        GeneratedSmsgDispatch.Rebuild();
+
+        // A new set object is the proof that Rebuild assigned at all.
+        Assert.NotSame(cmsgClaimed, GeneratedCmsgDispatch.ClaimedOpcodes);
+        Assert.NotSame(smsgClaimed, GeneratedSmsgDispatch.ClaimedOpcodes);
+        Assert.True(cmsgClaimed.SetEquals(GeneratedCmsgDispatch.ClaimedOpcodes));
+        Assert.True(smsgClaimed.SetEquals(GeneratedSmsgDispatch.ClaimedOpcodes));
+
+        foreach (var (opcode, thunk) in cmsgThunks)
+            Assert.True(thunk == (nint)GeneratedCmsgDispatch.Get(opcode), $"CMSG {opcode} moved to another thunk");
+        foreach (var (opcode, thunk) in smsgThunks)
+            Assert.True(thunk == (nint)GeneratedSmsgDispatch.Get(opcode), $"SMSG {opcode} moved to another thunk");
+    }
+#endif
+
     // Opcodes claimed at the moment the reflective registries were deleted. There is no second
     // registry left to fall through to, so an opcode that stops being claimed is simply unhandled
     // at runtime with nothing but a log line to show for it. Raise these when opcodes are genuinely
