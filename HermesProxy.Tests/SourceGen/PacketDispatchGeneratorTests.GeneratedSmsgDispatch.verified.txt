@@ -11,11 +11,19 @@ internal static unsafe class GeneratedSmsgDispatch
 {
     /// <summary>Indexed by (uint)Opcode. A null slot means no handler covers the opcode for
     /// the running build; the dispatch site logs it and drops the packet.</summary>
+#if DEBUG
+    private static delegate*<global::HermesProxy.World.Client.WorldClient, global::HermesProxy.World.WorldPacket, void>[] _table = BuildTable();
+#else
     private static readonly delegate*<global::HermesProxy.World.Client.WorldClient, global::HermesProxy.World.WorldPacket, void>[] _table = BuildTable();
+#endif
 
     /// <summary>Opcodes this table owns. DispatchRegistryTests asserts each resolves to a
     /// thunk and that the count never falls below what was converted.</summary>
+#if DEBUG
+    internal static global::System.Collections.Frozen.FrozenSet<global::HermesProxy.World.Enums.Opcode> ClaimedOpcodes = BuildClaimed();
+#else
     internal static readonly global::System.Collections.Frozen.FrozenSet<global::HermesProxy.World.Enums.Opcode> ClaimedOpcodes = BuildClaimed();
+#endif
 
     /// <summary>The thunk for <paramref name="opcode"/>, or null when unconverted.</summary>
     [global::System.Runtime.CompilerServices.MethodImpl(
@@ -41,6 +49,23 @@ internal static unsafe class GeneratedSmsgDispatch
         _ = _table.Length;
         _ = ClaimedOpcodes.Count;
     }
+
+#if DEBUG
+    /// <summary>
+    /// Builds the table again, for the handlers a hot reload added, removed or re-ranged.
+    /// </summary>
+    /// <remarks>
+    /// A hot reload patches BuildTable but no runtime runs a static initializer a second
+    /// time, so a handler attributed while the proxy runs would be patched in and never
+    /// called. HotReloadHandler calls this after every patch. Debug builds only: the runtime
+    /// takes patches for those alone.
+    /// </remarks>
+    internal static void Rebuild()
+    {
+        _table = BuildTable();
+        ClaimedOpcodes = BuildClaimed();
+    }
+#endif
 
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleAuctionHello_MSG_AUCTION_HELLO(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
