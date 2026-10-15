@@ -109,7 +109,7 @@ public partial class ObjectUpdateBuilder
         for (int i = 0; i < 7; i++)
             data.WriteUInt32(0u);
         for (int i = 0; i < 875; i++)
-            data.WriteUInt64(0uL);
+            data.WriteUInt64(src.QuestCompleted != null && src.QuestCompleted[i].HasValue ? src.QuestCompleted[i]!.Value : 0uL);
         data.WriteInt32(src.Honor.GetValueOrDefault());
         data.WriteInt32(src.HonorNextLevel ?? 5500);
         data.WriteInt32(0);

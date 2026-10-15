@@ -360,9 +360,10 @@ public enum ActivePlayerField
     [DescriptorCreatePlaceholder(DescriptorType.UInt32, Count = 7)]
     ACTIVEPLAYER_CREATE_BANK_BAG_SLOT_FLAGS_PLACEHOLDER,
 
-    // bit 637 (parent 636): QuestCompleted[875] — live property exists; TODO per-element read.
-    [DescriptorCreatePlaceholder(DescriptorType.UInt64, Count = 875)]
-    ACTIVEPLAYER_CREATE_QUEST_COMPLETED_PLACEHOLDER,
+    // bit 637 (parent 636): QuestCompleted[875]. A zero-filled run here left every quest the
+    // character had done looking undone after a login (C_QuestLog.IsQuestFlaggedCompleted).
+    [DescriptorCreateField(nameof(ActivePlayerData.QuestCompleted), DescriptorType.UInt64, ArrayCount = 875)]
+    ACTIVEPLAYER_CREATE_QUEST_COMPLETED,
 
     [DescriptorCreateField(nameof(ActivePlayerData.Honor), DescriptorType.Int32)]
     ACTIVEPLAYER_CREATE_HONOR,

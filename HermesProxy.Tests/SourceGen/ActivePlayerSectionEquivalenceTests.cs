@@ -1244,4 +1244,45 @@ public class ActivePlayerSectionEquivalenceTests
 
         Assert.Equal(expectedPacket.GetData(), actualPacket.GetData());
     }
+
+    // The frozen oracle above writes QuestCompleted as zeros (its create scenarios set none), so
+    // this pins the words themselves: a login create carries the quests the character has done.
+    [Fact]
+    public void WriteCreateActivePlayerData_QuestCompleted_CarriesTheWords()
+    {
+        var guid = WowGuid128.Create(HighGuidType703.Player, 1);
+        var empty = new WorldPacket();
+        MakeBuilder(guid, CreateGameSession(), out _).WriteCreateActivePlayerData(empty);
+
+        var builder = MakeBuilder(guid, CreateGameSession(), out var update);
+        update.ActivePlayerData!.EnsureQuestCompleted()[4] = 0x0002000000000000uL;
+        var withQuest = new WorldPacket();
+        builder.WriteCreateActivePlayerData(withQuest);
+
+        byte[] before = empty.GetData();
+        byte[] after = withQuest.GetData();
+        Assert.Equal(before.Length, after.Length);
+        // the one byte set is the word's seventh (little-endian 0x02 at offset 6)
+        int first = FirstDifference(before, after);
+        Assert.True(first >= 6);
+        Assert.Equal(0x0002000000000000uL, BitConverter.ToUInt64(after, first - 6));
+        Assert.Equal(1, CountDifferences(before, after));
+    }
+
+    private static int FirstDifference(byte[] a, byte[] b)
+    {
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i])
+                return i;
+        return -1;
+    }
+
+    private static int CountDifferences(byte[] a, byte[] b)
+    {
+        int count = 0;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i])
+                count++;
+        return count;
+    }
 }

@@ -666,6 +666,10 @@ public partial class WorldClient
 
                     TraceNpcBotCreateObject("CreateObject2", oldGuid, guid, updateData);
 
+                    // AzerothCore and TrinityCore send the player's own create as CreateObject2.
+                    if (updateData.Guid == GetSession().GameState.CurrentPlayerGuid)
+                        GetSession().GameState.CurrentPlayerStorage.CompletedQuests.WriteAllCompletedIntoArray(updateData.EnsureActivePlayerData());
+
                     if (guid.IsItem())
                     {
                         // A bag slot pointing at an item that has no CreateObject yet reads back as
