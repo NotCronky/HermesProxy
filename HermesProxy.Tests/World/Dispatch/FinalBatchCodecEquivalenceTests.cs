@@ -223,7 +223,7 @@ public class FinalBatchCodecEquivalenceTests
         });
 
         var e = new Frozen.WhoRequestPkt(); e.Read(o);
-        var r = ReaderOver(f); WhoRequestPktCodec.Read(ref r, out var a);
+        var r = ReaderOver(f); WhoRequestPktCodecPreWotLKClassic.Read(ref r, out var a);
 
         Assert.Equal(e.RequestID, a.RequestID);
         Assert.Equal(e.Areas, a.Areas);
@@ -240,6 +240,37 @@ public class FinalBatchCodecEquivalenceTests
         Assert.Equal(guild, a.Request.Guild);
         // -1 is "any class"; a zero here would mean Warrior.
         Assert.Equal(-1, a.Request.ClassFilter);
+    }
+
+    /// <summary>
+    /// A 4.4.2 client's <c>/who z-"Duskwood"</c>, captured through the proxy: one area, the add-on
+    /// bit set, request id 3, origin 1 (the social frame), area 10. Read without the origin byte,
+    /// the area came out as 0xA01 and the server found nobody.
+    /// </summary>
+    [Fact]
+    public void WhoRequestPkt_WotLKClassic_ReadsTheOriginByteBeforeTheAreas()
+    {
+        byte[] framed =
+        [
+            0x00, 0x00,
+            0x18,
+            0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0x00, 0x00, 0x00, 0x00, 0x00,
+            0x03, 0x00, 0x00, 0x00,
+            0x01,
+            0x0A, 0x00, 0x00, 0x00,
+        ];
+
+        var r = ReaderOver(framed); WhoRequestPktCodecWotLKClassic.Read(ref r, out var a);
+
+        Assert.Equal(3u, a.RequestID);
+        Assert.Equal([10], a.Areas);
+        Assert.Equal(0, a.Request.MinLevel);
+        Assert.Equal(100, a.Request.MaxLevel);
+        Assert.Equal(-1, a.Request.ClassFilter);
+        Assert.Equal("", a.Request.Name);
+        Assert.Equal(0, r.Remaining);
     }
 
     // ---- misc / instance ----

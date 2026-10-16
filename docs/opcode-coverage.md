@@ -86,7 +86,7 @@ Each of these has more than one codec, chosen by build range at table-build time
 anyone adding a client this is the short list worth checking first: a layout that already
 changed once is the most likely to have changed again.
 
-27 packets across 54 codecs.
+28 packets across 56 codecs.
 
 | packet | codec | axis | added in | removed in |
 |---|---|---|---|---|
@@ -144,6 +144,8 @@ changed once is the most likely to have changed again.
 | `SetRole` | `SetRoleCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `SwapSubGroups` | `SwapSubGroupsCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `SwapSubGroups` | `SwapSubGroupsCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `WhoRequestPkt` | `WhoRequestPktCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
+| `WhoRequestPkt` | `WhoRequestPktCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 
 ## 4. Exact-equality version checks — the new-client work list
 
