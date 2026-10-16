@@ -123,11 +123,14 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_LOGIN_SET_TIME_SPEED)]
     internal void HandleLoginSetTimeSpeed(WorldPacket packet)
     {
+        uint serverTime = packet.ReadUInt32();
+        GetSession().GameState.LegacyServerUtcOffset = CalendarClock.ServerOffset(serverTime, System.DateTimeOffset.UtcNow);
+
         if (!GetSession().GameState.IsFirstEnterWorld)
             return;
 
         LoginSetTimeSpeed login = new LoginSetTimeSpeed();
-        login.ServerTime = packet.ReadUInt32();
+        login.ServerTime = serverTime;
         login.GameTime = login.ServerTime;
         login.NewSpeed = packet.ReadFloat();
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_1_2_9901))
