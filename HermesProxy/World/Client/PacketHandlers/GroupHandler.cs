@@ -156,6 +156,9 @@ public partial class WorldClient
             party.LootSettings.Threshold = packet.ReadUInt8();
 
             GetSession().GameState.WeWantToLeaveGroup = false;
+            // The packets about the group name this category (GetCurrentPartyIndex): a
+            // battleground's raid is the instance group.
+            GetSession().GameState.LastAnnouncedPartyIndex = party.PartyIndex;
             GetSession().GameState.CurrentGroups[party.PartyIndex] = party;
         }
         else
@@ -165,6 +168,7 @@ public partial class WorldClient
                 party.PartyGUID = WowGuid128.Empty;
             party.LeaderGUID = WowGuid128.Empty;
             party.MyIndex = -1;
+            GetSession().GameState.LastAnnouncedPartyIndex = 0;
             GetSession().GameState.CurrentGroups[party.PartyIndex] = null;
             if (GetSession().GameState.CurrentGroups[0] == null && GetSession().GameState.CurrentGroups[1] == null)
                 GetSession().GameState.GroupAssignedRoles.Clear();
