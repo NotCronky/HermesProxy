@@ -24,6 +24,7 @@ using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace HermesProxy.World.Server.Packets;
 
@@ -125,6 +126,32 @@ public class MailListResult : ServerPacket
     public List<MailListEntry> Mails = new();
 }
 
+/// <summary>A player's GUID in the client's own text form, "Player-realm-counter" (TrinityCore cata_classic ObjectGuid::ToString).</summary>
+internal static class ClientGuidText
+{
+    public static string Of(WowGuid128 guid)
+        => string.Create(CultureInfo.InvariantCulture, $"Player-{guid.GetRealmId()}-{guid.GetCounter():X8}");
+}
+
+/// <summary>
+/// The subject of a calendar mail, sent when an event someone was invited to is removed: who
+/// removed it, a colon, the event's title. TrinityCore 3.3.5a and 4.3.4 write the remover as a raw
+/// GUID in decimal; the modern clients read the GUID in their own text form and the title after
+/// the colon (TrinityCore wotlk_classic and cata_classic BuildCalendarMailSubject).
+/// </summary>
+public static class CalendarMailSubject
+{
+    public static string ToClient(string subject, Func<WowGuid64, WowGuid128> toModern)
+    {
+        int colon = subject.IndexOf(':');
+        if (colon <= 0 || !ulong.TryParse(subject.AsSpan(0, colon), NumberStyles.None, CultureInfo.InvariantCulture, out ulong rawGuid)
+            || rawGuid == 0)
+            return subject;
+
+        return string.Concat(ClientGuidText.Of(toModern(new WowGuid64(rawGuid))), subject.AsSpan(colon));
+    }
+}
+
 public class MailListEntry
 {
     public void Write(WorldPacket data)
@@ -150,6 +177,7 @@ public class MailListEntry
                 case MailType.Auction:
                 case MailType.Creature:
                 case MailType.GameObject:
+                case MailType.Calendar:
                     data.WriteInt32((int)(AltSenderID ?? 0));
                     break;
             }

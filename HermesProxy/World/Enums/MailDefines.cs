@@ -12,7 +12,9 @@ public enum MailType
     Auction    = 2,
     Creature   = 3,
     GameObject = 4,
-    Item       = 5
+    Item       = 5,
+    // 5 is an item's mail on 1.x and 2.x servers and the calendar's from 3.0 on
+    Calendar   = 5,
 }
 
 public enum MailActionType
