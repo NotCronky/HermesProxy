@@ -147,11 +147,24 @@ public class CalendarCodecTests
         var f = Framed(w =>
         {
             w.WriteUInt64(1); w.WriteUInt64(4); w.WriteUInt64(9);
-            w.WriteBits(7, 9); w.WriteBit(creating); w.WriteBit(signUp); w.FlushBits();
+            w.WriteBits(7, 9); w.WriteBit(signUp); w.WriteBit(creating); w.FlushBits();
             w.WriteString("Warriok");
         });
         var r = ReaderOver(f); CalendarInviteCodec.Read(ref r, out var a);
         Assert.Equal(new CalendarInvite(1, 4, "Warriok", creating, signUp), a);
+        Assert.Equal(0, r.Remaining);
+    }
+
+    [Theory]
+    // an invitation to event 1, a guild event (club 16), that exists
+    [InlineData("0100000000000000010000000000000010000000000000000440476165746861616E", 1ul, false, true)]
+    // one in a player event still being made (event 0; the club is whatever the client had there)
+    [InlineData("000000000000000001000000000000000000C0D2C0C3CF410420476165746861616E", 0ul, true, false)]
+    public void CalendarInvite_AsTheClientSentIt(string hex, ulong eventId, bool creating, bool signUp)
+    {
+        byte[] framed = [0, 0, .. Convert.FromHexString(hex)];
+        var r = ReaderOver(framed); CalendarInviteCodec.Read(ref r, out var a);
+        Assert.Equal(new CalendarInvite(eventId, 1, "Gaethaan", creating, signUp), a);
         Assert.Equal(0, r.Remaining);
     }
 

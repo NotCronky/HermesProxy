@@ -109,6 +109,11 @@ public static class CalendarCopyEventCodec
     }
 }
 
+/// <remarks>
+/// The guild bit comes before the creating bit, against the order of the native server's reader
+/// (TrinityCore names them Creating, IsSignUp). Seen from the 3.4.3 client: an invitation to an
+/// existing guild event has the first set, one in a player event still being made the second.
+/// </remarks>
 public static class CalendarInviteCodec
 {
     public static void Read(ref SpanPacketReader r, out CalendarInvite packet)
@@ -117,8 +122,8 @@ public static class CalendarInviteCodec
         ulong moderatorId = r.ReadUInt64();
         r.ReadUInt64();     // club id
         uint nameLength = r.ReadBits<uint>(9);
-        bool creating = r.HasBit();
         bool isSignUp = r.HasBit();
+        bool creating = r.HasBit();
         string name = r.ReadString(nameLength);
         packet = new CalendarInvite(eventId, moderatorId, name, creating, isSignUp);
     }
