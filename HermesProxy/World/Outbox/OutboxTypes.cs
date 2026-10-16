@@ -128,6 +128,8 @@ public enum HoldKeyKind : ushort
     PlayerMoveSpeed = 12,
     /// <summary>V3_4_3 can-fly changes aimed at the player, held while the client is in its spawn fall.</summary>
     PlayerSpawnCanFly = 13,
+    /// <summary>A = guid low, B = guid high. V3_4_3 another player's collision height, held for its next movement.</summary>
+    RemoteCollisionHeight = 14,
 }
 
 /// <summary>How a hold behaves while it waits.</summary>
