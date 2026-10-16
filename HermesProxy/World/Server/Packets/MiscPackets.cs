@@ -479,17 +479,7 @@ public class WorldServerInfo : ServerPacket, ISpanWritable
         {
             // What a native 3.4.3 server sends: the instance's difficulty and size in a dungeon
             // or raid, and a size of 0 everywhere else. A size of 0 is still sent, not left out.
-            (info.DifficultyID, uint groupSize) = GameData.DefaultInstanceDifficulty.GetValueOrDefault(mapId);
-            if (legacyDifficulty != 0 && info.DifficultyID != 0)
-            {
-                uint modern = info.DifficultyID is (uint)DifficultyModern.Normal or (uint)DifficultyModern.Heroic
-                    ? (uint)DifficultyModern.Heroic
-                    : (uint)RaidDifficulties.ToLegacyId((byte)legacyDifficulty);
-                // An instance without that difficulty in the client's data keeps its first one.
-                if (GameData.InstanceDifficultySizes.TryGetValue((mapId, modern), out uint size))
-                    (info.DifficultyID, groupSize) = (modern, size);
-            }
-            info.InstanceGroupSize = groupSize;
+            (info.DifficultyID, info.InstanceGroupSize) = GameData.ModernInstanceDifficulty(mapId, legacyDifficulty);
         }
         else if (mapId > 1)
         {
