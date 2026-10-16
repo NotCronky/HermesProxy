@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('debug', 'release')]
+    [ValidateSet('debug', 'release', 'watch')]
     [string]$Mode = 'debug',
 
     [Alias('Profile')]
@@ -105,12 +105,22 @@ $config = if ($Mode -eq 'release') { 'Release' } else { 'Debug' }
 $logLevelHigh = if ($Mode -eq 'release') { 'Information' } else { 'Verbose' }
 $logLevelPacket = if ($Mode -eq 'release') { 'Information' } else { 'Debug' }
 
-$dotnetArgs = @(
-    'run',
-    '--project', 'HermesProxy',
-    '-c', $config
-)
-if ($NoBuild) { $dotnetArgs += '--no-build' }
+if ($Mode -eq 'watch') {
+    if ($NoBuild) {
+        Write-Error '-NoBuild has no meaning with -Mode watch: dotnet watch builds what it then patches.'
+        exit 2
+    }
+    # For the echo below only: watch.ps1 builds the real command line.
+    $dotnetArgs = @('watch', 'run')
+}
+else {
+    $dotnetArgs = @(
+        'run',
+        '--project', 'HermesProxy',
+        '-c', $config
+    )
+    if ($NoBuild) { $dotnetArgs += '--no-build' }
+}
 
 # When a profile/config-path is in use, only emit --set for explicitly-passed params.
 # The profile file is the base; user overrides win. Mode still governs build config
@@ -165,7 +175,7 @@ if ($Environment) {
 # ---- Echo + run -------------------------------------------------------------
 
 $fullCmd = @('dotnet') + $dotnetArgs + @('--') + $appArgs
-Write-Host "[hermes-run] cwd     : $projectRoot"
+Write-Host "[hermes-run] cwd     : $(if ($Mode -eq 'watch') { $hermesDir } else { $projectRoot })"
 Write-Host "[hermes-run] config  : $config (mode=$Mode)"
 if ($resolvedConfig) {
     Write-Host "[hermes-run] profile : $resolvedConfig"
@@ -182,6 +192,13 @@ Write-Host ('  ' + ($fullCmd -join ' '))
 if ($DryRun) {
     Write-Host "[hermes-run] -DryRun set, exiting without launch."
     exit 0
+}
+
+if ($Mode -eq 'watch') {
+    # watch.ps1 owns the dotnet watch command line, its environment and the log beside the
+    # hermes logs, so that another launcher can start the same session with its own arguments.
+    & (Join-Path $PSScriptRoot 'watch.ps1') @appArgs
+    exit $LASTEXITCODE
 }
 
 Push-Location $projectRoot

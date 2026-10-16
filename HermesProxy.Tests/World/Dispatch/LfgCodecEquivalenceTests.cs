@@ -108,14 +108,40 @@ public class LfgCodecEquivalenceTests
     [InlineData((byte)0x02)]
     [InlineData((byte)0x0E)]
     [InlineData((byte)255)]
-    public void DFSetRoles_Matches(byte roles)
+    public void DFSetRoles_PreWotLK_MatchesOracle(byte roles)
     {
         var (o, f) = Build(w => w.WriteUInt8(roles));
         var e = new Frozen.DFSetRolesPkt(); e.Read(o);
-        var r = ReaderOver(f); DFSetRolesPktCodec.Read(ref r, out var a);
+        var r = ReaderOver(f); DFSetRolesPktCodecPreWotLKClassic.Read(ref r, out var a);
         Assert.Equal(e.Roles, a.Roles);
         Assert.Equal(roles, a.Roles);
         Assert.Equal(o.Remaining(), r.Remaining);
+    }
+
+    /// <summary>
+    /// The 3.4.3 and 4.4.2 clients write the party-index flag first, in a byte of its own, then
+    /// the roles and the optional party index. The oracle took the flag byte for the roles: 0x80
+    /// when the flag was set (as a 4.4.2 client answering a role check sent it), 0 otherwise.
+    /// </summary>
+    [Theory]
+    [InlineData((byte)0x08, false)]
+    [InlineData((byte)0x08, true)]
+    [InlineData((byte)0x0E, true)]
+    [InlineData((byte)0, true)]
+    public void DFSetRoles_WotLKClassic_TheFlagByteComesFirst(byte roles, bool hasPartyIndex)
+    {
+        var (o, f) = Build(w =>
+        {
+            w.WriteBit(hasPartyIndex);
+            w.WriteUInt8(roles);
+            if (hasPartyIndex)
+                w.WriteUInt8(1);
+        });
+        var e = new Frozen.DFSetRolesPkt(); e.Read(o);
+        var r = ReaderOver(f); DFSetRolesPktCodecWotLKClassic.Read(ref r, out var a);
+        Assert.Equal(hasPartyIndex ? (byte)0x80 : (byte)0, e.Roles);
+        Assert.Equal(roles, a.Roles);
+        Assert.Equal(0, r.Remaining);
     }
 
     // ---- the composed one ----

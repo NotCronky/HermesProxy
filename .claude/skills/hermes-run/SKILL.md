@@ -1,15 +1,16 @@
 ---
 name: hermes-run
-description: Launch HermesProxy with the WotLK V3_4_3 → 3.3.5a configuration, in Debug (verbose logs) or Release (profiling) mode
+description: Launch HermesProxy with the WotLK V3_4_3 → 3.3.5a configuration, in Debug (verbose logs), Release (profiling) or watch (hot reload) mode
 user-invocable: true
 ---
 
 # HermesProxy Run
 
-Wrap `dotnet run --project HermesProxy` with the long `--set` configuration chain that targets the cMaNGOS / TrinityCore 3.3.5a backend at `192.168.88.55:3726` from a V3_4_3_54261 client. Two modes:
+Wrap `dotnet run --project HermesProxy` with the long `--set` configuration chain that targets the cMaNGOS / TrinityCore 3.3.5a backend at `192.168.88.55:3726` from a V3_4_3_54261 client. Three modes:
 
 - `debug` — `-c Debug`, log levels `Verbose`/`Debug`. For active development + log reading.
 - `release` — `-c Release`, log levels `Information`. For profiling source (`hermes-profile cpu` / `counters`). Verbose logging skews CPU traces.
+- `watch` — `dotnet watch`, Debug build, same log levels as `debug`. The proxy keeps running and is patched as files are saved (hot reload). The mode for packet work; see "Watch mode" below.
 
 ## Usage
 
@@ -18,6 +19,7 @@ Wrap `dotnet run --project HermesProxy` with the long `--set` configuration chai
 /hermes-run release                  # release mode, no metrics
 /hermes-run release --metrics        # release + per-opcode latency/allocation report every 60s
 /hermes-run debug --no-build         # skip dotnet build
+/hermes-run watch -Profile wotlk-acore-bots   # hot reload: edits are patched into the running proxy
 /hermes-run release --address 127.0.0.1 --port 3724    # override target server
 
 # Profiles
@@ -56,7 +58,7 @@ The `--` separator before app args is required so `dotnet run` doesn't try to pa
 
 | Param | Default | Notes |
 |---|---|---|
-| `-Mode` | `debug` | `debug` or `release` |
+| `-Mode` | `debug` | `debug`, `release` or `watch` |
 | `-Profile` | (none) | Load `HermesProxy/profiles/<name>.json` as base config via `--config` |
 | `-ConfigPath` | (none) | Direct path to a custom config JSON (mutually exclusive with `-Profile`) |
 | `-Environment` | (none) | Sets `DOTNET_ENVIRONMENT=<name>` for the layered overlay pattern |
@@ -73,6 +75,19 @@ The `--` separator before app args is required so `dotnet run` doesn't try to pa
 | `-MetricsInterval` | (off) | Adds `--metrics-interval <N>`: metrics on, summary every N seconds (1-3600). Rates, GC line and the `Int`/`IntMax` columns cover one interval |
 | `-NoBuild` | (off) | Adds `--no-build` to `dotnet run` |
 | `-DryRun` | (off) | Print the command and exit without running |
+
+## Watch mode
+
+`-Mode watch` runs `dotnet watch run` from the `HermesProxy` folder (the proxy reads `appsettings.json` from its working directory, and `dotnet watch` starts it in its own). Which edits are patched in and which restart the proxy is in the root `CLAUDE.md`, "Dev Loop: Hot Reload".
+
+- **`HermesProxy/bin/Debug/Logs/dotnet-watch.log`** gets the few `dotnet watch` lines that say what an edit came to, time-stamped, without the proxy's output. Read its tail after an edit: `changes applied`, `error CS…` (not applied, old code still runs), or `Restart is needed` with the `ENC…` rule that asked for it.
+- `scripts/watch.ps1` is the launcher behind the mode and takes the proxy's arguments as they are (`watch.ps1 --set ClientBuild=… --set ServerAddress=…`), for a script that builds its own argument list. It runs `dotnet watch --verbose`, because only then is the `ENC…` rule printed, and keeps the rest of that output out of the window and the file.
+- **Only `dotnet watch`'s stderr is read**, which is where it writes its own lines. The proxy keeps the console as its stdout, so its log looks as it does under `dotnet run`; piped, it lost its colours and showed escape codes as text. The kept `dotnet watch` lines are shown in a colour of their own (green: applied, yellow: restart, red: error). Build output of a restart goes to the window only: when that build fails, the file has the `exited with exit code` line and the compiler errors are in the window.
+- **The hermes log** (`bin/Debug/Logs/hermes-*.log`) gets `Hot reload #N patched <types>` for every patch. A restart starts a new hermes log file.
+- `DOTNET_WATCH_RESTART_ON_RUDE_EDIT=1` is set, so an edit that cannot be patched restarts the proxy instead of waiting at a prompt. The client is dropped and has to log in again.
+- In a console window Ctrl+R restarts and Ctrl+C stops. Started without a console (stdin redirected), the script adds `--non-interactive`.
+- `-NoBuild` is refused: `dotnet watch` builds what it then patches.
+- If the first build fails with MSB3027 on `HermesProxy.SourceGen.dll`, a language server holds the file. Stop it (`csharp-ls`) and start again.
 
 ## Profiles
 

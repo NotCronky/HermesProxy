@@ -145,7 +145,9 @@ public static class LfgSystem
         if (!LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             return;
 
-        byte roles = OverlayAssignedLfgRoles(in ctx, packet.Roles);
+        // No assigned role is laid over these: an answer without a role is the role check
+        // declined, and an accepted one always carries the role the player picked.
+        byte roles = packet.Roles;
         WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_ROLES);
         Log.Print(LogType.Debug, $"LFG[diag]: CMSG_DF_SET_ROLES roles=0x{roles:X2}");
 

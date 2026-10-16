@@ -347,6 +347,9 @@ public sealed class GameSessionData
     // checks) then send SMSG_CAST_FAILED. Keep the last completed one so that
     // fail can still be forwarded instead of disappearing.
     public ClientCastRequest? LastCompletedNormalCast;
+    // Set when the player's create goes to the client, cleared by the first movement packet the
+    // client sends without Falling. See MovementHandler.SendOwnCanFlyChange.
+    public bool OwnSpawnFallPending;
     public ConcurrentQueue<ClientCastRequest> PendingPetCasts = new();  // pet spell casts (queue for proper FIFO handling)
     public WowGuid64 LastLootTargetGuid;
     public List<WowGuid128>? MasterLootCandidates;
@@ -621,6 +624,8 @@ public sealed class GameSessionData
 
     public byte LfgRequestedRoles;
     public readonly HashSet<uint> LfgKnownDungeonIds = new();
+    // The slots the client was last told it is queued for (SMSG_LFG_UPDATE_STATUS).
+    public List<uint> LfgQueuedSlots = [];
 
     // Dungeon ID -> the full LFG slot (dungeon ID with the type in the high byte) the legacy
     // backend used for it. SMSG_LFG_PLAYER_INFO / SMSG_LFG_PARTY_INFO carry full slots, but

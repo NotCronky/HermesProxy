@@ -17,6 +17,7 @@ namespace BNetServer.Services;
 public partial class BnetServices
 {
     internal static readonly Microsoft.Extensions.Logging.ILogger _melNet = Log.CreateMelLogger(Log.CategoryNetwork);
+    internal static readonly Microsoft.Extensions.Logging.ILogger _melServer = Log.CreateMelLogger(Log.CategoryServer);
     internal static readonly string _sourceFile = nameof(BnetServices).PadRight(15);
     internal const string _netDirNone = "";
 

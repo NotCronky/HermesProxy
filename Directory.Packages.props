@@ -4,6 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <WarningsAsErrors>nullable</WarningsAsErrors>
+    <!-- SYSLIB1015: "argument is not referenced from the logging message". Every [LoggerMessage]
+         method here takes SourceFile and NetDir, which the log's output template prints as columns
+         and no message text names. The files carry a #pragma for it, which a build honours, but
+         dotnet watch reports a warning suppressed in source all the same: some 400 lines after
+         every hot reload patch. Suppressed here, the generator's warning is never produced. -->
+    <NoWarn>$(NoWarn);SYSLIB1015</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Using Include="System.Numerics" />

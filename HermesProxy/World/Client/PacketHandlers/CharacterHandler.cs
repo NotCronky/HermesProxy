@@ -373,7 +373,7 @@ public partial class WorldClient
         }
 
         InitialSetup setup = new();
-        setup.ServerExpansionLevel = (byte)(LegacyVersion.ExpansionVersion - 1);
+        setup.ServerExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
         SendPacketToClient(setup);
 
         LoadCUFProfiles cuf = new();

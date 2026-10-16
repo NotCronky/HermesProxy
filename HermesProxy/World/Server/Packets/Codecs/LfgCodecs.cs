@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 
 namespace HermesProxy.World.Server.Packets;
@@ -46,7 +47,32 @@ public static class DFTeleportPktCodec
         => packet = new DFTeleportPkt(r.HasBit());
 }
 
-public static class DFSetRolesPktCodec
+[PacketCodec(typeof(DFSetRolesPkt), AddedIn = ClientVersionBuild.V3_4_3_54261)]
+public static class DFSetRolesPktCodecWotLKClassic
+{
+    /// <remarks>
+    /// The party-index flag comes first, in a byte of its own, then the roles and the optional
+    /// party index. The <c>Read()</c> this replaced took the flag byte for the roles, so the
+    /// answer to a role check reached the server as 0x80 (flag set) or 0.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out DFSetRolesPkt packet)
+    {
+        bool hasPartyIndex = r.HasBit();
+        byte roles = r.ReadUInt8();
+        if (hasPartyIndex)
+            r.ReadUInt8();
+        packet = new DFSetRolesPkt(roles);
+    }
+}
+
+/// <remarks>
+/// These clients write the roles as 32 bits and a party index byte after them. Left reading the
+/// first byte as it always did: no server before 3.3 has the dungeon finder, and the handler
+/// drops the packet for them.
+/// </remarks>
+[PacketCodec(typeof(DFSetRolesPkt), RemovedIn = ClientVersionBuild.V3_4_3_54261)]
+public static class DFSetRolesPktCodecPreWotLKClassic
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Read(ref SpanPacketReader r, out DFSetRolesPkt packet)

@@ -43,4 +43,10 @@ internal static partial class ServerLogMessages
     [LoggerMessage(EventId = 607, Level = LogLevel.Information, Message = "Stop requested through {EventName}, shutting down.")]
     public static partial void StopRequested(
         ILogger logger, string SourceFile, string NetDir, string EventName);
+
+    // The line that dates a hot reload in the log: packets before it ran the old code.
+    [LoggerMessage(EventId = 609, Level = LogLevel.Information,
+        Message = "Hot reload #{Number} patched {Types}; dispatch tables rebuilt")]
+    public static partial void HotReloadApplied(
+        ILogger logger, string SourceFile, string NetDir, int Number, string Types);
 }

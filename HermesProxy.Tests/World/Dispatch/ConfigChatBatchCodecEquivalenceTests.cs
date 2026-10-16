@@ -115,6 +115,28 @@ public class ConfigChatBatchCodecEquivalenceTests
         Assert.Equal(Guid, a.ChannelGuid);
     }
 
+    /// <summary>
+    /// A 3.4.3 client's addon whisper as it came off the wire: "HPT" / "whisper-343" to "Dk". The
+    /// reader had the layout right, but the 3.4.3 opcode table had no entry for the packet
+    /// (0x37EF), so the proxy dropped every addon whisper as an unknown opcode.
+    /// </summary>
+    [Fact]
+    public void ChatAddonMessageTargeted_WotLKClassic_HasItsOpcodeAndReadsACapturedWhisper()
+    {
+        Assert.Equal(Opcode.CMSG_CHAT_ADDON_MESSAGE_TARGETED,
+            Opcodes.GetUniversalOpcode(0x37EFu, ClientVersionBuild.V3_4_3_54261));
+
+        byte[] framed = [0, 0, .. Convert.FromHexString("0100185807000000485054776869737065722D3334330000446B")];
+        var r = ReaderOver(framed); ChatAddonMessageTargetedCodec.Read(ref r, out var a);
+
+        Assert.Equal("HPT", a.Params.Prefix);
+        Assert.Equal("whisper-343", a.Params.Text);
+        Assert.Equal(7, (int)a.Params.Type);
+        Assert.True(a.ChannelGuid.IsEmpty());
+        Assert.Equal("Dk", a.Target);
+        Assert.Equal(0, r.Remaining);
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(17, 42)]
