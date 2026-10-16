@@ -153,6 +153,7 @@ public partial class ObjectUpdateBuilder
         ApplyActivePlayerGlyphsMaskMutator(ref blocks, src);
         if (HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.HasAnyKnownTitle(src.KnownTitles)) { blocks.SetBit(0); blocks.SetBit(3); }
         if (src.Toys != null && src.Toys.Count > 0) { blocks.SetBit(0); blocks.SetBit(9); }
+        if (src.SelfResSpells != null) { blocks.SetBit(0); blocks.SetBit(12); }
         if (src.FarsightObject != null) { blocks.SetBit(0); blocks.SetBit(26); }
         if (src.SummonedBattlePetGUID != null) { blocks.SetBit(0); blocks.SetBit(27); }
         if (src.Coinage.HasValue) { blocks.SetBit(0); blocks.SetBit(28); }
@@ -1540,10 +1541,12 @@ public partial class ObjectUpdateBuilder
         }
         if (blocks.IsBitSet(3)) WriteUpdateActivePlayerKnownTitlesPreamble(data, ref blocks, src);
         if (blocks.IsBitSet(9)) WriteUpdateActivePlayerToysPreamble(data, ref blocks, src);
+        if (blocks.IsBitSet(12)) WriteUpdateActivePlayerSelfResSpellsPreamble(data, ref blocks, src);
         data.FlushBits();
         if (blocksMask0 == 0 && blocksMask1 == 0) return;
         if (blocks.IsBitSet(3)) WriteUpdateActivePlayerKnownTitlesBody(data, src);
         if (blocks.IsBitSet(9)) WriteUpdateActivePlayerToysBody(data, src);
+        if (blocks.IsBitSet(12)) WriteUpdateActivePlayerSelfResSpellsBody(data, src);
         if (blocks.IsBitSet(26)) data.WritePackedGuid128(src.FarsightObject!.Value);
         if (blocks.IsBitSet(27)) data.WritePackedGuid128(src.SummonedBattlePetGUID!.Value);
         if (blocks.IsBitSet(28)) data.WriteUInt64(src.Coinage!.Value);
@@ -2875,6 +2878,7 @@ public partial class ObjectUpdateBuilder
         if (HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.HasAnyInvSlotMapped(src)) return true;
         if (HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.HasAnyKnownTitle(src.KnownTitles)) return true;
         if (src.Toys != null && src.Toys.Count > 0) return true;
+        if (src.SelfResSpells != null) return true;
         if (src.FarsightObject != null) return true;
         if (src.SummonedBattlePetGUID != null) return true;
         if (src.Coinage.HasValue) return true;

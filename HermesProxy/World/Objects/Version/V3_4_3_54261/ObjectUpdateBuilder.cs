@@ -1053,8 +1053,9 @@ public partial class ObjectUpdateBuilder
     }
 
     // Dynamic-field payloads, in WPP wire order: KnownTitles (folded to 64-bit words),
-    // then Heirlooms[Count], HeirloomFlags[Count], then Toys[Count]. Counts were
-    // written earlier by the resize prefixes, so payload length has to agree with them.
+    // then Heirlooms[Count], HeirloomFlags[Count], Toys[Count], then (Transmog and
+    // ConditionalTransmog being empty) SelfResSpells. Counts were written earlier by the
+    // resize prefixes, so payload length has to agree with them.
     internal void WriteCreateActivePlayerDynamicPayloads(WorldPacket data, ActivePlayerData src)
     {
         Span<ulong> foldedTitles = stackalloc ulong[6];
@@ -1068,14 +1069,19 @@ public partial class ObjectUpdateBuilder
         var usableToys = _gameState.GetUsableToysOrdered();
         for (int i = 0; i < usableToys.Length; i++)
             data.WriteInt32((int)usableToys[i]);
+        WriteSelfResSpells(data, src);
     }
 
-    // Toys.Resize + the seven empty prefixes after it (Transmog through TaskQuests).
-    // Missing LearnedToys still writes Resize 0 so the later payload length stays valid.
+    // Toys.Resize and the seven prefixes after it, Transmog through TaskQuests, all empty but
+    // SelfResSpells. Missing LearnedToys still writes Resize 0 so the later payload length
+    // stays valid.
     internal void WriteCreateActivePlayerToyResizePrefixes(WorldPacket data, ActivePlayerData src)
     {
         data.WriteUInt32((uint)_gameState.GetUsableToysOrdered().Length);
-        for (int i = 0; i < 7; i++)
+        data.WriteUInt32(0u);   // Transmog
+        data.WriteUInt32(0u);   // ConditionalTransmog
+        data.WriteUInt32((uint)GetSelfResSpellCount(src));
+        for (int i = 0; i < 4; i++)
             data.WriteUInt32(0u);
     }
 
@@ -1284,12 +1290,31 @@ public partial class ObjectUpdateBuilder
 
     internal static int GetToyCount(ActivePlayerData src) => src.Toys?.Count ?? 0;
 
+    // The native 3.4.3 server writes the dynamic masks after KnownTitles' (Toys, SelfResSpells
+    // among them) in a bit section of their own, after bits 1-3 and a flush. The first of them
+    // writes the flush and both masks.
+    private static void WriteLaterDynamicMasks(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
+    {
+        data.FlushBits();
+        if (blocks.IsBitSet(9))
+        {
+            int count = GetToyCount(src);
+            data.WriteBits((uint)count, 32);
+            for (int i = 0; i < count; i++)
+                data.WriteBit(true);
+        }
+        if (blocks.IsBitSet(12))
+        {
+            int count = GetSelfResSpellCount(src);
+            data.WriteBits((uint)count, 32);
+            for (int i = 0; i < count; i++)
+                data.WriteBit(true);
+        }
+    }
+
     internal void WriteUpdateActivePlayerToysPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
     {
-        int count = GetToyCount(src);
-        data.WriteBits((uint)count, 32);
-        for (int i = 0; i < count; i++)
-            data.WriteBit(true);
+        WriteLaterDynamicMasks(data, ref blocks, src);
     }
 
     internal void WriteUpdateActivePlayerToysBody(WorldPacket data, ActivePlayerData src)
@@ -1298,6 +1323,37 @@ public partial class ObjectUpdateBuilder
             return;
         foreach (int itemId in src.Toys)
             data.WriteInt32(itemId);
+    }
+
+    // A 3.3.5a server has one self-res spell field and clears it to 0, where the list goes empty.
+    internal static int GetSelfResSpellCount(ActivePlayerData src)
+    {
+        int count = 0;
+        if (src.SelfResSpells != null)
+            foreach (uint spellId in src.SelfResSpells)
+                if (spellId != 0)
+                    count++;
+        return count;
+    }
+
+    internal void WriteUpdateActivePlayerSelfResSpellsPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
+    {
+        if (!blocks.IsBitSet(9))
+            WriteLaterDynamicMasks(data, ref blocks, src);
+    }
+
+    internal void WriteUpdateActivePlayerSelfResSpellsBody(WorldPacket data, ActivePlayerData src)
+    {
+        WriteSelfResSpells(data, src);
+    }
+
+    private static void WriteSelfResSpells(WorldPacket data, ActivePlayerData src)
+    {
+        if (src.SelfResSpells == null)
+            return;
+        foreach (uint spellId in src.SelfResSpells)
+            if (spellId != 0)
+                data.WriteInt32((int)spellId);
     }
 
     // Skill (bit 32) — nested SkillInfo write via existing WriteUpdateSkillInfo helper.
