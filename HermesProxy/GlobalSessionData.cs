@@ -753,9 +753,16 @@ public sealed class GameSessionData
         var index = GetCurrentPartyIndex();
         return CurrentGroups[index] ?? CurrentGroups[index == 0 ? 1 : 0];
     }
+    /// <summary>
+    /// The category the client was told the group is in by its last SMSG_PARTY_UPDATE: home (0),
+    /// or instance (1) for a battleground's or the dungeon finder's group. The packets about the
+    /// group (ready checks, raid markers) name it, and the client drops one that names a group it
+    /// does not have: in a dungeon finder group, "in a battleground or not" sent 0 and every raid
+    /// marker vanished.
+    /// </summary>
     public sbyte GetCurrentPartyIndex()
     {
-        return (sbyte)(IsInBattleground() ? 1 : 0);
+        return (sbyte)LastAnnouncedPartyIndex;
     }
     public byte GetItemSpellSlot(WowGuid128 guid, uint spellId)
     {
