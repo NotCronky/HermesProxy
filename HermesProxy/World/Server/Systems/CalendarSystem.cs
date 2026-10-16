@@ -7,7 +7,9 @@ namespace HermesProxy.World.Server.Systems;
 
 /// <summary>
 /// Translation for the modern client's calendar CMSGs, for a server that has a calendar: 3.0 on.
-/// The 3.3.5a requests are AzerothCore's and TrinityCore's <c>HandleCalendar*</c> readers.
+/// The 3.3.5a requests are AzerothCore's and TrinityCore's <c>HandleCalendar*</c> readers. The
+/// dates the client picks are in its own time and go to the server in the server's
+/// (<see cref="CalendarClock"/>).
 /// </summary>
 public static class CalendarSystem
 {
@@ -67,7 +69,7 @@ public static class CalendarSystem
             return;
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CALENDAR_ADD_EVENT);
-        WriteLegacyAddEvent(packet, add);
+        WriteLegacyAddEvent(packet, add with { Time = CalendarClock.For(ctx.GetSession()).ToServer(add.Time) });
         ctx.SendPacketToServer(packet);
     }
 
@@ -105,7 +107,7 @@ public static class CalendarSystem
             return;
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CALENDAR_UPDATE_EVENT);
-        WriteLegacyUpdateEvent(packet, update);
+        WriteLegacyUpdateEvent(packet, update with { Time = CalendarClock.For(ctx.GetSession()).ToServer(update.Time) });
         ctx.SendPacketToServer(packet);
     }
 
@@ -147,7 +149,7 @@ public static class CalendarSystem
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CALENDAR_COPY_EVENT);
         packet.WriteUInt64(copy.EventId);
         packet.WriteUInt64(copy.ModeratorId);
-        packet.WriteUInt32(copy.Date);
+        packet.WriteUInt32(CalendarClock.For(ctx.GetSession()).ToServer(copy.Date));
         ctx.SendPacketToServer(packet);
     }
 

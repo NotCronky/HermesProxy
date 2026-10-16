@@ -118,6 +118,24 @@ public sealed class CalendarTests
     }
 
     [Fact]
+    public void HandleCalendarSendCalendar_DatesGoInTheClientsOwnTime()
+    {
+        // a UTC server and a client two hours east: the server's 20:30 is 22:30 on the client,
+        // and the calendar's own time stays the server's, as a native server sends it
+        _harness.Session.ClientUtcOffset = TimeSpan.FromHours(2);
+        _harness.Session.GameState.LegacyServerUtcOffset = TimeSpan.Zero;
+        var calendar = Deliver<CalendarSendCalendar>(
+            Ints(0)
+            + Ints(1) + Longs(1) + Text("Probe event") + Ints(3) + "1EA5931A" + Ints(1, -1) + "0102"
+            + Ints(0x6ACEFA23) + "EA58931A"
+            + Ints(0) + Ints(0x43B237F0) + Ints(0) + Ints(0),
+            _harness.Client.HandleCalendarSendCalendar);
+
+        Assert.Equal(EventDate + (2u << 6), Assert.Single(calendar.Events).Date);
+        Assert.Equal(0x1A9358EAu, calendar.ServerTime);
+    }
+
+    [Fact]
     public void CalendarSendCalendar_Layout()
     {
         var calendar = new CalendarSendCalendar { ServerTime = 0x1A9358EA };

@@ -117,6 +117,9 @@ public sealed class GameSessionData
     // GetBnetAccountGuidForPlayer without threading the session through every call.
     public GlobalSessionData GlobalSession = null!;
 
+    // The legacy server's offset from UTC, from the local time it sends at login.
+    public System.TimeSpan? LegacyServerUtcOffset;
+
     /// <summary>
     /// Debug-only: the object cache should now be touched only by the session's owner thread. A
     /// playtest that never fires this is the evidence for deleting <see cref="ObjectCacheLock"/>.
@@ -2069,6 +2072,10 @@ public class GlobalSessionData
     public string Locale = null!;
     public string OS = null!;
     public uint Build;
+    // The client's standard offset from UTC, from its Battle.net logon (null when it sent none),
+    // and the zone its calendar goes by when this machine's zone has that offset.
+    public System.TimeSpan? ClientUtcOffset;
+    public System.TimeZoneInfo? ClientTimeZone;
     public GameSessionData GameState;
     
     public RealmId RealmId;

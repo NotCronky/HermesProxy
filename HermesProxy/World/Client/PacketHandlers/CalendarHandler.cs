@@ -49,6 +49,7 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_SEND_CALENDAR)]
     internal void HandleCalendarSendCalendar(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarSendCalendar calendar = new();
 
         uint inviteCount = packet.ReadUInt32();
@@ -75,7 +76,7 @@ public partial class WorldClient
             calendarEvent.EventId = packet.ReadUInt64();
             calendarEvent.EventName = packet.ReadCString();
             calendarEvent.EventType = (byte)packet.ReadUInt32();
-            calendarEvent.Date = packet.ReadUInt32();
+            calendarEvent.Date = clock.ToClient(packet.ReadUInt32());
             calendarEvent.Flags = packet.ReadUInt32();
             calendarEvent.TextureId = packet.ReadInt32();
             calendarEvent.OwnerGuid = CalendarPlayer(packet.ReadPackedGuid());
@@ -107,6 +108,7 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_SEND_EVENT)]
     internal void HandleCalendarSendEvent(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarSendEvent calendarEvent = new();
         calendarEvent.SendType = packet.ReadUInt8();
         calendarEvent.OwnerGuid = CalendarPlayer(packet.ReadPackedGuid());
@@ -118,8 +120,8 @@ public partial class WorldClient
         packet.ReadUInt32();                    // most invitations
         calendarEvent.TextureId = packet.ReadInt32();
         calendarEvent.Flags = packet.ReadUInt32();
-        calendarEvent.Date = packet.ReadUInt32();
-        calendarEvent.LockDate = packet.ReadUInt32();
+        calendarEvent.Date = clock.ToClient(packet.ReadUInt32());
+        calendarEvent.LockDate = clock.ToClient(packet.ReadUInt32());
         calendarEvent.EventClubId = packet.ReadUInt32();
 
         uint inviteCount = packet.ReadUInt32();
@@ -134,7 +136,7 @@ public partial class WorldClient
             invite.Moderator = packet.ReadUInt8();
             invite.InviteType = packet.ReadUInt8();
             invite.InviteId = packet.ReadUInt64();
-            invite.ResponseTime = packet.ReadUInt32();
+            invite.ResponseTime = clock.ToClient(packet.ReadUInt32());
             invite.Notes = packet.ReadCString();
             calendarEvent.Invites.Add(invite);
         }
@@ -150,6 +152,7 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_INVITE)]
     internal void HandleCalendarEventInvite(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarInviteAdded added = new();
         added.InviteGuid = CalendarPlayer(packet.ReadPackedGuid());
         added.EventId = packet.ReadUInt64();
@@ -157,7 +160,7 @@ public partial class WorldClient
         added.Level = packet.ReadUInt8();
         added.Status = packet.ReadUInt8();
         if (packet.ReadBool())
-            added.ResponseTime = packet.ReadUInt32();
+            added.ResponseTime = clock.ToClient(packet.ReadUInt32());
         bool invited = packet.ReadBool();
         added.Type = (byte)(invited ? 0 : 1);
         added.ClearPending = invited;
@@ -171,10 +174,11 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_INVITE_ALERT)]
     internal void HandleCalendarEventInviteAlert(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarInviteAlert alert = new();
         alert.EventId = packet.ReadUInt64();
         alert.EventName = packet.ReadCString();
-        alert.Date = packet.ReadUInt32();
+        alert.Date = clock.ToClient(packet.ReadUInt32());
         alert.Flags = packet.ReadUInt32();
         alert.EventType = (byte)packet.ReadUInt32();
         alert.TextureId = packet.ReadInt32();
@@ -193,14 +197,15 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_STATUS)]
     internal void HandleCalendarEventStatus(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarInviteStatus status = new();
         status.InviteGuid = CalendarPlayer(packet.ReadPackedGuid());
         status.EventId = packet.ReadUInt64();
-        status.Date = packet.ReadUInt32();
+        status.Date = clock.ToClient(packet.ReadUInt32());
         status.Flags = packet.ReadUInt32();
         status.Status = packet.ReadUInt8();
         packet.ReadUInt8();                     // rank
-        status.ResponseTime = packet.ReadUInt32();
+        status.ResponseTime = clock.ToClient(packet.ReadUInt32());
         status.ClearPending = true;
         SendPacketToClient(status);
     }
@@ -223,9 +228,10 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_INVITE_REMOVED_ALERT)]
     internal void HandleCalendarEventInviteRemovedAlert(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarInviteRemovedAlert alert = new();
         alert.EventId = packet.ReadUInt64();
-        alert.Date = packet.ReadUInt32();
+        alert.Date = clock.ToClient(packet.ReadUInt32());
         alert.Flags = packet.ReadUInt32();
         alert.Status = packet.ReadUInt8();
         SendPacketToClient(alert);
@@ -247,10 +253,11 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_REMOVED_ALERT)]
     internal void HandleCalendarEventRemovedAlert(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarEventRemovedAlert alert = new();
         alert.ClearPending = packet.ReadBool();
         alert.EventId = packet.ReadUInt64();
-        alert.Date = packet.ReadUInt32();
+        alert.Date = clock.ToClient(packet.ReadUInt32());
         SendPacketToClient(alert);
     }
 
@@ -261,12 +268,13 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_CALENDAR_EVENT_UPDATED_ALERT)]
     internal void HandleCalendarEventUpdatedAlert(WorldPacket packet)
     {
+        CalendarClock clock = CalendarClock.For(GetSession());
         CalendarEventUpdatedAlert alert = new();
         alert.ClearPending = packet.ReadBool();
         alert.EventId = packet.ReadUInt64();
-        alert.OriginalDate = packet.ReadUInt32();
+        alert.OriginalDate = clock.ToClient(packet.ReadUInt32());
         alert.Flags = packet.ReadUInt32();
-        alert.Date = packet.ReadUInt32();
+        alert.Date = clock.ToClient(packet.ReadUInt32());
         alert.EventType = packet.ReadUInt8();
         alert.TextureId = packet.ReadInt32();
         alert.EventName = packet.ReadCString();

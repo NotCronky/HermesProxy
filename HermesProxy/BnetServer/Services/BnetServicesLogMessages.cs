@@ -133,4 +133,10 @@ internal static partial class BnetServicesLogMessages
         string NetDir,
         string Prefix,
         string Realm);
+
+    [LoggerMessage(
+        EventId = 510,
+        Level = LogLevel.Debug,
+        Message = "Battlenet.LogonRequest: the client's standard offset from UTC is {Offset}; its calendar goes by {Zone}")]
+    public static partial void ClientTimeZone(ILogger logger, System.TimeSpan? Offset, string Zone);
 }
