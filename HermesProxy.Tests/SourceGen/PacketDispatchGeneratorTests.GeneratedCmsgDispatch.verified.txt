@@ -2659,9 +2659,15 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.ToySystem.HandleUseToy(in packet, in ctx);
     }
 
-    private static void Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    private static void Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO_WhoRequestPktCodecPreWotLKClassic(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
-        global::HermesProxy.World.Server.Packets.WhoRequestPktCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Packets.WhoRequestPktCodecPreWotLKClassic.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.QuerySystem.HandleWhoRequest(in packet, in ctx);
+    }
+
+    private static void Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO_WhoRequestPktCodecWotLKClassic(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.WhoRequestPktCodecWotLKClassic.Read(ref reader, out var packet);
         global::HermesProxy.World.Server.Systems.QuerySystem.HandleWhoRequest(in packet, in ctx);
     }
 
@@ -3249,7 +3255,12 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_USE_EQUIPMENT_SET] = &Thunk_HermesProxy_World_Server_Systems_EquipmentSetSystem_HandleUseEquipmentSet_CMSG_USE_EQUIPMENT_SET;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_USE_ITEM] = &Thunk_HermesProxy_World_Server_Systems_SpellSystem_HandleUseItem_CMSG_USE_ITEM;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_USE_TOY] = &Thunk_HermesProxy_World_Server_Systems_ToySystem_HandleUseToy_CMSG_USE_TOY;
-        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_WHO] = &Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO;
+        {
+            if (!global::HermesProxy.ModernVersion.AddedInVersion(3, 4, 3))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_WHO] = &Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO_WhoRequestPktCodecPreWotLKClassic;
+            else if (global::HermesProxy.ModernVersion.AddedInVersion(3, 4, 3))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_WHO] = &Thunk_HermesProxy_World_Server_Systems_QuerySystem_HandleWhoRequest_CMSG_WHO_WhoRequestPktCodecWotLKClassic;
+        }
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_WORLD_PORT_RESPONSE] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleWorldPortResponse_CMSG_WORLD_PORT_RESPONSE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_WRAP_ITEM] = &Thunk_HermesProxy_World_Server_Systems_ItemSystem_HandleWrapItem_CMSG_WRAP_ITEM;
 

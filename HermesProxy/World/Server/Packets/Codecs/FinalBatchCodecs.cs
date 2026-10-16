@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 
@@ -83,7 +84,8 @@ public static class HotfixRequestCodec
     }
 }
 
-public static class WhoRequestPktCodec
+[PacketCodec(typeof(WhoRequestPkt), RemovedIn = ClientVersionBuild.V3_4_3_54261)]
+public static class WhoRequestPktCodecPreWotLKClassic
 {
     /// <remarks>
     /// The 4-bit area count is read first and the areas last, with the whole WhoRequest block and
@@ -97,6 +99,33 @@ public static class WhoRequestPktCodec
         var request = new WhoRequest();
         request.Read(ref r);
         uint requestId = r.ReadUInt32();
+
+        var areas = new List<int>((int)areasCount);
+        for (int i = 0; i < areasCount; ++i)
+            areas.Add(r.ReadInt32());
+
+        packet = new WhoRequestPkt(request, requestId, areas);
+    }
+}
+
+[PacketCodec(typeof(WhoRequestPkt), AddedIn = ClientVersionBuild.V3_4_3_54261)]
+public static class WhoRequestPktCodecWotLKClassic
+{
+    /// <remarks>
+    /// An add-on bit follows the area count, and an origin byte (where the /who came from: the
+    /// social frame, chat, …) sits between the request id and the areas. Without that byte every
+    /// area id of a <c>z-"zone"</c> search is read one byte early and matches no zone.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out WhoRequestPkt packet)
+    {
+        uint areasCount = r.ReadBits<uint>(4);
+        r.ReadBit(); // IsFromAddOn
+
+        var request = new WhoRequest();
+        request.Read(ref r);
+        uint requestId = r.ReadUInt32();
+        r.ReadUInt8(); // Origin
 
         var areas = new List<int>((int)areasCount);
         for (int i = 0; i < areasCount; ++i)
