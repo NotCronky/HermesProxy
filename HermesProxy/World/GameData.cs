@@ -60,6 +60,26 @@ public static partial class GameData
     public static FrozenDictionary<(uint MapId, uint DifficultyId), uint> InstanceDifficultySizes
         = FrozenDictionary<(uint MapId, uint DifficultyId), uint>.Empty;
 
+    /// <summary>
+    /// A 3.3.5a instance difficulty, 0-1 in a dungeon (normal, heroic) and 0-3 in a raid (10, 25,
+    /// 10 heroic, 25 heroic), as the modern client numbers it on that map, with its group size.
+    /// 0 keeps the map's first difficulty; a map that is no instance is (0, 0).
+    /// </summary>
+    public static (uint DifficultyId, uint GroupSize) ModernInstanceDifficulty(uint mapId, uint legacyDifficulty)
+    {
+        (uint difficultyId, uint groupSize) = DefaultInstanceDifficulty.GetValueOrDefault(mapId);
+        if (legacyDifficulty != 0 && difficultyId != 0)
+        {
+            uint modern = difficultyId is (uint)DifficultyModern.Normal or (uint)DifficultyModern.Heroic
+                ? (uint)DifficultyModern.Heroic
+                : (uint)RaidDifficulties.ToLegacyId((byte)legacyDifficulty);
+            // An instance without that difficulty in the client's data keeps its first one.
+            if (InstanceDifficultySizes.TryGetValue((mapId, modern), out uint size))
+                return (modern, size);
+        }
+        return (difficultyId, groupSize);
+    }
+
     /// Every currency the modern client can display on this build, keyed by currency id.
     public static FrozenDictionary<uint, CurrencyTypeRecord> CurrencyTypeStore
         = FrozenDictionary<uint, CurrencyTypeRecord>.Empty;
