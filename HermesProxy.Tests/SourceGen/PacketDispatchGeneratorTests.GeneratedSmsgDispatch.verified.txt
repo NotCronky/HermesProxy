@@ -1422,6 +1422,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleLootCelarMoney(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleLootList_SMSG_LOOT_LIST(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleLootList(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleLootMasterList_SMSG_LOOT_MASTER_LIST(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleLootMasterList(packet);
@@ -2718,6 +2723,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOG_XP_GAIN] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLogXPGain_SMSG_LOG_XP_GAIN;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_ALL_PASSED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootAllPassed_SMSG_LOOT_ALL_PASSED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_CLEAR_MONEY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootCelarMoney_SMSG_LOOT_CLEAR_MONEY;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_LIST] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootList_SMSG_LOOT_LIST;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_MASTER_LIST] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootMasterList_SMSG_LOOT_MASTER_LIST;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_MONEY_NOTIFY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootMoneyNotify_SMSG_LOOT_MONEY_NOTIFY;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_RELEASE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLootRelease_SMSG_LOOT_RELEASE;
@@ -3196,6 +3202,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_LOG_XP_GAIN,
             global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_ALL_PASSED,
             global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_CLEAR_MONEY,
+            global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_LIST,
             global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_MASTER_LIST,
             global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_MONEY_NOTIFY,
             global::HermesProxy.World.Enums.Opcode.SMSG_LOOT_RELEASE,
