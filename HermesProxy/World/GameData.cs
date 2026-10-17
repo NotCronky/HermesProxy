@@ -117,7 +117,7 @@ public static partial class GameData
     public static FrozenDictionary<uint, uint> Gems = FrozenDictionary<uint, uint>.Empty;
     // BarberShopStyle.dbc, keyed by PackBarberShopStyleKey(type, race, sex, data). The legacy
     // barber validates the row ids the client sends against its own DBC, so the proxy has to
-    // turn the modern choice values back into row ids. See CSV/BarberShopStyle3.csv.
+    // turn the modern choice values back into row ids. See CSV/BarberShopStyle*.csv.
     public static FrozenDictionary<uint, uint> BarberShopStyles = FrozenDictionary<uint, uint>.Empty;
     public static FrozenDictionary<ushort, uint> GlyphSpellById = FrozenDictionary<ushort, uint>.Empty;
     public static FrozenSet<int> Heirlooms = FrozenSet<int>.Empty;
@@ -1532,15 +1532,16 @@ public static partial class GameData
         TotemSpells = dict.ToFrozenDictionary();
     }
 
-    // BarberShopStyle.dbc (3.3.5a). Extracted from the WotLK client data the legacy backend
-    // itself loads, so the row ids match what the server validates against. Barber shops only
-    // exist from 3.0.2 on, so the table ships for the WotLK build alone.
+    // BarberShopStyle.dbc of the legacy server (3.3.5a, 4.3.4), extracted from the client data
+    // the backend itself loads, so the row ids match what the server validates against. Barber
+    // shops exist from 3.0.2 on, and on the modern clients from 3.4.3. Keyed by the modern build
+    // alone, a 4.4.2 client had no table and every change was refused before it left the proxy.
     public static void LoadBarberShopStyles()
     {
-        if (ModernVersion.ExpansionVersion != 3)
+        if (ModernVersion.ExpansionVersion < 3 || LegacyVersion.ExpansionVersion < 3)
             return;
 
-        var path = Path.Combine("CSV", "BarberShopStyle3.csv");
+        var path = Path.Combine("CSV", $"BarberShopStyle{LegacyVersion.ExpansionVersion}.csv");
 
         if (!File.Exists(path))
             return;
