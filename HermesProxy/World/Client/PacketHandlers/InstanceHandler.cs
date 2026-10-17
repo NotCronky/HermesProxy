@@ -99,7 +99,18 @@ public partial class WorldClient
             InstanceLock instance = new InstanceLock();
             instance.MapID = packet.ReadUInt32();
 
-            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+            if (IsCataLegacy)
+            {
+                // TrinityCore 4.3.4 Player::SendRaidInfo: a heroic raid's lock as its size (0 for
+                // 10, 1 for 25) with the heroic flag after it; a heroic dungeon is 1 without the
+                // flag. Turned into one number of 3.3.5a's, the map's rows in the client's data
+                // tell a raid from a dungeon. Passed on as it came, a 10-player raid was "no
+                // difficulty" and a 25-player one "normal".
+                uint size = packet.ReadUInt32();
+                bool heroic = packet.ReadUInt32() != 0;
+                instance.DifficultyID = (DifficultyModern)GameData.ModernInstanceDifficulty(instance.MapID, heroic ? size + 2 : size).DifficultyId;
+            }
+            else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
                 instance.DifficultyID = (DifficultyModern)packet.ReadUInt32();
             else
             {
@@ -111,11 +122,9 @@ public partial class WorldClient
 
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             {
-                // TrinityCore 4.3.4 InstanceLock: a heroic flag before the instance id and the
-                // bosses killed after the time. Without them every lock after the first is read
-                // from the middle of the one before.
-                if (IsCataLegacy)
-                    packet.ReadUInt32(); // Heroic
+                // TrinityCore 4.3.4 InstanceLock: the bosses killed after the time. Without them
+                // (and the heroic flag) every lock after the first is read from the middle of the
+                // one before.
                 instance.InstanceID = packet.ReadUInt64();
                 instance.Locked = packet.ReadBool();
                 instance.Extended = packet.ReadBool();
