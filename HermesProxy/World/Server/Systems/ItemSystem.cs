@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
@@ -32,6 +33,7 @@ public static class ItemSystem
     private static readonly Microsoft.Extensions.Logging.ILogger _melServerItem =
         Log.CreateMelLogger(Log.CategoryServer);
     private static readonly string _logSourceItem = "ItemHandler".PadRight(15);
+    private static readonly string _netDirSend = Log.FormatDir(LogNetDir.P2S);
 
     [HandlesCmsg(Opcode.CMSG_BUY_ITEM)]
     public static void HandleBuyItem(in BuyItem item, in SessionContext ctx)
@@ -329,6 +331,74 @@ public static class ItemSystem
 
     // TrinityCore 4.3.4 ReforgeItem::Read: the reforge row, the slot, the bag, then the reforger as a
     // masked GUID. The server checks the NPC by its own reforger flag, so no gossip has to come first.
+    /// <summary>
+    /// The wardrobe's Apply. The 4.4.2 client names each slot's new look by appearance; a 4.3.4
+    /// server takes an item from the bags for it (TrinityCore 4.3.4 HandleTransmogrifyItems: the
+    /// source item's GUID and entry, the slot), so the appearance is turned back into a carried
+    /// item of that entry. An appearance of 0 puts the slot's own look back (entry 0, no item).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_TRANSMOGRIFY_ITEMS)]
+    public static void HandleTransmogrifyItems(in TransmogrifyItems request, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var carried = ctx.GetSession().GameState.GetCarriedItems();
+        var slots = new List<(ulong Source, uint Entry, uint Slot)>(request.Items.Length);
+        foreach (var item in request.Items)
+        {
+            if (item.ItemModifiedAppearanceID == 0)
+            {
+                slots.Add((0, 0, item.Slot));
+                continue;
+            }
+
+            if (GameData.GetItemModifiedAppearance((uint)item.ItemModifiedAppearanceID) is not { } appearance)
+            {
+                WorldSocketLogMessages.TransmogrifySourceMissing(_melServerItem, _logSourceItem, _netDirSend, item.ItemModifiedAppearanceID, 0, item.Slot);
+                return;
+            }
+            ulong source = 0;
+            foreach (var (guid, entry, equipSlot) in carried)
+            {
+                if (entry == (uint)appearance.ItemID && equipSlot != (int)item.Slot)
+                {
+                    source = guid.Low;
+                    break;
+                }
+            }
+            if (source == 0)
+            {
+                WorldSocketLogMessages.TransmogrifySourceMissing(_melServerItem, _logSourceItem, _netDirSend, item.ItemModifiedAppearanceID, appearance.ItemID, item.Slot);
+                return;
+            }
+            slots.Add((source, (uint)appearance.ItemID, item.Slot));
+        }
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_TRANSMOGRIFY_ITEMS);
+        WriteLegacyTransmogrify(packet, request.Npc.To64().Low, slots);
+        ctx.SendPacketToServer(packet);
+    }
+
+    // TrinityCore 4.3.4 TransmogrifyItems::Read: the count in 22 bits, every source item's mask,
+    // the transmogrifier's, then per slot the source entry, its GUID's bytes and the slot, and the
+    // transmogrifier's bytes.
+    internal static void WriteLegacyTransmogrify(WorldPacket packet, ulong npc, List<(ulong Source, uint Entry, uint Slot)> slots)
+    {
+        packet.WriteBits((uint)slots.Count, 22);
+        foreach (var slot in slots)
+            MaskedGuid.WriteMaskBits(packet, slot.Source, [0, 5, 6, 2, 3, 7, 4, 1]);
+        MaskedGuid.WriteMaskBits(packet, npc, [7, 3, 5, 6, 1, 4, 0, 2]);
+        packet.FlushBits();
+        foreach (var slot in slots)
+        {
+            packet.WriteUInt32(slot.Entry);
+            MaskedGuid.WriteBytes(packet, slot.Source, [1, 5, 0, 4, 6, 7, 3, 2]);
+            packet.WriteUInt32(slot.Slot);
+        }
+        MaskedGuid.WriteBytes(packet, npc, [7, 2, 5, 4, 3, 1, 6, 0]);
+    }
+
     [HandlesCmsg(Opcode.CMSG_REFORGE_ITEM)]
     public static void HandleReforgeItem(in ReforgeItem reforge, in SessionContext ctx)
     {

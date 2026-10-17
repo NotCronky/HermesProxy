@@ -510,37 +510,75 @@ public partial class ObjectUpdateBuilder
         return size;
     }
 
-    // TrinityCore cata_classic ITEM_MODIFIER_REFORGE.
+    // TrinityCore cata_classic ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS and ITEM_MODIFIER_REFORGE.
+    private const byte ItemModifierTransmogAppearance = 0;
     private const byte ItemModifierReforge = 58;
+
+    // TrinityCore 4.3.4 TRANSMOGRIFY_ENCHANTMENT_SLOT and REFORGE_ENCHANTMENT_SLOT, as fields.
+    private static int CataEnchantmentIdField(int slot)
+    {
+        int enchantment = LegacyVersion.GetUpdateField(ItemField.ITEM_FIELD_ENCHANTMENT);
+        return enchantment < 0 ? -1 : enchantment + slot * 3;
+    }
+
+    // An update carries only what changed, the client takes the whole list: the slot the update
+    // did not touch comes from the item's fields the proxy keeps.
+    private uint CurrentCataEnchantment(uint? fromUpdate, int slot)
+    {
+        if (fromUpdate != null)
+            return fromUpdate.Value;
+        int field = CataEnchantmentIdField(slot);
+        var fields = field < 0 ? null : _gameState.GetCachedObjectFieldsLegacy(_updateData.Guid);
+        return fields != null && fields.TryGetValue(field, out var value) ? value.UInt32Value : 0u;
+    }
+
+    // The item's modifiers as the 4.4.2 client lists them: the look of a transmogrification (the
+    // source item's appearance) and a reforge.
+    private int CollectItemModifiers(ItemData src, Span<(byte Type, int Value)> modifiers)
+    {
+        int count = 0;
+        // A 3.3.5a server's slots 8 and 9 are random-property enchantments.
+        if (LegacyVersion.ExpansionVersion < 4)
+            return count;
+        uint transmogEntry = CurrentCataEnchantment(src.TransmogEntry, Enums.Cata.EnchantmentSlot.Transmogrify);
+        if (transmogEntry != 0 && GameData.GetItemModifiedAppearanceByItemId(transmogEntry) is { } appearance)
+            modifiers[count++] = (ItemModifierTransmogAppearance, appearance.Id);
+        uint reforge = CurrentCataEnchantment(src.Reforge, Enums.Cata.EnchantmentSlot.Reforge);
+        if (reforge != 0)
+            modifiers[count++] = (ItemModifierReforge, (int)reforge);
+        return count;
+    }
 
     // ItemModList::WriteCreate: the count in 6 bits, then each modifier's type and value.
     internal void WriteCreateItemModifiers(WorldPacket data, ItemData src)
     {
-        bool reforged = src.Reforge is > 0;
-        data.WriteBits(reforged ? 1u : 0u, 6);
+        Span<(byte Type, int Value)> modifiers = stackalloc (byte, int)[2];
+        int count = CollectItemModifiers(src, modifiers);
+        data.WriteBits((uint)count, 6);
         data.FlushBits();
-        if (reforged)
+        for (int i = 0; i < count; i++)
         {
-            data.WriteUInt8(ItemModifierReforge);
-            data.WriteInt32((int)src.Reforge!.Value);
+            data.WriteUInt8(modifiers[i].Type);
+            data.WriteInt32(modifiers[i].Value);
         }
         data.FlushBits();
     }
 
     // ItemModList::WriteUpdate with the whole list each time: its own one-bit mask, the values'
-    // count (6 bits) and a changed bit for each, then the values. A reforge of 0 empties the list.
+    // count (6 bits) and a changed bit for each, then the values. An empty list takes them away.
     internal void WriteUpdateItemModifiers(WorldPacket data, ItemData src)
     {
-        bool reforged = src.Reforge is > 0;
+        Span<(byte Type, int Value)> modifiers = stackalloc (byte, int)[2];
+        int count = CollectItemModifiers(src, modifiers);
         data.WriteBits(1u, 1);
-        data.WriteBits(reforged ? 1u : 0u, 6);
-        if (reforged)
+        data.WriteBits((uint)count, 6);
+        for (int i = 0; i < count; i++)
             data.WriteBits(1u, 1);
         data.FlushBits();
-        if (reforged)
+        for (int i = 0; i < count; i++)
         {
-            data.WriteUInt8(ItemModifierReforge);
-            data.WriteInt32((int)src.Reforge!.Value);
+            data.WriteUInt8(modifiers[i].Type);
+            data.WriteInt32(modifiers[i].Value);
         }
         data.FlushBits();
     }
@@ -1304,7 +1342,7 @@ public partial class ObjectUpdateBuilder
             data.WriteUInt32(0u);
         for (int i = 0; i < projectCount; i++)
             data.WriteInt16((short)projects[i]);
-        if (blocks.IsBitSet(11) || blocks.IsBitSet(14))
+        if (blocks.IsBitSet(11) || blocks.IsBitSet(13) || blocks.IsBitSet(14))
             WriteLaterDynamicMasks(data, ref blocks, src);
     }
 
@@ -1344,6 +1382,7 @@ public partial class ObjectUpdateBuilder
         var usableToys = _gameState.GetUsableToysOrdered();
         for (int i = 0; i < usableToys.Length; i++)
             data.WriteInt32((int)usableToys[i]);
+        WriteConditionalTransmog(data, src);
         WriteSelfResSpells(data, src);
     }
 
@@ -1354,7 +1393,7 @@ public partial class ObjectUpdateBuilder
     {
         data.WriteUInt32((uint)_gameState.GetUsableToysOrdered().Length);
         data.WriteUInt32(0u);   // Transmog
-        data.WriteUInt32(0u);   // ConditionalTransmog
+        data.WriteUInt32((uint)GetConditionalTransmogCount(src));
         data.WriteUInt32((uint)GetSelfResSpellCount(src));
         for (int i = 0; i < 4; i++)
             data.WriteUInt32(0u);
@@ -1584,6 +1623,13 @@ public partial class ObjectUpdateBuilder
             for (int i = 0; i < count; i++)
                 data.WriteBit(true);
         }
+        if (blocks.IsBitSet(13))
+        {
+            int count = GetConditionalTransmogCount(src);
+            data.WriteBits((uint)count, 32);
+            for (int i = 0; i < count; i++)
+                data.WriteBit(true);
+        }
         if (blocks.IsBitSet(14))
         {
             int count = GetSelfResSpellCount(src);
@@ -1620,8 +1666,29 @@ public partial class ObjectUpdateBuilder
 
     internal void WriteUpdateActivePlayerSelfResSpellsPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
     {
+        if (!blocks.IsBitSet(11) && !blocks.IsBitSet(13) && !blocks.IsBitSet(23))
+            WriteLaterDynamicMasks(data, ref blocks, src);
+    }
+
+    internal static int GetConditionalTransmogCount(ActivePlayerData src) => src.ConditionalTransmog?.Count ?? 0;
+
+    internal void WriteUpdateActivePlayerConditionalTransmogPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
+    {
         if (!blocks.IsBitSet(11) && !blocks.IsBitSet(23))
             WriteLaterDynamicMasks(data, ref blocks, src);
+    }
+
+    internal void WriteUpdateActivePlayerConditionalTransmogBody(WorldPacket data, ActivePlayerData src)
+    {
+        WriteConditionalTransmog(data, src);
+    }
+
+    private static void WriteConditionalTransmog(WorldPacket data, ActivePlayerData src)
+    {
+        if (src.ConditionalTransmog == null)
+            return;
+        foreach (uint appearance in src.ConditionalTransmog)
+            data.WriteUInt32(appearance);
     }
 
     internal void WriteUpdateActivePlayerSelfResSpellsBody(WorldPacket data, ActivePlayerData src)

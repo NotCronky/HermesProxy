@@ -183,7 +183,8 @@ public enum ItemField
     // Modifiers, Update path (bit 19). TrinityCore cata_classic ItemData::WriteUpdate writes it
     // last in block 0, after ItemBonusKey (21) and DEBUGItemLevel (22), hence the write order.
     [DescriptorUpdateField(nameof(ItemData.Reforge), DescriptorType.UInt32, bit: 19, ParentBit = 0, WriteOrder = 22,
-                           CustomWriter = nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateItemModifiers))]
+                           CustomWriter = nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateItemModifiers),
+                           CustomPredicate = "src.Reforge != null || src.TransmogEntry != null")]
     ITEM_MODIFIERS_UPDATE,
 
     // -------------------------------------------------------------------------

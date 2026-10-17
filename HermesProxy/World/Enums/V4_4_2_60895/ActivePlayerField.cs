@@ -583,6 +583,12 @@ public enum ActivePlayerField
         customWriter: nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateActivePlayerToysPreamble))]
     ACTIVEPLAYER_TOYS_PREAMBLE,
 
+    // ConditionalTransmog (bit 13): appearances the wardrobe may use without having collected
+    // them, the items the player carries (a 4.3.4 server transmogrifies from those).
+    [DescriptorMaskPreamble(bit: 13,
+        customWriter: nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateActivePlayerConditionalTransmogPreamble))]
+    ACTIVEPLAYER_CONDITIONAL_TRANSMOG_PREAMBLE,
+
     // SelfResSpells (bit 14): what the death popup offers instead of releasing (Soulstone,
     // Reincarnation), from a 4.3.4 server's PLAYER_SELF_RES_SPELL.
     [DescriptorMaskPreamble(bit: 14,
@@ -599,6 +605,11 @@ public enum ActivePlayerField
         CustomWriter = nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateActivePlayerToysBody),
         CustomPredicate = "src.Toys != null && src.Toys.Count > 0")]
     ACTIVEPLAYER_TOYS,
+
+    [DescriptorUpdateField(nameof(ActivePlayerData.ConditionalTransmog), DescriptorType.UInt32, bit: 13, ParentBit = 0,
+        CustomWriter = nameof(HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder.WriteUpdateActivePlayerConditionalTransmogBody),
+        CustomPredicate = "src.ConditionalTransmog != null")]
+    ACTIVEPLAYER_CONDITIONAL_TRANSMOG,
 
     // An empty list is a change too: it takes the offer away once the player is back up.
     [DescriptorUpdateField(nameof(ActivePlayerData.SelfResSpells), DescriptorType.Int32, bit: 14, ParentBit = 0,

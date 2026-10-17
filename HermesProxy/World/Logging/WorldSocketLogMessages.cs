@@ -178,6 +178,18 @@ internal static partial class WorldSocketLogMessages
         string NetDir,
         byte TeamSize);
 
+    [LoggerMessage(
+        EventId = 123,
+        Level = LogLevel.Information,
+        Message = "CMSG_TRANSMOGRIFY_ITEMS not sent: appearance {Appearance} (item {ItemId}) for slot {Slot} is on no item the player carries")]
+    public static partial void TransmogrifySourceMissing(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        int Appearance,
+        int ItemId,
+        uint Slot);
+
     /// <summary>
     /// The modern client is told BadServer and dropped here, so this line is the only place the
     /// legacy world server's own verdict reaches the log on the client-facing side. Carrying

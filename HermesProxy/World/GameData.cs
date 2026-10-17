@@ -294,6 +294,9 @@ public static partial class GameData
         return null;
     }
 
+    public static ItemModifiedAppearance? GetItemModifiedAppearance(uint id)
+        => ItemModifiedAppearanceStore.TryGetValue(id, out var appearance) ? appearance : null;
+
     public static ItemModifiedAppearance? GetItemModifiedAppearanceByItemId(uint itemId)
     {
         foreach (var item in ItemModifiedAppearanceStore)

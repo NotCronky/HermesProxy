@@ -36,6 +36,9 @@ public class ItemData
     // The ItemReforge row of a reforged item (0 for none): an enchantment on a 4.3.4 server, item
     // modifier 58 on the 4.4.2 client.
     public uint? Reforge;
+    // The item whose look a transmogrified item takes (0 for none): the transmogrification
+    // enchantment on a 4.3.4 server, item modifier 0 (its appearance) on the 4.4.2 client.
+    public uint? TransmogEntry;
 
     // Dynamic Fields
     public bool HasGemsUpdate;

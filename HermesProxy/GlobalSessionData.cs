@@ -565,8 +565,9 @@ public sealed class GameSessionData
     public readonly ConcurrentDictionary<uint, byte> GoLockTemplateRequested = new();
     public HashSet<WowGuid64> DespawnedGameObjects = [];
     public HashSet<WowGuid128> HunterPetGuids = [];
-    // NPCs a 4.3.4 server flags as reforgers: their gossip hello opens the forge (NpcSystem).
-    public HashSet<WowGuid128> ReforgerGuids = [];
+    // NPCs whose window a 4.3.4 client opened from an NPC flag alone and the 4.4.2 client opens
+    // when told to after a gossip hello (NpcSystem): the reforger and the transmogrifier.
+    public Dictionary<WowGuid128, PlayerInteractionType> GossipInteractions = [];
 
     // Pet GUID translation tables for cMaNGOS-style backends. MaNGOS-era TBC/WotLK
     // encodes Pet GUIDs with pet_number (a per-character spawn counter) in the entry
@@ -1327,6 +1328,67 @@ public sealed class GameSessionData
         usable.Sort();
         return usable.ToArray();
     }
+    /// <summary>
+    /// The items the player wears and carries in the backpack and bags: GUID, entry, and the
+    /// equipment slot (-1 for one in a bag). What a 4.3.4 server transmogrifies from, and so the
+    /// appearances the 4.4.2 wardrobe offers.
+    /// </summary>
+    public List<(WowGuid64 Guid, uint Entry, int EquipSlot)> GetCarriedItems()
+    {
+        var items = new List<(WowGuid64, uint, int)>();
+        if (CurrentPlayerGuid.IsEmpty() || ObjectCacheLock == null)
+            return items;
+
+        void Add(WowGuid64 guid64, int equipSlot)
+        {
+            if (guid64 == WowGuid64.Empty)
+                return;
+            uint itemId = GetItemId(guid64.To128(this));
+            if (itemId != 0)
+                items.Add((guid64, itemId, equipSlot));
+        }
+
+        for (int i = EquipmentSlot.Start; i < EquipmentSlot.End; i++)
+            Add(GetInventorySlotItem(i), i);
+        for (int i = World.Enums.Vanilla.InventorySlots.ItemStart; i < World.Enums.Vanilla.InventorySlots.ItemEnd; i++)
+            Add(GetInventorySlotItem(i), -1);
+
+        int containerSlotField = LegacyVersion.GetUpdateField(ContainerField.CONTAINER_FIELD_SLOT_1);
+        int numSlotsField = LegacyVersion.GetUpdateField(ContainerField.CONTAINER_FIELD_NUM_SLOTS);
+        if (containerSlotField < 0 || numSlotsField < 0)
+            return items;
+
+        for (int bagIdx = World.Enums.Vanilla.InventorySlots.BagStart; bagIdx < World.Enums.Vanilla.InventorySlots.BagEnd; bagIdx++)
+        {
+            var bagGuid64 = GetInventorySlotItem(bagIdx);
+            if (bagGuid64 == WowGuid64.Empty)
+                continue;
+            var bagFields = GetCachedObjectFieldsLegacy(bagGuid64.To128(this));
+            if (bagFields == null || !bagFields.TryGetValue(numSlotsField, out var numSlotsValue))
+                continue;
+            int numSlots = (int)numSlotsValue.UInt32Value;
+            for (int slot = 0; slot < numSlots; slot++)
+                Add(bagFields.GetGuidValue(containerSlotField + slot * 2), -1);
+        }
+        return items;
+    }
+
+    /// <summary>
+    /// The appearances of the items the player carries (ItemModifiedAppearance ids, each once), for
+    /// the 4.4.2 wardrobe's ConditionalTransmog list.
+    /// </summary>
+    public List<uint> GetCarriedItemAppearances()
+    {
+        var appearances = new List<uint>();
+        foreach (var (_, entry, _) in GetCarriedItems())
+        {
+            if (GameData.GetItemModifiedAppearanceByItemId(entry) is { } appearance
+                && !appearances.Contains((uint)appearance.Id))
+                appearances.Add((uint)appearance.Id);
+        }
+        return appearances;
+    }
+
     void CollectInventoryToyIds(List<uint> dest)
     {
         void Consider(WowGuid64 guid64)

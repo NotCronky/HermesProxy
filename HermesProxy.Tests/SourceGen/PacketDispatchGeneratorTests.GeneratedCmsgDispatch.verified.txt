@@ -3013,6 +3013,12 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.NpcSystem.HandleInteractWithNPC(global::HermesProxy.World.Enums.Opcode.CMSG_TRAINER_LIST, in packet, in ctx);
     }
 
+    private static void Thunk_HermesProxy_World_Server_Systems_ItemSystem_HandleTransmogrifyItems_CMSG_TRANSMOGRIFY_ITEMS(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.TransmogrifyItemsCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.ItemSystem.HandleTransmogrifyItems(in packet, in ctx);
+    }
+
     private static void Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandleTurnInPetition_CMSG_TURN_IN_PETITION(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.TurnInPetitionCodec.Read(ref reader, out var packet);
@@ -3813,6 +3819,7 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TOY_CLEAR_FANFARE] = &Thunk_HermesProxy_World_Server_Systems_ToySystem_HandleToyClearFanfare_CMSG_TOY_CLEAR_FANFARE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TRAINER_BUY_SPELL] = &Thunk_HermesProxy_World_Server_Systems_NpcSystem_HandleTrainerBuySpell_CMSG_TRAINER_BUY_SPELL;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TRAINER_LIST] = &Thunk_HermesProxy_World_Server_Systems_NpcSystem_HandleInteractWithNPC_CMSG_TRAINER_LIST;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TRANSMOGRIFY_ITEMS] = &Thunk_HermesProxy_World_Server_Systems_ItemSystem_HandleTransmogrifyItems_CMSG_TRANSMOGRIFY_ITEMS;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TURN_IN_PETITION] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandleTurnInPetition_CMSG_TURN_IN_PETITION;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_TUTORIAL_FLAG] = &Thunk_HermesProxy_World_Server_Systems_MiscSystem_HandleTutorialFlag_CMSG_TUTORIAL_FLAG;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_UNACCEPT_TRADE] = &Thunk_HermesProxy_World_Server_Systems_TradeSystem_HandleEmptyTradePacket_CMSG_UNACCEPT_TRADE;
@@ -4298,6 +4305,7 @@ internal static unsafe class GeneratedCmsgDispatch
             global::HermesProxy.World.Enums.Opcode.CMSG_TOY_CLEAR_FANFARE,
             global::HermesProxy.World.Enums.Opcode.CMSG_TRAINER_BUY_SPELL,
             global::HermesProxy.World.Enums.Opcode.CMSG_TRAINER_LIST,
+            global::HermesProxy.World.Enums.Opcode.CMSG_TRANSMOGRIFY_ITEMS,
             global::HermesProxy.World.Enums.Opcode.CMSG_TURN_IN_PETITION,
             global::HermesProxy.World.Enums.Opcode.CMSG_TUTORIAL_FLAG,
             global::HermesProxy.World.Enums.Opcode.CMSG_UNACCEPT_TRADE,

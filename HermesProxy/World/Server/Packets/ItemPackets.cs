@@ -1032,6 +1032,12 @@ public sealed class ItemPurchaseRefundResult : ServerPacket
 }
 
 // The reforger, the item's bag and slot, and the ItemReforge row (0 takes a reforge off).
+/// <summary>One slot of a transmogrification: the appearance it takes (0 puts its own back).</summary>
+public readonly record struct TransmogrifyItem(int ItemModifiedAppearanceID, uint Slot, int SpellItemEnchantmentID, int SecondaryItemModifiedAppearanceID);
+
+/// <summary>The wardrobe's Apply: the transmogrifier and the slots to change.</summary>
+public readonly record struct TransmogrifyItems(WowGuid128 Npc, TransmogrifyItem[] Items, bool CurrentSpecOnly);
+
 public readonly record struct ReforgeItem(WowGuid128 ReforgerGUID, uint ContainerId, uint SlotNum, uint ItemReforgeRecId);
 
 // Whether the reforge went through: one bit on 4.3.4 and on 4.4.2.

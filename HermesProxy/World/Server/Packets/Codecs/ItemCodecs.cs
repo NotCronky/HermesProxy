@@ -302,6 +302,39 @@ public static class ItemPurchaseRefundCodec
 /// The reforger, the bag, the slot and the ItemReforge row (docs/protocol/4.4.2.60895; TrinityCore
 /// cata_classic ReforgeItem::Read). Only the 4.4.2 client has the opcode.
 /// </summary>
+/// <summary>
+/// The 4.4.2 client's layout (docs/protocol/4.4.2.60895; TrinityCore cata_classic reads the same):
+/// the count, the transmogrifier, per slot the appearance, the slot, an illusion and a second
+/// appearance (shoulders), then one bit.
+/// </summary>
+public static class TransmogrifyItemsCodec
+{
+    private const int ItemBytes = 16;
+
+    public static void Read(ref SpanPacketReader r, out TransmogrifyItems packet)
+    {
+        uint count = r.ReadUInt32();
+        WowGuid128 npc = r.ReadPackedGuid128();
+
+        // The count is wire data: what is left of the packet bounds how many can follow.
+        if (count > r.Remaining / ItemBytes)
+            throw new System.ArgumentOutOfRangeException(nameof(count), count,
+                $"CMSG_TRANSMOGRIFY_ITEMS claims {count} slots but only {r.Remaining} bytes remain.");
+
+        var items = new TransmogrifyItem[count];
+        for (int i = 0; i < count; i++)
+        {
+            int appearance = r.ReadInt32();
+            uint slot = r.ReadUInt32();
+            int enchantment = r.ReadInt32();
+            int secondaryAppearance = r.ReadInt32();
+            items[i] = new TransmogrifyItem(appearance, slot, enchantment, secondaryAppearance);
+        }
+        bool currentSpecOnly = r.HasBit();
+        packet = new TransmogrifyItems(npc, items, currentSpecOnly);
+    }
+}
+
 public static class ReforgeItemCodec
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

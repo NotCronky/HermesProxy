@@ -20,8 +20,9 @@ namespace HermesProxy.World.Client;
 
 public partial class WorldClient
 {
-    // TrinityCore 4.3.4 UNIT_NPC_FLAG_REFORGER.
+    // TrinityCore 4.3.4 UNIT_NPC_FLAG_REFORGER and UNIT_NPC_FLAG_TRANSMOGRIFIER.
     private const uint CataNpcFlagReforger = 0x08000000;
+    private const uint CataNpcFlagTransmogrifier = 0x10000000;
 
     // TrinityCore 4.3.4 PLAYER_EXPLORED_ZONES_1: 156 fields.
     private const int CataExploredZoneFields = 156;
@@ -2982,9 +2983,12 @@ public partial class WorldClient
                     updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop2] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop2);
                     updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop3] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop3);
                     updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop4] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop4);
-                    // The reforge is no enchantment on the 4.4.2 client but an item modifier.
+                    // The reforge and the transmogrification are no enchantments on the 4.4.2 client
+                    // but item modifiers.
                     if (ReadEnchantData(Enums.Cata.EnchantmentSlot.Reforge) is { ID: int reforge })
                         updateData.ItemData.Reforge = (uint)reforge;
+                    if (ReadEnchantData(Enums.Cata.EnchantmentSlot.Transmogrify) is { ID: int transmog })
+                        updateData.ItemData.TransmogEntry = (uint)transmog;
                 }
                 else
                 {
@@ -3528,7 +3532,14 @@ public partial class WorldClient
                     if (IsCataLegacy && (npcFlags & CataNpcFlagReforger) != 0)
                     {
                         npcFlags = (npcFlags & ~CataNpcFlagReforger) | (uint)NPCFlags.Gossip;
-                        GetSession().GameState.ReforgerGuids.Add(guid);
+                        GetSession().GameState.GossipInteractions[guid] = PlayerInteractionType.ForgeMaster;
+                    }
+                    // The transmogrifier's bit means the same to both, but the 4.4.2 client opens its
+                    // wardrobe the same way, from a gossip hello answered with the window.
+                    else if (IsCataLegacy && (npcFlags & CataNpcFlagTransmogrifier) != 0)
+                    {
+                        npcFlags |= (uint)NPCFlags.Gossip;
+                        GetSession().GameState.GossipInteractions[guid] = PlayerInteractionType.Transmogrifier;
                     }
                     updateData.UnitData.EnsureNpcFlags()[0] = npcFlags;
                 }
