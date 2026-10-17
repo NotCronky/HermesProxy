@@ -418,7 +418,8 @@ public partial class WorldClient
         {
             case ChatMessageTypeWotLK.BattlegroundAlliance:
             case ChatMessageTypeWotLK.BattlegroundHorde:
-                Utility.Swap(ref sender, ref receiver);
+                if (!ModernVersion.BattlegroundAnnouncementNamesTarget)
+                    Utility.Swap(ref sender, ref receiver);
                 break;
         }
 

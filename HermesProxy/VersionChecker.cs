@@ -600,6 +600,13 @@ public static class ModernVersion
     /// ask for the name themselves.
     /// </summary>
     public static readonly bool PlayerObjectCarriesName = ExpansionVersion >= 4;
+    /// <summary>
+    /// A battleground announcement about a player ("The Horde Flag was picked up by $n!", Alliance
+    /// or Horde type): from 4.4.2 on the client wants the player as the target, the way TrinityCore
+    /// cata_classic's BroadcastTextBuilder sends it. Given the player as the sender, the 4.4.2 client
+    /// put the line nowhere. The older clients want the player as the sender.
+    /// </summary>
+    public static readonly bool BattlegroundAnnouncementNamesTarget = ExpansionVersion >= 4;
 
     public static int BuildInt => (int)Build;
     public static string VersionString => Build.ToString();
