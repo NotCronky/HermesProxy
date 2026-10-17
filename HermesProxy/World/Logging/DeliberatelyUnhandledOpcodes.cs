@@ -78,6 +78,9 @@ internal static class DeliberatelyUnhandledOpcodes
         Opcode.SMSG_LEARNED_DANCE_MOVES,
         Opcode.SMSG_GUILD_REPUTATION_WEEKLY_CAP,
         Opcode.SMSG_LF_GUILD_APPLICANT_LIST_CHANGED,
+        // The answer to buying a bank bag slot, which TrinityCore sends on success too: no modern
+        // client has an opcode for it, and the new slot count arrives in the player's fields.
+        Opcode.SMSG_BUY_BANK_SLOT_RESULT,
     }.ToFrozenSet();
 
     public static bool IsFromClient(Opcode opcode) => FromClient.Contains(opcode);
