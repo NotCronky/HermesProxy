@@ -2497,6 +2497,41 @@ public class SpellInstakillLog : ServerPacket, ISpanWritable
     public uint SpellID;
 }
 
+/// <summary>
+/// A cast cut short by another spell (Kick, Counterspell), for the combat log: TrinityCore
+/// cata_classic SpellInterruptLog, the caster and the victim, then the interrupted spell and the
+/// one that interrupted it.
+/// </summary>
+public sealed class SpellInterruptLog : ServerPacket, ISpanWritable
+{
+    public SpellInterruptLog() : base(Opcode.SMSG_SPELL_INTERRUPT_LOG, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Caster);
+        _worldPacket.WritePackedGuid128(Victim);
+        _worldPacket.WriteInt32(InterruptedSpellID);
+        _worldPacket.WriteInt32(SpellID);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size * 2 + 8;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Caster.Low, Caster.High);
+        writer.WritePackedGuid128(Victim.Low, Victim.High);
+        writer.WriteInt32(InterruptedSpellID);
+        writer.WriteInt32(SpellID);
+        return writer.Position;
+    }
+
+    public WowGuid128 Caster;
+    public WowGuid128 Victim;
+    public int InterruptedSpellID;
+    public int SpellID;
+}
+
 class SpellDispellLog : ServerPacket, ISpanWritable
 {
     public SpellDispellLog() : base(Opcode.SMSG_SPELL_DISPELL_LOG, ConnectionType.Instance) { }

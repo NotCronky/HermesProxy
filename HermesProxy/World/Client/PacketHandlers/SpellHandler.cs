@@ -1418,6 +1418,48 @@ public partial class WorldClient
         SendPacketToClient(spell);
     }
 
+    /// <summary>
+    /// A cast cut short by another spell, for the combat log. TrinityCore 4.3.4 never sends it; a
+    /// second 4.3.4 core does, in the retail order WowPacketParser read from sniffs: both GUIDs
+    /// masked, their bits and bytes interleaved, the interrupting spell among the victim's bytes
+    /// and the interrupted one after the caster's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_SPELL_INTERRUPT_LOG)]
+    internal void HandleSpellInterruptLog(WorldPacket packet)
+    {
+        Span<bool> casterMask = stackalloc bool[8];
+        Span<bool> victimMask = stackalloc bool[8];
+        Span<byte> caster = stackalloc byte[8];
+        Span<byte> victim = stackalloc byte[8];
+
+        MaskedGuid.ReadMaskBits(packet, victimMask, [4]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [5, 6, 1, 3, 0]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [3, 5, 1]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [4, 7]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [7, 6]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [2]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [2, 0]);
+
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [7, 6, 3, 2]);
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [3, 6, 2, 4, 7, 0]);
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [4]);
+        int spellId = packet.ReadInt32();
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [1]);
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [0, 5, 1]);
+        int interruptedSpellId = packet.ReadInt32();
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [5]);
+
+        var gameState = GetSession().GameState;
+        SpellInterruptLog log = new SpellInterruptLog
+        {
+            Caster = new WowGuid64(MaskedGuid.ToUInt64(caster)).To128(gameState),
+            Victim = new WowGuid64(MaskedGuid.ToUInt64(victim)).To128(gameState),
+            InterruptedSpellID = interruptedSpellId,
+            SpellID = spellId,
+        };
+        SendPacketToClient(log);
+    }
+
     [HandlesSmsg(Opcode.SMSG_SPELL_DISPELL_LOG)]
     internal void HandleSpellDispellLog(WorldPacket packet)
     {
