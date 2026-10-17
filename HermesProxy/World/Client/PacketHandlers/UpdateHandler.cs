@@ -2486,6 +2486,59 @@ public partial class WorldClient
         Timeout: TimeSpan.FromSeconds(5), OnTimeout: OutboxTimeoutAction.Release);
 
     /// <summary>
+    /// Another player's collision height, for a V3_4_3 client (#338). The client takes
+    /// <c>SMSG_MOVE_SET_COLLISION_HEIGHT</c> as a change to a mover it controls and acknowledges it,
+    /// so a native server sends that to the player alone and tells the players around with
+    /// <c>SMSG_MOVE_UPDATE_COLLISION_HEIGHT</c>. That one carries the unit's movement status, which
+    /// the client applies as a movement of the unit, and a 3.3.5a server tells the others nothing.
+    /// So the height waits for the next movement the server reports for that player and goes out
+    /// with its status (<see cref="SendHeldCollisionHeight"/>).
+    /// </summary>
+    private sealed record HeldCollisionHeight(float Height, float Scale)
+    {
+        public static HoldKey Key(WowGuid128 guid) => new(HoldKeyKind.RemoteCollisionHeight, guid.Low, guid.High);
+
+        // A player standing still reports no movement; there is no status to send the height with.
+        public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
+    }
+
+    private void HoldRemoteCollisionHeight(WowGuid128 guid, float height, float scale)
+    {
+        var toClient = GetSession().ToClient;
+        var key = HeldCollisionHeight.Key(guid);
+        if (toClient.HasPending)
+            toClient.Cancel(key);
+        toClient.Delay(HeldCollisionHeight.Timeout, new HeldCollisionHeight(height, scale), static _ => { },
+            new HoldOptions(Key: key, RunOnTimer: true));
+    }
+
+    /// <summary>
+    /// Sends the collision height held for <paramref name="mover"/>, with the status of the movement
+    /// the server has just reported for it.
+    /// </summary>
+    private void SendHeldCollisionHeight(WowGuid128 mover, in MovementInfo moveInfo)
+    {
+        if (!ModernVersion.IsWotLKClassicOrLater || !mover.IsPlayer())
+            return;
+
+        var toClient = GetSession().ToClient;
+        if (!toClient.HasPending)
+            return;
+
+        var key = HeldCollisionHeight.Key(mover);
+        if (toClient.Peek<HeldCollisionHeight>(key) is not { } held || !toClient.Claim(key, held))
+            return;
+
+        SendPacketToClient(new MoveUpdateCollisionHeight
+        {
+            MoverGUID = mover,
+            MoveInfo = moveInfo,
+            Height = held.Height,
+            Scale = held.Scale,
+        });
+    }
+
+    /// <summary>
     /// Whether this block carried a new value for <paramref name="field"/>.
     /// </summary>
     /// <remarks>
@@ -2547,6 +2600,12 @@ public partial class WorldClient
                 var scaledHeight = heightScale * calculatedBaseHeight;
 
                 var displayScale = regularNativeDisplaySize * scale;
+
+                if (ModernVersion.IsWotLKClassicOrLater && guid != Session.GameState.CurrentPlayerGuid)
+                {
+                    HoldRemoteCollisionHeight(guid, scaledHeight, displayScale);
+                    return;
+                }
 
                 var reason = Changed(changedValuesMask, UNIT_FIELD_MOUNTDISPLAYID)
                     ? MoveSetCollisionHeight.UpdateCollisionHeightReason.Mount

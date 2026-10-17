@@ -244,6 +244,7 @@ public partial class WorldClient
         moveUpdate.MoverGUID = mover;
         LegacyMovementCodec.ReadForClient(packet, gameState, out moveUpdate.MoveInfo);
         SendPacketToClient(moveUpdate);
+        SendHeldCollisionHeight(mover, in moveUpdate.MoveInfo);
     }
 
     /// <summary>
@@ -617,6 +618,7 @@ public partial class WorldClient
         LegacyMovementCodec.ReadForClient(packet, GetSession().GameState, out speed.MoveInfo);
         speed.Speed = packet.ReadFloat();
         SendPacketToClient(speed);
+        SendHeldCollisionHeight(speed.MoverGUID, in speed.MoveInfo);
 
         // Convenience in vanilla to use SwimSpeed as FlySpeed
         if (universalOpcode is Opcode.SMSG_MOVE_UPDATE_SWIM_SPEED

@@ -768,6 +768,35 @@ public class MoveUpdateKnockBack : ServerPacket, ISpanWritable
     public MovementInfo MoveInfo;
 }
 
+/// <summary>Another unit's new collision height, for the players around it.</summary>
+public sealed class MoveUpdateCollisionHeight : ServerPacket, ISpanWritable
+{
+    public MoveUpdateCollisionHeight() : base(Opcode.SMSG_MOVE_UPDATE_COLLISION_HEIGHT) { }
+
+    public override void Write()
+    {
+        ModernMovementCodec.Write(_worldPacket, MoverGUID, in MoveInfo);
+        _worldPacket.WriteFloat(Height);
+        _worldPacket.WriteFloat(Scale);
+    }
+
+    public int MaxSize => ModernMovementCodec.MaxSize + 8;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        int written = ModernMovementCodec.Write(buffer, MoverGUID, in MoveInfo);
+        var writer = new SpanPacketWriter(buffer[written..]);
+        writer.WriteFloat(Height);
+        writer.WriteFloat(Scale);
+        return written + writer.Position;
+    }
+
+    public WowGuid128 MoverGUID;
+    public MovementInfo MoveInfo;
+    public float Height = 1.0f;
+    public float Scale = 1.0f;
+}
+
 class SuspendToken : ServerPacket, ISpanWritable
 {
     public SuspendToken() : base(Opcode.SMSG_SUSPEND_TOKEN, ConnectionType.Instance) { }
