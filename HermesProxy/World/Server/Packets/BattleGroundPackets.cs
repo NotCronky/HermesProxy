@@ -301,6 +301,27 @@ public class BattlefieldStatusFailed : ServerPacket, ISpanWritable
     public int Reason;
 }
 
+/// <summary>
+/// A queue entry taken off the client's list without an error (the modern SMSG_BATTLEFIELD_STATUS_NONE,
+/// 0x410003 on 4.4.2): the ride ticket alone, with the trailing flag of the 3.4.3 and later ticket.
+/// </summary>
+public sealed class BattlefieldStatusNone : ServerPacket
+{
+    public BattlefieldStatusNone() : base(Opcode.SMSG_BATTLEFIELD_STATUS) { }
+
+    public override void Write()
+    {
+        Ticket.Write(_worldPacket);
+        if (BattlefieldStatusFailed.HasTicketFlag)
+        {
+            _worldPacket.WriteBit(false);
+            _worldPacket.FlushBits();
+        }
+    }
+
+    public RideTicket Ticket = new();
+}
+
 public class BattlefieldStatusHeader
 {
     public void Write(WorldPacket data)

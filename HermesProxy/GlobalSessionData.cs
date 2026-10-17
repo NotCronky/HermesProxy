@@ -508,6 +508,8 @@ public sealed class GameSessionData
     public Dictionary<uint, byte> BattleFieldQueueBracketIds = [];
     public Dictionary<uint, long> BattleFieldQueueTimes = [];
     public Dictionary<uint, uint> BattleFieldQueueJoinTimes = [];
+    // A 4.3.4 battlefield's GUID, by battle: its client answers with it (TrinityCore 4.3.4 leaves it empty).
+    public Dictionary<uint, ulong> BattlefieldMgrGuids = [];
     // The roles the last battleground join was sent with: a 4.3.4 invitation does not say them back.
     public byte BattlefieldJoinRoles;
     // A 4.3.4 battleground's clock: when it runs out by the server's time, and on which map.

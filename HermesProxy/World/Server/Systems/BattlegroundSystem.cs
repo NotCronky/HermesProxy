@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
@@ -113,8 +114,16 @@ public static class BattlegroundSystem
                 ? Opcode.CMSG_BF_MGR_QUEUE_INVITE_RESPONSE
                 : Opcode.CMSG_BF_MGR_ENTRY_INVITE_RESPONSE;
             WorldPacket mgrPacket = new WorldPacket(mgrOpcode);
-            mgrPacket.WriteUInt32(mgrBattleId);
-            mgrPacket.WriteUInt8(port.AcceptedInvite ? (byte)1 : (byte)0);
+            if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            {
+                ulong battlefield = ctx.GetSession().GameState.BattlefieldMgrGuids.GetValueOrDefault(mgrBattleId);
+                WriteLegacyBfInviteResponse(mgrPacket, mgrKind, battlefield, port.AcceptedInvite);
+            }
+            else
+            {
+                mgrPacket.WriteUInt32(mgrBattleId);
+                mgrPacket.WriteUInt8(port.AcceptedInvite ? (byte)1 : (byte)0);
+            }
             BattleGroundLogMessages.PortAsMgr(
                 _melLog, port.Ticket.Id, port.AcceptedInvite, mgrOpcode.ToString(), mgrBattleId);
             ctx.SendPacketToServer(mgrPacket);
@@ -188,17 +197,19 @@ public static class BattlegroundSystem
     [HandlesCmsg(Opcode.CMSG_BATTLEFIELD_LEAVE)]
     public static void HandleBattlefieldLeave(in BattlefieldLeave leave, in SessionContext ctx)
     {
-        uint entryTicket = BattlefieldMgrTranslation.TicketFor(
-            BattlefieldMgrTranslation.WintergraspBattleId, BattlefieldMgrTicketKind.Entry);
-        uint queueTicket = BattlefieldMgrTranslation.TicketFor(
-            BattlefieldMgrTranslation.WintergraspBattleId, BattlefieldMgrTicketKind.Queue);
-        bool hasMgrTicket = ctx.GetSession().GameState.GetBattleFieldQueueType(entryTicket) != 0 ||
-            ctx.GetSession().GameState.GetBattleFieldQueueType(queueTicket) != 0;
-        if (BattlefieldMgrTranslation.ShouldRouteLeaveToMgr(ctx.GetSession().GameState.CurrentZoneId, hasMgrTicket))
+        var gameState = ctx.GetSession().GameState;
+        uint zoneBattle = BattlefieldMgrTranslation.BattleIdForZone(gameState.CurrentZoneId);
+        bool hasMgrTicket = zoneBattle != 0 &&
+            (gameState.GetBattleFieldQueueType(BattlefieldMgrTranslation.TicketFor(zoneBattle, BattlefieldMgrTicketKind.Entry)) != 0 ||
+            gameState.GetBattleFieldQueueType(BattlefieldMgrTranslation.TicketFor(zoneBattle, BattlefieldMgrTicketKind.Queue)) != 0);
+        if (BattlefieldMgrTranslation.ShouldRouteLeaveToMgr(gameState.CurrentZoneId, hasMgrTicket))
         {
             WorldPacket exit = new WorldPacket(Opcode.CMSG_BF_MGR_QUEUE_EXIT_REQUEST);
-            exit.WriteUInt32(BattlefieldMgrTranslation.WintergraspBattleId);
-            BattleGroundLogMessages.LeaveAsMgr(_melLog, BattlefieldMgrTranslation.WintergraspBattleId);
+            if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+                WriteLegacyBfExitRequest(exit, gameState.BattlefieldMgrGuids.GetValueOrDefault(zoneBattle));
+            else
+                exit.WriteUInt32(zoneBattle);
+            BattleGroundLogMessages.LeaveAsMgr(_melLog, zoneBattle);
             ctx.SendPacketToServer(exit);
             return;
         }
@@ -228,6 +239,39 @@ public static class BattlegroundSystem
             packet.WriteUInt32((uint)ctx.GetSession().GameState.CurrentMapId!);
         ctx.SendPacketToServer(packet);
     }
+    /// <summary>
+    /// TrinityCore 4.3.4 HandleBfQueueInviteResponse / HandleBfEntryInviteResponse: the
+    /// battlefield's GUID masked, the answer among its bits. The server finds the battle by the
+    /// player's zone, not by the GUID.
+    /// </summary>
+    internal static void WriteLegacyBfInviteResponse(WorldPacket packet, BattlefieldMgrTicketKind kind, ulong battlefield, bool accepted)
+    {
+        if (kind == BattlefieldMgrTicketKind.Queue)
+        {
+            MaskedGuid.WriteMaskBits(packet, battlefield, [2, 0, 4, 3, 5, 7]);
+            packet.WriteBit(accepted);
+            MaskedGuid.WriteMaskBits(packet, battlefield, [1, 6]);
+            packet.FlushBits();
+            MaskedGuid.WriteBytes(packet, battlefield, [1, 3, 2, 4, 6, 7, 0, 5]);
+        }
+        else
+        {
+            MaskedGuid.WriteMaskBits(packet, battlefield, [6, 1]);
+            packet.WriteBit(accepted);
+            MaskedGuid.WriteMaskBits(packet, battlefield, [5, 3, 2, 0, 7, 4]);
+            packet.FlushBits();
+            MaskedGuid.WriteBytes(packet, battlefield, [0, 3, 4, 2, 1, 6, 7, 5]);
+        }
+    }
+
+    /// <summary>TrinityCore 4.3.4 HandleBfExitRequest: the battlefield's GUID, nothing else.</summary>
+    internal static void WriteLegacyBfExitRequest(WorldPacket packet, ulong battlefield)
+    {
+        MaskedGuid.WriteMaskBits(packet, battlefield, [2, 0, 3, 7, 4, 5, 6, 1]);
+        packet.FlushBits();
+        MaskedGuid.WriteBytes(packet, battlefield, [5, 2, 0, 1, 4, 3, 7, 6]);
+    }
+
     /// <summary>
     /// The PvP window asks which kinds of PvP there are. Only a 4.x server knows the request
     /// (TrinityCore 4.3.4: CMSG_REQUEST_PVP_OPTIONS_ENABLED, empty).
