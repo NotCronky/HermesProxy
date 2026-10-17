@@ -1507,6 +1507,12 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.MovementSystem.HandlePlayerMove(global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_CHANGE_TRANSPORT, in packet, in ctx);
     }
 
+    private static void Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleMoveChangeVehicleSeats_CMSG_MOVE_CHANGE_VEHICLE_SEATS(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.MoveChangeVehicleSeatsCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.MovementSystem.HandleMoveChangeVehicleSeats(in packet, in ctx);
+    }
+
     private static void Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleRequestVehicleSeatChange_CMSG_MOVE_DISMISS_VEHICLE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.RequestVehicleSeatChangeCodec.Read(ref reader, out var packet);
@@ -3125,6 +3131,7 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOUNT_SET_FAVORITE] = &Thunk_HermesProxy_World_Server_Systems_BattlePetSystem_HandleMountSetFavorite_CMSG_MOUNT_SET_FAVORITE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOUNT_SPECIAL_ANIM] = &Thunk_HermesProxy_World_Server_Systems_MiscSystem_HandleMountSpecialAnim_CMSG_MOUNT_SPECIAL_ANIM;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_CHANGE_TRANSPORT] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandlePlayerMove_CMSG_MOVE_CHANGE_TRANSPORT;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_CHANGE_VEHICLE_SEATS] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleMoveChangeVehicleSeats_CMSG_MOVE_CHANGE_VEHICLE_SEATS;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_DISMISS_VEHICLE] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandleRequestVehicleSeatChange_CMSG_MOVE_DISMISS_VEHICLE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_DOUBLE_JUMP] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandlePlayerMove_CMSG_MOVE_DOUBLE_JUMP;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_FALL_LAND] = &Thunk_HermesProxy_World_Server_Systems_MovementSystem_HandlePlayerMove_CMSG_MOVE_FALL_LAND;
@@ -3591,6 +3598,7 @@ internal static unsafe class GeneratedCmsgDispatch
             global::HermesProxy.World.Enums.Opcode.CMSG_MOUNT_SET_FAVORITE,
             global::HermesProxy.World.Enums.Opcode.CMSG_MOUNT_SPECIAL_ANIM,
             global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_CHANGE_TRANSPORT,
+            global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_CHANGE_VEHICLE_SEATS,
             global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_DISMISS_VEHICLE,
             global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_DOUBLE_JUMP,
             global::HermesProxy.World.Enums.Opcode.CMSG_MOVE_FALL_LAND,

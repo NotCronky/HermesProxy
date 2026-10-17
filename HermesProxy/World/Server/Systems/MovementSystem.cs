@@ -403,6 +403,34 @@ public static class MovementSystem
         ctx.SendPacketToServer(packet);
     }
 
+    /// <summary>
+    /// The player driving a vehicle moves to another seat, of the vehicle or of one riding on it
+    /// (a passenger asks with the requests above). A 3.3.5a server reads it as
+    /// CMSG_CHANGE_SEATS_ON_CONTROLLED_VEHICLE (AzerothCore HandleChangeSeatsOnControlledVehicle):
+    /// the vehicle, its movement, the vehicle the seat is on and the seat.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_MOVE_CHANGE_VEHICLE_SEATS)]
+    public static void HandleMoveChangeVehicleSeats(in MoveChangeVehicleSeats change, in SessionContext ctx)
+    {
+        if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_CHANGE_SEATS_ON_CONTROLLED_VEHICLE);
+        WriteLegacyChangeSeats(packet, change, ctx.GetSession().GameState);
+        ctx.SendPacketToServer(packet);
+    }
+
+    internal static void WriteLegacyChangeSeats(WorldPacket packet, in MoveChangeVehicleSeats change, GameSessionData gameState)
+    {
+        packet.WritePackedGuid(change.Mover.To64());
+        SeatGravity.WriteClientMovement(packet, change.MoveInfo, gameState);
+        packet.WritePackedGuid(change.DstVehicle.To64());
+        // Without a vehicle the seat is only a direction: the modern client sends 255 for the
+        // previous seat and anything else for the next, the server takes -1 and +1.
+        sbyte seat = change.DstVehicle.IsEmpty() ? (change.DstSeatIndex != 255 ? (sbyte)1 : (sbyte)-1) : (sbyte)change.DstSeatIndex;
+        packet.WriteInt8(seat);
+    }
+
     [HandlesCmsg(Opcode.CMSG_RIDE_VEHICLE_INTERACT)]
     public static void HandleRideVehicleInteract(in RideVehicleInteract interact, in SessionContext ctx)
     {

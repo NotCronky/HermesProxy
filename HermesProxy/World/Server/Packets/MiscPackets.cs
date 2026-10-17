@@ -950,6 +950,12 @@ public readonly record struct RequestVehicleSeatChange;
 /// <summary>Board a seat on the vehicle another player is riding, e.g. a passenger mount.</summary>
 public readonly record struct RideVehicleInteract(WowGuid128 Vehicle);
 
+/// <summary>
+/// A seat change asked for by the player driving a vehicle: the vehicle's movement, the vehicle the
+/// seat is on (empty: the one being driven) and the seat (255: the previous one).
+/// </summary>
+public readonly record struct MoveChangeVehicleSeats(WowGuid128 Mover, MovementInfo MoveInfo, WowGuid128 DstVehicle, byte DstSeatIndex);
+
 /// <summary>The vehicle's owner removes whoever sits in one of its seats.</summary>
 public readonly record struct EjectPassenger(WowGuid128 Passenger);
 
