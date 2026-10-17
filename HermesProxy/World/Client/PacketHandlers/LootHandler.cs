@@ -317,6 +317,37 @@ public partial class WorldClient
         GetSession().GameState.LootRollObjects.Remove(loot.Item.LootListID);
     }
 
+    /// <summary>
+    /// Who may loot a creature that died to a group: its master looter and its round robin
+    /// winner, sent to the group at the kill (3.3.5a and 4.3.4: the creature's full GUID, then
+    /// both as packed GUIDs, empty when there is none). The modern packet also names the loot
+    /// object, the one <see cref="HandleLootResponse"/> gives the client for that creature.
+    /// </summary>
+    /// <remarks>
+    /// Passed on to a 3.4.3 or later client, whose layout and opcode were read from the client
+    /// (3.4.3 and 4.4.2). The 1.14 and 2.5 tables have not been checked for this opcode.
+    /// </remarks>
+    [HandlesSmsg(Opcode.SMSG_LOOT_LIST)]
+    internal void HandleLootList(WorldPacket packet)
+    {
+        if (!ModernVersion.IsWotLKClassicOrLater)
+            return;
+
+        var gameState = GetSession().GameState;
+        WowGuid64 owner = packet.ReadGuid();
+        WowGuid64 master = packet.ReadPackedGuid();
+        WowGuid64 roundRobinWinner = packet.ReadPackedGuid();
+
+        LootList list = new LootList();
+        list.Owner = owner.To128(gameState);
+        list.LootObj = owner.ToLootGuid();
+        if (!master.IsEmpty())
+            list.Master = master.To128(gameState);
+        if (!roundRobinWinner.IsEmpty())
+            list.RoundRobinWinner = roundRobinWinner.To128(gameState);
+        SendPacketToClient(list);
+    }
+
     [HandlesSmsg(Opcode.SMSG_LOOT_MASTER_LIST)]
     internal void HandleLootMasterList(WorldPacket packet)
     {
