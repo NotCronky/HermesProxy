@@ -9,10 +9,11 @@ using Xunit;
 namespace HermesProxy.Tests.World.Client;
 
 /// <summary>
-/// A quest's reward in currencies, as two 4.3.4 quest query answers of TrinityCore 4.3.4 carry it:
-/// the server's currency ids and whole points. The 4.4.2 client knows 4.3.4's Honor Points (392)
-/// as 1901 and keeps Justice, Valor, Conquest and Honor Points in hundredths, so its quest log
-/// showed 10 Justice Points as 0 and 50 honor as "Honor Deprecated 3".
+/// A quest's reward in currencies, as two quests' query answers and reward pages of TrinityCore
+/// 4.3.4 carry it: the server's currency ids and whole points. The 4.4.2 client knows 4.3.4's
+/// Honor Points (392) as 1901 and keeps Justice, Valor, Conquest and Honor Points in hundredths,
+/// so its quest log and quest dialog showed 10 Justice Points as 0 and 50 honor as
+/// "Honor Deprecated 3".
 /// </summary>
 /// <remarks>Runs only under a 4.3.4 legacy build (<c>HERMES_TEST_LEGACY_BUILD</c>).</remarks>
 public sealed class QuestRewardCurrencyCataTests
@@ -65,12 +66,46 @@ public sealed class QuestRewardCurrencyCataTests
         "656420696E2056656E7475726520426179000000008801000032000000000000000000000000000000000000000000000000000000000000" +
         "0000000000000000000000000000000000000000000000000000000000000000007A0300006E030000";
 
+    // The reward pages of the same two quests, as the quest enders sent them.
+    private const string MurmursWhisperReward =
+        "B87E0000315F30F16F2C000057616E7465643A204D75726D75722773205768697370657200492077617320776F7272696564207468617420" +
+        "796F75206D69676874206E6F742072657475726E2E2049207472757374207468617420796F75206469646E277420676F2064656166206672" +
+        "6F6D206669676874696E67204D75726D75723F244224424865726520697320796F7572207265776172642E205468652070726F666573736F" +
+        "722077696C6C20626520706C6561736564206E6F20646F7562742C2074686F756768204920776F727279207768617420686520756C74696D" +
+        "6174656C792077697368657320746F20646F20776974682074686973207468696E672E24422442436F6D65206261636B20746F6D6F72726F" +
+        "7720616E6420492077696C6C206861766520616E6F74686572207265717565737420666F7220796F7520746F2066756C66696C6C2E000000" +
+        "0000000000000000000001881000000000000001000000000000000100000000000000000000000000000000000000000000000000000000" +
+        "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000" +
+        "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000A0030200384A000000" +
+        "0000000000000000000000000000000000000000000000A5030000F303000000000000000000000000000006000000060000000000000000" +
+        "00000000000000000000000000000000000000000000000000000000000000000000008B0100000000000000000000000000000A00000000" +
+        "00000000000000000000000000000000000000";
+
+    private const string KeepThemAtBayReward =
+        "B97E0000AA6B30F11C3000004B656570205468656D206174204261792100596F757220627261766572792068617320696E73706972656420" +
+        "746865206D656E206F6620746865205765737466616C6C20427269676164652E204576656E206E6F77207468657920666967687420776974" +
+        "682067726561746572206665726F636974792E2054686520706F72742077696C6C20736F6F6E206265206F7572732E000000000000000000" +
+        "0000000001881000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+        "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+        "000000000000000000000000000000000000000000000000000000000000000000C0DA00000E510000000000000000000000000000000000" +
+        "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+        "0000000000000000000000000000000000000000008801000000000000000000000000000032000000000000000000000000000000000000" +
+        "0000000000";
+
     private static QueryQuestInfoResponse Deliver(string hex)
     {
         var harness = new LegacyHandlerHarness(recordClientPackets: true);
         harness.Deliver(Opcode.SMSG_QUERY_QUEST_INFO_RESPONSE, [0, 0, .. Convert.FromHexString(hex)],
             harness.Client.HandleQueryQuestInfoResponse);
         return harness.ClientWire.Sent.Select(s => s.Packet).OfType<QueryQuestInfoResponse>().Single();
+    }
+
+    private static QuestGiverOfferRewardMessage DeliverRewardPage(string hex)
+    {
+        var harness = new LegacyHandlerHarness(recordClientPackets: true);
+        harness.Deliver(Opcode.SMSG_QUEST_GIVER_OFFER_REWARD_MESSAGE, [0, 0, .. Convert.FromHexString(hex)],
+            harness.Client.HandleQuestGiverOfferRewardMessage);
+        return harness.ClientWire.Sent.Select(s => s.Packet).OfType<QuestGiverOfferRewardMessage>().Single();
     }
 
     [Fact]
@@ -101,4 +136,30 @@ public sealed class QuestRewardCurrencyCataTests
         Assert.Equal(5000u, response.Info.RewardCurrencyQty[0]);
     }
 
+    [Fact]
+    public void RewardPage_JusticePoints_GoOutInHundredths()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var page = DeliverRewardPage(MurmursWhisperReward);
+
+        Assert.Equal(11375u, page.QuestData.QuestID);
+        Assert.Equal(395u, page.QuestData.Rewards.CurrencyID[0]);
+        Assert.Equal(1000u, page.QuestData.Rewards.CurrencyQty[0]);
+        Assert.Equal(0u, page.QuestData.Rewards.CurrencyID[1]);
+    }
+
+    [Fact]
+    public void RewardPage_Honor_IsTheClientsHonorInHundredths()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var page = DeliverRewardPage(KeepThemAtBayReward);
+
+        Assert.Equal(12316u, page.QuestData.QuestID);
+        Assert.Equal((uint)Currency.HonorPoints, page.QuestData.Rewards.CurrencyID[0]);
+        Assert.Equal(5000u, page.QuestData.Rewards.CurrencyQty[0]);
+    }
 }

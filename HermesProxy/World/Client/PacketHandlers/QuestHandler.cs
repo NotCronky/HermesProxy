@@ -198,10 +198,12 @@ public partial class WorldClient
         rewards.SpellCompletionDisplayID[0] = packet.ReadInt32();
         rewards.SpellCompletionID = packet.ReadUInt32();
 
+        // In the client's ids and, where it keeps a currency in hundredths, in hundredths, as the
+        // quest log's (QueryHandler).
         for (int i = 0; i < QuestConst.QuestRewardCurrencyCount; i++)
-            rewards.CurrencyID[i] = packet.ReadUInt32();
+            rewards.CurrencyID[i] = ModernCurrencyId(packet.ReadUInt32());
         for (int i = 0; i < QuestConst.QuestRewardCurrencyCount; i++)
-            rewards.CurrencyQty[i] = packet.ReadUInt32();
+            rewards.CurrencyQty[i] = packet.ReadUInt32() * ModernCurrencyScale(rewards.CurrencyID[i]);
 
         rewards.SkillLineID = packet.ReadUInt32();
         rewards.NumSkillUps = packet.ReadUInt32();
