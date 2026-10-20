@@ -1969,8 +1969,12 @@ public partial class WorldClient
 
         byte index = packet.ReadUInt8();
         byte newType = packet.ReadUInt8();
-        if (index < RuneStateData.MaxRunes)
-            runeState.RuneTypes[index] = newType;
+        if (index >= RuneStateData.MaxRunes)
+            return;
+
+        runeState.RuneTypes[index] = newType;
+        if (IsCataLegacy)
+            SendPacketToClient(new ConvertRune { Index = index, Rune = RuneTypeToCata(newType) });
     }
 
     [HandlesSmsg(Opcode.SMSG_ADD_RUNE_POWER)]
@@ -2002,6 +2006,18 @@ public partial class WorldClient
             1 => PowerType.RuneUnholy,
             2 => PowerType.RuneFrost,
             _ => PowerType.Invalid,
+        };
+    }
+
+    // The 4.4.2 client numbers rune types Blood 0, Frost 1, Unholy 2, Death 3 (GetRuneType gives
+    // one more): sent TrinityCore's numbers, a Frost rune turned back from death showed Unholy.
+    private static uint RuneTypeToCata(byte runeType)
+    {
+        return runeType switch
+        {
+            1 => 2,
+            2 => 1,
+            _ => runeType,
         };
     }
 

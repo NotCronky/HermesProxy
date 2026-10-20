@@ -1661,6 +1661,41 @@ public class RuneData
     public List<byte> Cooldowns = new();
 }
 
+/// <summary>
+/// A death knight's rune turned into another type, a death rune or back to its own (4.4.2 client).
+/// TrinityCore cata_classic leaves the rune list in front empty.
+/// </summary>
+public sealed class ConvertRune : ServerPacket, ISpanWritable
+{
+    public ConvertRune() : base(Opcode.SMSG_CONVERT_RUNE) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt8(0);  // Start
+        _worldPacket.WriteUInt8(0);  // Count
+        _worldPacket.WriteInt32(0);  // cooldowns
+        _worldPacket.WriteUInt32(Index);
+        _worldPacket.WriteUInt32(Rune);
+    }
+
+    public int MaxSize => 14;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteUInt8(0);
+        writer.WriteUInt8(0);
+        writer.WriteInt32(0);
+        writer.WriteUInt32(Index);
+        writer.WriteUInt32(Rune);
+        return writer.Position;
+    }
+
+    public uint Index;
+    public uint Rune;  // Blood 0, Frost 1, Unholy 2, Death 3
+}
+
+
 
 
 public struct MissileTrajectoryResult

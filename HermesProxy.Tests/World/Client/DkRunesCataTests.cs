@@ -101,4 +101,27 @@ public sealed class DkRunesCataTests
         Assert.Null(cast.RemainingRunes);
         Assert.All(harness.Session.GameState.RuneState!.Cooldowns, c => Assert.Equal(255, c));
     }
+
+    // TrinityCore's rune types are Blood 0, Unholy 1, Frost 2, Death 3; the 4.4.2 client's
+    // Blood 0, Frost 1, Unholy 2, Death 3.
+    [Theory]
+    [InlineData("144F0003", 0, 3)] // Blood Tap: a Blood rune turns Death
+    [InlineData("144F0000", 0, 0)] // and back
+    [InlineData("144F0201", 2, 2)] // an Unholy rune back from Death
+    [InlineData("144F0402", 4, 1)] // a Frost rune back from Death
+    public void ConvertRune_GoesOnInTheClientsRuneTypes(string logged, uint index, uint rune)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = InWorld();
+        harness.Deliver(Opcode.SMSG_CONVERT_RUNE, Convert.FromHexString(logged), harness.Client.HandleConvertRune);
+
+        var sent = Assert.Single(harness.ClientWire.Sent);
+        var convert = Assert.IsType<ConvertRune>(sent.Packet);
+        Assert.Equal(index, convert.Index);
+        Assert.Equal(rune, convert.Rune);
+        // an empty rune list, then the index and the type
+        Assert.Equal([0, 0, 0, 0, 0, 0, (byte)index, 0, 0, 0, (byte)rune, 0, 0, 0], sent.Bytes);
+    }
 }
