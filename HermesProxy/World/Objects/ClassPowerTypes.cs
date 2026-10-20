@@ -26,6 +26,12 @@ public static class ClassPowerTypes
                     return 1;
                 case (Class.Druid, PowerType.Eclipse):
                     return 4;
+                case (Class.Deathknight, PowerType.RuneBlood):
+                    return 2;
+                case (Class.Deathknight, PowerType.RuneFrost):
+                    return 3;
+                case (Class.Deathknight, PowerType.RuneUnholy):
+                    return 4;
             }
         }
 

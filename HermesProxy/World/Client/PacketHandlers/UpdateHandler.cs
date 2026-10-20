@@ -4384,6 +4384,33 @@ public partial class WorldClient
                 int MOD_HASTE_REGEN = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_MOD_HASTE_REGEN);
                 if (MOD_HASTE_REGEN >= 0 && updateMaskArray[MOD_HASTE_REGEN])
                     updateData.UnitData.ModHasteRegen = updates[MOD_HASTE_REGEN].FloatValue;
+
+                // A rune's recharge rate, the share of its cooldown it regains a second: 4.3.4
+                // keeps one per rune type, haste included (0.1 unhasted). The 4.4.2 client adds the
+                // regeneration modifiers of the rune kind's power slot to its PowerType table's
+                // 0.1, so the rate goes there without that base. Without it a rune used in Unholy
+                // Presence showed ten seconds of cooldown where the server took 9.1.
+                int RUNE_REGEN_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_RUNE_REGEN_1);
+                if (RUNE_REGEN_1 >= 0)
+                {
+                    const float RuneBaseRegen = 0.1f;
+                    ReadOnlySpan<PowerType> runeKinds = [PowerType.RuneBlood, PowerType.RuneUnholy, PowerType.RuneFrost];
+                    for (int r = 0; r < runeKinds.Length; r++)
+                    {
+                        if (!updateMaskArray[RUNE_REGEN_1 + r])
+                            continue;
+                        Class runeClass = updateData.UnitData.ClassId != null
+                            ? (Class)updateData.UnitData.ClassId
+                            : GetSession().GameState.GetUnitClass(guid.To128(GetSession().GameState));
+                        sbyte slot = ClassPowerTypes.GetPowerSlotForClass(runeClass, runeKinds[r]);
+                        if (slot < 0)
+                            continue;
+                        float modifier = updates[RUNE_REGEN_1 + r].FloatValue - RuneBaseRegen;
+                        updateData.UnitData.EnsurePowerRegenFlatModifier()[slot] = modifier;
+                        updateData.UnitData.EnsurePowerRegenInterruptedFlatModifier()[slot] = modifier;
+                    }
+                }
+
                 int MASTERY = LegacyVersion.GetUpdateField(PlayerField.PLAYER_MASTERY);
                 if (MASTERY >= 0 && updateMaskArray[MASTERY])
                     updateData.EnsureActivePlayerData().Mastery = updates[MASTERY].FloatValue;
