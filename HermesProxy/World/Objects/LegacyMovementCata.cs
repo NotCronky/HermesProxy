@@ -349,10 +349,10 @@ public static class LegacyMovementCata
         .ToFrozenSet();
 
     /// <summary>
-    /// The same updates as another 4.3.4 core writes them, with a bit for everything
-    /// that may be missing: WowPacketParser's 4.3.4 order. Its run-back packets end where this
-    /// order ends and never where the reference table's guesses do; the reference server's packets
-    /// fit only the guesses. Tried after them, by the same length test.
+    /// The same updates as another 4.3.4 core writes them, with a bit for everything that may be
+    /// missing: WowPacketParser's 4.3.4 order. Its run-back and walk packets end where this order
+    /// ends and never where the reference table's guesses do; the reference server's packets fit
+    /// only the guesses. Tried after them, by the same length test.
     /// </summary>
     private static readonly FrozenDictionary<Opcode, LegacyMovementElement[]> WithPresenceBits = new Dictionary<Opcode, LegacyMovementElement[]>
     {
@@ -382,6 +382,33 @@ public static class LegacyMovementCata
             LegacyMovementElement.PositionY, LegacyMovementElement.Pitch, LegacyMovementElement.GuidByte7,
             LegacyMovementElement.ExtraElement, LegacyMovementElement.GuidByte2, LegacyMovementElement.GuidByte6,
             LegacyMovementElement.PositionZ, LegacyMovementElement.End,
+        ],
+        [Opcode.SMSG_MOVE_UPDATE_WALK_SPEED] =
+        [
+            LegacyMovementElement.HasPitch, LegacyMovementElement.HasOrientation, LegacyMovementElement.ZeroBit,
+            LegacyMovementElement.HasGuidByte3, LegacyMovementElement.HasSplineElevation, LegacyMovementElement.HasGuidByte2,
+            LegacyMovementElement.HasTransportData, LegacyMovementElement.HasTransportGuidByte6, LegacyMovementElement.HasTransportGuidByte3,
+            LegacyMovementElement.HasTransportGuidByte2, LegacyMovementElement.HasTransportGuidByte0, LegacyMovementElement.HasTransportGuidByte4,
+            LegacyMovementElement.HasTransportTime2, LegacyMovementElement.HasTransportGuidByte7, LegacyMovementElement.HasTransportGuidByte1,
+            LegacyMovementElement.HasTransportGuidByte5, LegacyMovementElement.HasVehicleId, LegacyMovementElement.HasGuidByte7,
+            LegacyMovementElement.HasGuidByte5, LegacyMovementElement.HasGuidByte1, LegacyMovementElement.HasFallData,
+            LegacyMovementElement.HasGuidByte0, LegacyMovementElement.HasMovementFlags2, LegacyMovementElement.HasTimestamp,
+            LegacyMovementElement.HasMovementFlags, LegacyMovementElement.HasGuidByte6, LegacyMovementElement.HasFallDirection,
+            LegacyMovementElement.MovementFlags2, LegacyMovementElement.MovementFlags, LegacyMovementElement.HasSpline,
+            LegacyMovementElement.HasGuidByte4, LegacyMovementElement.FlushBits,
+            LegacyMovementElement.Pitch, LegacyMovementElement.TransportGuidByte6, LegacyMovementElement.TransportGuidByte0,
+            LegacyMovementElement.TransportGuidByte4, LegacyMovementElement.TransportGuidByte2, LegacyMovementElement.TransportPositionX,
+            LegacyMovementElement.TransportGuidByte7, LegacyMovementElement.TransportTime, LegacyMovementElement.TransportTime2,
+            LegacyMovementElement.TransportPositionZ, LegacyMovementElement.TransportSeat, LegacyMovementElement.TransportGuidByte5,
+            LegacyMovementElement.TransportVehicleId, LegacyMovementElement.TransportOrientation, LegacyMovementElement.TransportGuidByte1,
+            LegacyMovementElement.TransportPositionY, LegacyMovementElement.TransportGuidByte3, LegacyMovementElement.SplineElevation,
+            LegacyMovementElement.FallVerticalSpeed, LegacyMovementElement.FallHorizontalSpeed, LegacyMovementElement.FallCosAngle,
+            LegacyMovementElement.FallSinAngle, LegacyMovementElement.FallTime, LegacyMovementElement.GuidByte1,
+            LegacyMovementElement.GuidByte4, LegacyMovementElement.GuidByte2, LegacyMovementElement.GuidByte6,
+            LegacyMovementElement.GuidByte7, LegacyMovementElement.Timestamp, LegacyMovementElement.Orientation,
+            LegacyMovementElement.PositionY, LegacyMovementElement.GuidByte0, LegacyMovementElement.PositionZ,
+            LegacyMovementElement.PositionX, LegacyMovementElement.GuidByte3, LegacyMovementElement.GuidByte5,
+            LegacyMovementElement.ExtraElement, LegacyMovementElement.End,
         ],
     }.ToFrozenDictionary();
 

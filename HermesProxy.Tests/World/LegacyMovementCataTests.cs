@@ -298,6 +298,29 @@ public sealed class LegacyMovementCataTests
     }
 
     [Fact]
+    public void MoveUpdateWalkSpeed_WithPresenceBits_IsRead()
+    {
+        // The same core (2026-10-20): player 0x2224's walk speed back to 2.5 by GM command, with a
+        // fall left over from a jump.
+        byte[] body = Convert.FromHexString("8872" + "1000" + "D893FEC0" + "39030000" + "23" + "195BDB00"
+            + "0C865040" + "3E3E8642" + "25" + "BC986042" + "04" + "9413C600" + "002040");
+        using var read = Framed(body);
+
+        Assert.True(LegacyMovementCata.TryRead(read, Opcode.SMSG_MOVE_UPDATE_WALK_SPEED, null!, out ulong mover, out MovementInfo info, out _, out float speed));
+
+        Assert.Equal(0x2224ul, mover);
+        Assert.Equal(2.5f, speed);
+        Assert.Equal(-9445.004f, info.Position.X, 2);
+        Assert.Equal(67.1216f, info.Position.Y, 3);
+        Assert.Equal(56.1492f, info.Position.Z, 3);
+        Assert.Equal(3.2582f, info.Orientation, 4);
+        Assert.Equal(14375705u, info.MoveTime);
+        Assert.Equal(825u, info.FallTime);
+        Assert.Equal(-7.9555f, info.JumpVerticalSpeed, 4);
+        Assert.Equal(0, read.GetRemainingSpan().Length);
+    }
+
+    [Fact]
     public void MoveUpdateRunBackSpeed_NoGuessFits_IsNotRead()
     {
         // one byte more than the packet above: no choice of fall data and transport ends there
