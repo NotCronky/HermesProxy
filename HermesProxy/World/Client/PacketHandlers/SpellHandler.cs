@@ -853,19 +853,41 @@ public partial class WorldClient
                 // u8 usableMask (= post-cast usable mask), then one u8 cooldown byte per rune
                 // consumed by THIS cast (i.e. set in rechargingMask AND cleared in usableMask).
                 // Cooldown byte semantics match V3_4_3: 255 = ready, 0 = full cooldown.
+                // TrinityCore 4.3.4 writes a byte for every rune instead, in slot order. Read the
+                // 3.3.5a way, the runes a cast used took the bytes of the slots in front of them.
                 var rechargingMask = packet.ReadUInt8();
                 var usableMask = packet.ReadUInt8();
 
                 var runeStateCache = GetSession().GameState.RuneState;
+                // Every player in sight gets a death knight's cast, with that player's runes in it.
+                if (IsCataLegacy && dbdata.CasterUnit != GetSession().GameState.CurrentPlayerGuid)
+                    runeStateCache = null;
+                bool everyRune = IsCataLegacy;
                 Span<byte> consumed = stackalloc byte[RuneStateData.MaxRunes];
                 for (var i = 0; i < RuneStateData.MaxRunes; i++)
                 {
                     var bit = 1 << i;
-                    if ((bit & rechargingMask) == 0)
-                        continue;
-                    if ((bit & usableMask) != 0)
+                    if (!everyRune && ((bit & rechargingMask) == 0 || (bit & usableMask) != 0))
                         continue;
                     consumed[i] = packet.ReadUInt8();
+                }
+
+                if (everyRune)
+                {
+                    // Its rune regeneration can leave a cooldown a sliver above zero, which it spends
+                    // as ready but never marks ready, so a cast can come with the same mask before
+                    // and after. The bytes ((1 - cooldown) * 255) are what it spends by: 254 and up
+                    // is ready, 0 is the rune this cast used.
+                    usableMask = 0;
+                    rechargingMask = 0;
+                    for (var i = 0; i < RuneStateData.MaxRunes; i++)
+                    {
+                        if (consumed[i] >= 254)
+                            usableMask |= (byte)(1 << i);
+                        else if (consumed[i] == 0)
+                            rechargingMask |= (byte)(1 << i);
+                    }
+                    rechargingMask |= usableMask;
                 }
 
                 if (runeStateCache != null)
@@ -877,7 +899,9 @@ public partial class WorldClient
                     for (int i = 0; i < RuneStateData.MaxRunes; i++)
                     {
                         var bit = 1 << i;
-                        if ((bit & usableMask) != 0)
+                        if (everyRune)
+                            runeStateCache.Cooldowns[i] = consumed[i];
+                        else if ((bit & usableMask) != 0)
                             runeStateCache.Cooldowns[i] = 255;
                         else if ((bit & rechargingMask) != 0)
                             runeStateCache.Cooldowns[i] = consumed[i];
