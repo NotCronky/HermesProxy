@@ -217,6 +217,11 @@ public partial class WorldClient
                 item.ExtendedCostID = packet.ReadInt32();
             item.Item.ItemID = packet.ReadUInt32();
             item.Type = packet.ReadInt32();
+            // A currency on sale goes by the server's id: 4.3.4's honor (392) is "Honor
+            // Deprecated 3" to the client, which means 1901. The server's amount is already in
+            // hundredths (TrinityCore 4.3.4 sends the vendor row's count as it is stored).
+            if (item.Type == (int)ItemVendorType.Currency)
+                item.Item.ItemID = ModernCurrencyId(item.Item.ItemID);
             item.Price = packet.ReadUInt32();
             packet.ReadUInt32();                // ItemDisplayInfoID
             if (hasCondition[i])
