@@ -16,6 +16,13 @@
          used by the Roslyn analyzer release pipeline. That's for shipped NuGet-distributed
          analyzers, not an internal project-local generator. Suppress. -->
     <NoWarn>$(NoWarn);RS2008</NoWarn>
+    <!-- The SDK stamps the current commit into the informational version and the PDB's source
+         link map. A commit, checkout or rebase then recompiles the generator and rewrites the
+         DLL in bin, and that copy fails with MSB3027 whenever the IDE's language server or the
+         compiler server has the file open at that moment. Without the stamp the bytes depend
+         on the generator's own sources and nothing is rewritten. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableSourceLink>false</EnableSourceLink>
   </PropertyGroup>
 
   <ItemGroup>
