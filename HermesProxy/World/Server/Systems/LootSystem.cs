@@ -1,5 +1,6 @@
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
@@ -49,7 +50,12 @@ public static class LootSystem
 
         foreach (var item in loot.Loot)
         {
-            WorldPacket packet = new WorldPacket(Opcode.CMSG_AUTOSTORE_LOOT_ITEM);
+            // The client takes a currency slot as it takes an item; a 4.3.4 server refuses the
+            // item request for it ("The item was not found") and has a request of its own.
+            Opcode opcode = WorldClient.IsCataLegacy && state.RemainingLootCurrencySlots.Contains(item.LootListID)
+                ? Opcode.CMSG_LOOT_CURRENCY
+                : Opcode.CMSG_AUTOSTORE_LOOT_ITEM;
+            WorldPacket packet = new WorldPacket(opcode);
             packet.WriteUInt8(item.LootListID);
             ctx.SendPacketToServer(packet);
         }

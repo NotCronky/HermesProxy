@@ -20,6 +20,7 @@ public partial class WorldClient
         var state = GetSession().GameState;
         // Reset before anything else so a failed loot doesn't leak stale counters.
         state.RemainingLootSlots.Clear();
+        state.RemainingLootCurrencySlots.Clear();
         state.RemainingLootCoins = 0;
         state.ExpectingLootReleaseResponse = false;
         state.LootMoneyPreClaimed = false;
@@ -66,6 +67,7 @@ public partial class WorldClient
             currency.Quantity = packet.ReadUInt32();
             currency.UIType = (byte)LootSlotTypeModern.AllowLoot;
             loot.Currencies.Add(currency);
+            state.RemainingLootCurrencySlots.Add(currency.LootListID);
         }
         state.RemainingLootCoins = loot.Coins;
         SendMasterLootListIfApplicable();
@@ -102,6 +104,7 @@ public partial class WorldClient
             state.LastMasterLootSentTarget = default;
             state.ExpectingLootReleaseResponse = false;
             state.RemainingLootSlots.Clear();
+            state.RemainingLootCurrencySlots.Clear();
             state.RemainingLootCoins = 0;
             state.LootMoneyPreClaimed = false;
         }

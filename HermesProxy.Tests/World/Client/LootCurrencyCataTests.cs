@@ -2,8 +2,10 @@ using System;
 using System.Linq;
 using HermesProxy.Tests.Support;
 using HermesProxy.World.Client;
+using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
+using HermesProxy.World.Server.Systems;
 using Xunit;
 
 namespace HermesProxy.Tests.World.Client;
@@ -12,6 +14,8 @@ namespace HermesProxy.Tests.World.Client;
 /// A currency in a loot window, as TrinityCore 4.3.4 sends it: a Fossil Archaeology Find, whose
 /// loot is nine Fossil Archaeology Fragments and nothing else. The currencies come after the items
 /// and were read past, so the 4.4.2 client opened the find with nothing in it.
+/// The client takes a currency slot as it takes an item, and TrinityCore 4.3.4 hands one out only
+/// on CMSG_LOOT_CURRENCY.
 /// </summary>
 /// <remarks>Runs only under a 4.3.4 legacy build (<c>HERMES_TEST_LEGACY_BUILD</c>).</remarks>
 public sealed class LootCurrencyCataTests
@@ -40,5 +44,21 @@ public sealed class LootCurrencyCataTests
         Assert.Equal(393u, fragments.CurrencyID);
         Assert.Equal(9u, fragments.Quantity);
         Assert.Equal(0, fragments.LootListID);
+    }
+
+    [Fact]
+    public void TakingTheFragments_AsksForTheCurrency()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var (harness, loot) = Deliver();
+        var ctx = new SessionContext(harness.Session, socket: null, harness.Client);
+
+        LootSystem.HandleLootItem(new LootItemPkt([new LootRequest(loot.LootObj, 0)]), in ctx);
+
+        var sent = Assert.Single(harness.ServerWire.Sent);
+        Assert.Equal(LegacyVersion.GetCurrentOpcode(Opcode.CMSG_LOOT_CURRENCY), sent.Opcode);
+        Assert.Equal([0], sent.Bytes);
     }
 }

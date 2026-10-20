@@ -391,6 +391,9 @@ public sealed class GameSessionData
     // slot byte for every drained item rather than the real per-item slot.
     public bool ExpectingLootReleaseResponse;
     public List<byte> RemainingLootSlots = new();
+    // 4.3.4 only: the currency slots of the open loot. They count from the same list as the
+    // items, and a 4.3.4 server hands one out only on CMSG_LOOT_CURRENCY.
+    public List<byte> RemainingLootCurrencySlots = new();
     public uint RemainingLootCoins;
     // V3_4_3 only: set when HandleLootItem pre-claims coins via an injected CMSG_LOOT_MONEY
     // (TC 3.3.5 master closes the loot session after auto-looting items, orphaning any
