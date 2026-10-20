@@ -217,4 +217,81 @@ public partial class WorldClient
 
         SendPacketToClient(instance);
     }
+
+    /// <summary>
+    /// A boss's unit frame. A legacy server sends one opcode with a frame type first, a modern
+    /// client has a packet for each type. The three that put a boss frame up, move it among the
+    /// others and take it down are passed on; the timer and objective types are not.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT, RemovedIn = ClientVersionBuild.V4_0_1_13164)]
+    internal void HandleUpdateInstanceEncounterUnit(WorldPacket packet)
+    {
+        switch ((EncounterFrameType)packet.ReadUInt32())
+        {
+            case EncounterFrameType.Engage:
+                SendEncounterEngageUnit(packet);
+                break;
+            case EncounterFrameType.Disengage:
+                SendEncounterDisengageUnit(packet);
+                break;
+            case EncounterFrameType.UpdatePriority:
+                SendEncounterChangePriority(packet);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The same on a 4.3.4 server, whose frame types are numbered differently. Its combat
+    /// resurrection limit types are not passed on either.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT, AddedIn = ClientVersionBuild.V4_0_1_13164)]
+    internal void HandleUpdateInstanceEncounterUnitCata(WorldPacket packet)
+    {
+        switch ((EncounterFrameTypeCata)packet.ReadUInt32())
+        {
+            case EncounterFrameTypeCata.Engage:
+                SendEncounterEngageUnit(packet);
+                break;
+            case EncounterFrameTypeCata.Disengage:
+                SendEncounterDisengageUnit(packet);
+                break;
+            case EncounterFrameTypeCata.UpdatePriority:
+                SendEncounterChangePriority(packet);
+                break;
+        }
+    }
+
+    // Both legacy layouts follow the type with the boss's packed GUID and a frame priority byte,
+    // the disengage one included; the modern disengage packet has no priority.
+    private void SendEncounterEngageUnit(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_ENGAGE_UNIT) == 0)
+            return;
+
+        InstanceEncounterEngageUnit engage = new();
+        engage.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        engage.TargetFramePriority = packet.ReadUInt8();
+        SendPacketToClient(engage);
+    }
+
+    private void SendEncounterDisengageUnit(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_DISENGAGE_UNIT) == 0)
+            return;
+
+        InstanceEncounterDisengageUnit disengage = new();
+        disengage.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        SendPacketToClient(disengage);
+    }
+
+    private void SendEncounterChangePriority(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_CHANGE_PRIORITY) == 0)
+            return;
+
+        InstanceEncounterChangePriority priority = new();
+        priority.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        priority.TargetFramePriority = packet.ReadUInt8();
+        SendPacketToClient(priority);
+    }
 }

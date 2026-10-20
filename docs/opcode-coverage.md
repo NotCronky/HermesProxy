@@ -38,7 +38,7 @@ the proxy has no reason to translate.
 |---|---:|---:|---:|
 | `V1_12_1_5875` | 363 | 271 | 92 |
 | `V2_4_3_8606` | 460 | 310 | 150 |
-| `V3_3_5a_12340` | 583 | 385 | 198 |
+| `V3_3_5a_12340` | 583 | 386 | 197 |
 
 ## 2. Version-ranged handlers
 
@@ -47,7 +47,7 @@ the dispatch table is constructed, not per packet. All of these are on the legac
 there are no ranged `[HandlesCmsg]` sites yet, which is itself the finding: every per-build
 difference on the modern side currently hides inside a handler body instead (see section 4).
 
-28 ranged handler declarations.
+30 ranged handler declarations.
 
 | opcode | added in | removed in | handler |
 |---|---|---|---|
@@ -79,6 +79,8 @@ difference on the modern side currently hides inside a handler body instead (see
 | `SMSG_PARTY_MEMBER_PARTIAL_STATE` | `V2_0_1_6180` | — | `WorldClient.HandlePartyMemberStatsTbc` |
 | `SMSG_PET_CAST_FAILED` | — | `V2_0_1_6180` | `WorldClient.HandlePetCastFailed` |
 | `SMSG_PET_CAST_FAILED` | `V2_0_1_6180` | — | `WorldClient.HandlePetCastFailedTBC` |
+| `SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT` | — | `V4_0_1_13164` | `WorldClient.HandleUpdateInstanceEncounterUnit` |
+| `SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT` | `V4_0_1_13164` | — | `WorldClient.HandleUpdateInstanceEncounterUnitCata` |
 
 ## 3. Packets whose wire layout changes between builds
 

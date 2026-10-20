@@ -2732,6 +2732,16 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleUpdateCurrency(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceEncounterUnit_SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleUpdateInstanceEncounterUnit(packet);
+    }
+
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceEncounterUnitCata_SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleUpdateInstanceEncounterUnitCata(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceOwnership_SMSG_UPDATE_INSTANCE_OWNERSHIP(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleUpdateInstanceOwnership(packet);
@@ -3397,6 +3407,12 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_AURA_DURATION] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateAuraDuration_SMSG_UPDATE_AURA_DURATION;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_COMBO_POINTS] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateComboPoints_SMSG_UPDATE_COMBO_POINTS;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_CURRENCY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateCurrency_SMSG_UPDATE_CURRENCY;
+        {
+            if (global::HermesProxy.LegacyVersion.RemovedInVersion(global::HermesProxy.Enums.ClientVersionBuild.V4_0_1_13164))
+                table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceEncounterUnit_SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT;
+            else if (global::HermesProxy.LegacyVersion.AddedInVersion(global::HermesProxy.Enums.ClientVersionBuild.V4_0_1_13164))
+                table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceEncounterUnitCata_SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT;
+        }
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_INSTANCE_OWNERSHIP] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateInstanceOwnership_SMSG_UPDATE_INSTANCE_OWNERSHIP;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_LAST_INSTANCE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateLastInstance_SMSG_UPDATE_LAST_INSTANCE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_OBJECT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleUpdateObject_SMSG_UPDATE_OBJECT;
@@ -3941,6 +3957,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_AURA_DURATION,
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_COMBO_POINTS,
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_CURRENCY,
+            global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT,
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_INSTANCE_OWNERSHIP,
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_LAST_INSTANCE,
             global::HermesProxy.World.Enums.Opcode.SMSG_UPDATE_OBJECT,

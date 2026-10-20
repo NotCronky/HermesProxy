@@ -353,3 +353,73 @@ class PendingRaidLock : ServerPacket
 }
 
 public readonly record struct InstanceLockResponse(bool AcceptLock);
+
+/// <summary>A boss's unit frame goes up, at its place among the boss frames.</summary>
+sealed class InstanceEncounterEngageUnit : ServerPacket, ISpanWritable
+{
+    public InstanceEncounterEngageUnit() : base(Opcode.SMSG_INSTANCE_ENCOUNTER_ENGAGE_UNIT) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Unit);
+        _worldPacket.WriteUInt8(TargetFramePriority);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 1;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Unit.Low, Unit.High);
+        writer.WriteUInt8(TargetFramePriority);
+        return writer.Position;
+    }
+
+    public WowGuid128 Unit;
+    public byte TargetFramePriority;
+}
+
+sealed class InstanceEncounterDisengageUnit : ServerPacket, ISpanWritable
+{
+    public InstanceEncounterDisengageUnit() : base(Opcode.SMSG_INSTANCE_ENCOUNTER_DISENGAGE_UNIT) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Unit);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Unit.Low, Unit.High);
+        return writer.Position;
+    }
+
+    public WowGuid128 Unit;
+}
+
+sealed class InstanceEncounterChangePriority : ServerPacket, ISpanWritable
+{
+    public InstanceEncounterChangePriority() : base(Opcode.SMSG_INSTANCE_ENCOUNTER_CHANGE_PRIORITY) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Unit);
+        _worldPacket.WriteUInt8(TargetFramePriority);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 1;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Unit.Low, Unit.High);
+        writer.WriteUInt8(TargetFramePriority);
+        return writer.Position;
+    }
+
+    public WowGuid128 Unit;
+    public byte TargetFramePriority;
+}
