@@ -132,6 +132,8 @@ public enum HoldKeyKind : ushort
     RemoteCollisionHeight = 14,
     /// <summary>The next minute of a 4.3.4 battleground's clock, see <c>BattlegroundClock</c>.</summary>
     BattlegroundClock = 15,
+    /// <summary>A = ticket id. A 4.3.4 battlefield entry invite the server lets run out without a word.</summary>
+    BattlefieldInviteExpiry = 16,
 }
 
 /// <summary>How a hold behaves while it waits.</summary>

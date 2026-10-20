@@ -3,6 +3,7 @@ using HermesProxy.World;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Logging;
+using HermesProxy.World.Outbox;
 using HermesProxy.World.Server.Packets;
 
 namespace HermesProxy.World.Client;
@@ -53,6 +54,33 @@ public partial class WorldClient
         BattleGroundLogMessages.EntryInvite(
             _melLog, "ENTRY_INVITE", battleId, zoneId, expireUnix, ticketId, listId, timeoutMs);
         SendPacketToClient(confirm);
+
+        // TrinityCore 4.3.4 lets an unanswered invitation run out without a word (Battlefield::Update
+        // only teleports a player who is in the zone), and the 4.4.2 client keeps its "enter battle"
+        // prompt until the ticket's status changes
+        if (IsCataLegacy)
+            ArmBattlefieldMgrInviteExpiry(ticketId, timeoutMs);
+    }
+
+    internal static HoldKey BattlefieldInviteExpiryKey(uint ticketId)
+        => new(HoldKeyKind.BattlefieldInviteExpiry, ticketId);
+
+    void ArmBattlefieldMgrInviteExpiry(uint ticketId, uint timeoutMs)
+    {
+        var toClient = GetSession().ToClient;
+        var key = BattlefieldInviteExpiryKey(ticketId);
+        toClient.Cancel(key);
+        toClient.Delay(TimeSpan.FromMilliseconds(timeoutMs), () => ExpireBattlefieldMgrInvite(ticketId),
+            new HoldOptions(Key: key));
+    }
+
+    internal void ExpireBattlefieldMgrInvite(uint ticketId)
+    {
+        if (GetSession().GameState.GetBattleFieldQueueType(ticketId) == 0)
+            return;
+
+        BattleGroundLogMessages.EntryInviteExpired(_melLog, ticketId);
+        DropBattlefieldMgrTicket(ticketId);
     }
 
     [HandlesSmsg(Opcode.SMSG_BATTLEFIELD_MGR_QUEUE_INVITE)]
@@ -205,6 +233,7 @@ public partial class WorldClient
         uint ticketId = BattlefieldMgrTranslation.TicketFor(battleId, BattlefieldMgrTicketKind.Entry);
         uint listId = BattlefieldMgrTranslation.ListIdForBattle(battleId);
         uint mapId = BattlefieldMgrTranslation.MapIdForBattle(battleId);
+        GetSession().ToClient.Cancel(BattlefieldInviteExpiryKey(ticketId));
         GetSession().GameState.StoreBattleFieldQueueType(ticketId, listId);
 
         var active = new BattlefieldStatusActive();
@@ -309,29 +338,54 @@ public partial class WorldClient
         uint queueTicket = BattlefieldMgrTranslation.TicketFor(battleId, BattlefieldMgrTicketKind.Queue);
         uint listId = BattlefieldMgrTranslation.ListIdForBattle(battleId);
 
-        if (always || GetSession().GameState.GetBattleFieldQueueType(entryTicket) != 0)
-            SendMgrFailed(entryTicket, listId);
-        if (always || GetSession().GameState.GetBattleFieldQueueType(queueTicket) != 0)
-            SendMgrFailed(queueTicket, listId);
+        GetSession().ToClient.Cancel(BattlefieldInviteExpiryKey(entryTicket));
+        ClearBattlefieldMgrTicket(entryTicket, listId, always);
+        ClearBattlefieldMgrTicket(queueTicket, listId, always);
+    }
 
-        GetSession().GameState.RemoveBattleFieldQueue(entryTicket);
-        GetSession().GameState.RemoveBattleFieldQueue(queueTicket);
+    // Before the map change, not after: once the 4.4.2 client has changed maps the ticket is gone
+    // from its list without an UPDATE_BATTLEFIELD_STATUS for its slot, a STATUS_NONE then fires the
+    // event for slot 0, and the "Enter Battle" prompt of the old slot stays on the screen
+    // (2026-10-20, Tol Barad to Stormwind with an invitation open)
+    internal void ClearBattlefieldMgrStateLeavingFor(uint newMapId)
+    {
+        foreach (uint battle in BattlefieldMgrTranslation.Battles)
+        {
+            if (BattlefieldMgrTranslation.MapIdForBattle(battle) != newMapId && HasBattlefieldMgrTicket(battle))
+                ClearBattlefieldMgrState(battle);
+        }
+    }
+
+    // On 4.3.4 a ticket the session holds goes with STATUS_NONE, which the 4.4.2 client's prompt
+    // closes on without a failure line; the 3.3.5a path keeps STATUS_FAILED
+    void ClearBattlefieldMgrTicket(uint ticketId, uint listId, bool always)
+    {
+        bool held = GetSession().GameState.GetBattleFieldQueueType(ticketId) != 0;
+        if (held && IsCataLegacy)
+            DropBattlefieldMgrTicket(ticketId);
+        else if (held || always)
+        {
+            SendMgrFailed(ticketId, listId);
+            GetSession().GameState.RemoveBattleFieldQueue(ticketId);
+        }
     }
 
     void DropBattlefieldMgrQueueTicket(uint battleId)
+        => DropBattlefieldMgrTicket(BattlefieldMgrTranslation.TicketFor(battleId, BattlefieldMgrTicketKind.Queue));
+
+    void DropBattlefieldMgrTicket(uint ticketId)
     {
         var gameState = GetSession().GameState;
-        uint queueTicket = BattlefieldMgrTranslation.TicketFor(battleId, BattlefieldMgrTicketKind.Queue);
-        if (gameState.GetBattleFieldQueueType(queueTicket) == 0)
+        if (gameState.GetBattleFieldQueueType(ticketId) == 0)
             return;
 
         var none = new BattlefieldStatusNone();
-        none.Ticket.Id = queueTicket;
+        none.Ticket.Id = ticketId;
         none.Ticket.RequesterGuid = gameState.CurrentPlayerGuid;
-        none.Ticket.Time = gameState.GetBattleFieldQueueTime(queueTicket);
+        none.Ticket.Time = gameState.GetBattleFieldQueueTime(ticketId);
         none.Ticket.Type = RideType.Battlegrounds;
         SendPacketToClient(none);
-        gameState.RemoveBattleFieldQueue(queueTicket);
+        gameState.RemoveBattleFieldQueue(ticketId);
     }
 
     void SendMgrFailed(uint ticketId, uint listId)

@@ -38,4 +38,8 @@ internal static partial class BattleGroundLogMessages
         Message = "[Phase] SMSG_SET_PHASE_SHIFT mask={Mask} -> flags={Flags} phases={PhaseCount}")]
     public static partial void PhaseShift(ILogger logger, uint Mask, uint Flags, int PhaseCount);
 
+    [LoggerMessage(EventId = 1008, Level = LogLevel.Debug,
+        Message = "[WG] entry invite ticket={TicketId} ran out unanswered -> STATUS_NONE")]
+    public static partial void EntryInviteExpired(ILogger logger, uint TicketId);
+
 }

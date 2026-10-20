@@ -126,6 +126,7 @@ public static class BattlegroundSystem
             }
             BattleGroundLogMessages.PortAsMgr(
                 _melLog, port.Ticket.Id, port.AcceptedInvite, mgrOpcode.ToString(), mgrBattleId);
+            ctx.GetSession().ToClient.Cancel(HermesProxy.World.Client.WorldClient.BattlefieldInviteExpiryKey(port.Ticket.Id));
             ctx.SendPacketToServer(mgrPacket);
             if (!port.AcceptedInvite)
                 ctx.GetSession().GameState.RemoveBattleFieldQueue(port.Ticket.Id);

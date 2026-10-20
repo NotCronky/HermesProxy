@@ -207,13 +207,73 @@ public class BattlefieldMgrCataTests
         });
         harness.Deliver(Opcode.SMSG_BATTLEFIELD_MGR_EJECTED, ejected, harness.Client.HandleBattlefieldMgrEjected);
 
+        // the entry the session holds goes as STATUS_NONE, the queue entry it never had as a failure
         Assert.Equal(3, harness.ClientWire.Sent.Count);
-        var entryFailed = Assert.IsType<BattlefieldStatusFailed>(harness.ClientWire.Sent[1].Packet);
+        var entryNone = Assert.IsType<BattlefieldStatusNone>(harness.ClientWire.Sent[1].Packet);
         var queueFailed = Assert.IsType<BattlefieldStatusFailed>(harness.ClientWire.Sent[2].Packet);
-        Assert.Equal(121u, entryFailed.Ticket.Id);
+        Assert.Equal(121u, entryNone.Ticket.Id);
         Assert.Equal(221u, queueFailed.Ticket.Id);
-        Assert.Equal(1116u, entryFailed.BattlefieldListId);
+        Assert.Equal(1116u, queueFailed.BattlefieldListId);
         Assert.False(harness.Client.HasBattlefieldMgrTicket(BattlefieldMgrTranslation.TolBaradBattleId));
+    }
+
+    [Fact]
+    public void EntryInvite_LeftUnanswered_RunsOutAsStatusNone()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = NewHarness();
+        byte[] wire = LegacyPacketBuilder.Build(Opcode.SMSG_BATTLEFIELD_MGR_ENTRY_INVITE, p =>
+        {
+            MaskedGuid.WriteMaskBits(p, 0, [5, 3, 7, 2, 6, 4, 1, 0]);
+            p.FlushBits();
+            p.WriteUInt32(BattlefieldMgrTranslation.TolBaradZoneId);
+            p.WriteUInt32((uint)Time.UnixTime + 20);
+        });
+        harness.Deliver(Opcode.SMSG_BATTLEFIELD_MGR_ENTRY_INVITE, wire, harness.Client.HandleBattlefieldMgrEntryInvite);
+
+        // TrinityCore 4.3.4 says nothing when it runs out for a player outside the zone
+        Assert.Equal(1, harness.Session.ToClient.PendingCount);
+        harness.Client.ExpireBattlefieldMgrInvite(121);
+
+        var none = Assert.IsType<BattlefieldStatusNone>(harness.ClientWire.Sent[^1].Packet);
+        Assert.Equal(121u, none.Ticket.Id);
+        Assert.False(harness.Client.HasBattlefieldMgrTicket(BattlefieldMgrTranslation.TolBaradBattleId));
+    }
+
+    [Theory]
+    [InlineData(0u, true)]
+    [InlineData(BattlefieldMgrTranslation.LegacyTolBaradMapId, false)]
+    public void TransferPending_ToAnotherMap_DropsTheTicketFirst(uint mapId, bool dropped)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = NewHarness();
+        uint entryTicket = BattlefieldMgrTranslation.TicketFor(BattlefieldMgrTranslation.TolBaradBattleId, BattlefieldMgrTicketKind.Entry);
+        harness.Session.GameState.StoreBattleFieldQueueType(entryTicket, BattlefieldMgrTranslation.ModernTolBaradListId);
+        byte[] wire = LegacyPacketBuilder.Build(Opcode.SMSG_TRANSFER_PENDING, p =>
+        {
+            // TrinityCore 4.3.4 TransferPending::Write: no spell, no ship, the map
+            p.WriteBit(false);
+            p.WriteBit(false);
+            p.FlushBits();
+            p.WriteUInt32(mapId);
+        });
+
+        harness.Deliver(Opcode.SMSG_TRANSFER_PENDING, wire, harness.Client.HandleTransferPending);
+
+        // ahead of the transfer: after the map change the client no longer lists the ticket
+        if (dropped)
+        {
+            var none = Assert.IsType<BattlefieldStatusNone>(harness.ClientWire.Sent[0].Packet);
+            Assert.Equal(entryTicket, none.Ticket.Id);
+            Assert.IsType<TransferPending>(harness.ClientWire.Sent[1].Packet);
+        }
+        else
+            Assert.IsType<TransferPending>(harness.ClientWire.Sent[0].Packet);
+        Assert.Equal(!dropped, harness.Client.HasBattlefieldMgrTicket(BattlefieldMgrTranslation.TolBaradBattleId));
     }
 
     [Theory]

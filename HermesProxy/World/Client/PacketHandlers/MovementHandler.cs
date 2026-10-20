@@ -591,6 +591,9 @@ public partial class WorldClient
                 GetSession().GameState.TransferPendingShipEntry = 0;
         }
 
+        if (IsCataLegacy)
+            ClearBattlefieldMgrStateLeavingFor(transfer.MapID);
+
         SendPacketToClient(transfer);
         GetSession().GameState.IsFirstEnterWorld = false;
         GetSession().GameState.IsWaitingForNewWorld = true;
