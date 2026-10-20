@@ -258,7 +258,7 @@ public enum Opcode : uint
     CMSG_IGNORE_TRADE                                     = 0x7112,
     CMSG_INITIATE_TRADE                                   = 0x7916,
     CMSG_INSPECT                                          = 0x0927,
-    CMSG_INSTANCE_LOCK_WARNING_RESPONSE                   = 0x6234,
+    CMSG_INSTANCE_LOCK_RESPONSE                           = 0x6234, // TrinityCore 4.3.4: CMSG_INSTANCE_LOCK_WARNING_RESPONSE
     CMSG_ITEM_PURCHASE_REFUND                             = 0x6134,
     CMSG_ITEM_TEXT_QUERY                                  = 0x2406,
     CMSG_KEEP_ALIVE                                       = 0x0015,
