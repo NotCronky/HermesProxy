@@ -275,6 +275,29 @@ public sealed class LegacyMovementCataTests
     }
 
     [Fact]
+    public void MoveUpdateRunBackSpeed_WithPresenceBits_IsRead()
+    {
+        // Another 4.3.4 core, in Warsong Gulch (2026-10-13): player 0x221C running forward under a
+        // slow, run-back speed 1.8. It writes every presence bit, in WowPacketParser's order, which
+        // none of the reference table's guesses fits.
+        byte[] body = Convert.FromHexString("A09A00000004" + "33561200" + "23" + "90FD6F40" + "1D"
+            + "25829344" + "294BB844" + "6666E63F" + "440C9843");
+        using var read = Framed(body);
+
+        Assert.True(LegacyMovementCata.TryRead(read, Opcode.SMSG_MOVE_UPDATE_RUN_BACK_SPEED, null!, out ulong mover, out MovementInfo info, out _, out float speed));
+
+        Assert.Equal(0x221Cul, mover);
+        Assert.Equal(1.8f, speed);
+        Assert.Equal(1180.07f, info.Position.X, 2);
+        Assert.Equal(1474.35f, info.Position.Y, 2);
+        Assert.Equal(304.10f, info.Position.Z, 2);
+        Assert.Equal(3.7499f, info.Orientation, 4);
+        Assert.Equal(1201715u, info.MoveTime);
+        Assert.Equal(1u, (uint)info.Flags);
+        Assert.Equal(0, read.GetRemainingSpan().Length);
+    }
+
+    [Fact]
     public void MoveUpdateRunBackSpeed_NoGuessFits_IsNotRead()
     {
         // one byte more than the packet above: no choice of fall data and transport ends there

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Frozen;
+using System.Collections.Generic;
 using System.Linq;
 using Framework.Logging;
 using HermesProxy.World.Enums;
@@ -311,6 +312,25 @@ public static class LegacyMovementCata
             {
             }
         }
+        if (WithPresenceBits.TryGetValue(opcode, out LegacyMovementElement[]? withBits))
+        {
+            packet.RewindTo(start);
+            try
+            {
+                bool hasTransport = Read(packet, withBits, implicitPresence: false, hasFall: false, hasTransport: false,
+                    twoBitExtraAt: -1, out mover, out info, out movementCounter, out extraFloat, out extraBits,
+                    out ulong transportGuid);
+                if (packet.Remaining() == 0)
+                {
+                    if (hasTransport)
+                        SetTransportGuid(ref info, transportGuid, gameState);
+                    return true;
+                }
+            }
+            catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException)
+            {
+            }
+        }
         MovementLogMessages.LegacyMovementFitsNoShape(_log, opcode, length);
         mover = 0;
         info = default;
@@ -327,6 +347,43 @@ public static class LegacyMovementCata
         .Where(p => p.Value.Contains(LegacyMovementElement.Timestamp) && !p.Value.Contains(LegacyMovementElement.HasTimestamp))
         .Select(p => p.Key)
         .ToFrozenSet();
+
+    /// <summary>
+    /// The same updates as another 4.3.4 core writes them, with a bit for everything
+    /// that may be missing: WowPacketParser's 4.3.4 order. Its run-back packets end where this
+    /// order ends and never where the reference table's guesses do; the reference server's packets
+    /// fit only the guesses. Tried after them, by the same length test.
+    /// </summary>
+    private static readonly FrozenDictionary<Opcode, LegacyMovementElement[]> WithPresenceBits = new Dictionary<Opcode, LegacyMovementElement[]>
+    {
+        [Opcode.SMSG_MOVE_UPDATE_RUN_BACK_SPEED] =
+        [
+            LegacyMovementElement.HasGuidByte1, LegacyMovementElement.HasGuidByte2, LegacyMovementElement.HasSplineElevation,
+            LegacyMovementElement.HasGuidByte4, LegacyMovementElement.HasGuidByte3, LegacyMovementElement.HasFallData,
+            LegacyMovementElement.HasGuidByte6, LegacyMovementElement.HasTimestamp, LegacyMovementElement.HasGuidByte0,
+            LegacyMovementElement.ZeroBit, LegacyMovementElement.HasMovementFlags, LegacyMovementElement.HasPitch,
+            LegacyMovementElement.HasSpline, LegacyMovementElement.HasGuidByte5, LegacyMovementElement.HasMovementFlags2,
+            LegacyMovementElement.MovementFlags2, LegacyMovementElement.HasOrientation, LegacyMovementElement.MovementFlags,
+            LegacyMovementElement.HasFallDirection, LegacyMovementElement.HasTransportData, LegacyMovementElement.HasTransportGuidByte5,
+            LegacyMovementElement.HasTransportTime2, LegacyMovementElement.HasTransportGuidByte3, LegacyMovementElement.HasTransportGuidByte1,
+            LegacyMovementElement.HasTransportGuidByte6, LegacyMovementElement.HasTransportGuidByte7, LegacyMovementElement.HasTransportGuidByte2,
+            LegacyMovementElement.HasTransportGuidByte4, LegacyMovementElement.HasTransportGuidByte0, LegacyMovementElement.HasVehicleId,
+            LegacyMovementElement.HasGuidByte7, LegacyMovementElement.FlushBits,
+            LegacyMovementElement.TransportPositionX, LegacyMovementElement.TransportGuidByte2, LegacyMovementElement.TransportGuidByte5,
+            LegacyMovementElement.TransportGuidByte4, LegacyMovementElement.TransportGuidByte6, LegacyMovementElement.TransportTime2,
+            LegacyMovementElement.TransportGuidByte0, LegacyMovementElement.TransportGuidByte3, LegacyMovementElement.TransportPositionY,
+            LegacyMovementElement.TransportGuidByte7, LegacyMovementElement.TransportVehicleId, LegacyMovementElement.TransportPositionZ,
+            LegacyMovementElement.TransportTime, LegacyMovementElement.TransportSeat, LegacyMovementElement.TransportGuidByte1,
+            LegacyMovementElement.TransportOrientation, LegacyMovementElement.GuidByte4, LegacyMovementElement.FallTime,
+            LegacyMovementElement.FallHorizontalSpeed, LegacyMovementElement.FallCosAngle, LegacyMovementElement.FallSinAngle,
+            LegacyMovementElement.FallVerticalSpeed, LegacyMovementElement.Timestamp, LegacyMovementElement.SplineElevation,
+            LegacyMovementElement.GuidByte1, LegacyMovementElement.Orientation, LegacyMovementElement.GuidByte0,
+            LegacyMovementElement.GuidByte5, LegacyMovementElement.GuidByte3, LegacyMovementElement.PositionX,
+            LegacyMovementElement.PositionY, LegacyMovementElement.Pitch, LegacyMovementElement.GuidByte7,
+            LegacyMovementElement.ExtraElement, LegacyMovementElement.GuidByte2, LegacyMovementElement.GuidByte6,
+            LegacyMovementElement.PositionZ, LegacyMovementElement.End,
+        ],
+    }.ToFrozenDictionary();
 
     private static void SetTransportGuid(ref MovementInfo info, ulong transportGuid, GameSessionData gameState)
     {
