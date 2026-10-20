@@ -56,11 +56,16 @@ public partial class WorldClient
             loot.Items.Add(lootItem);
             state.RemainingLootSlots.Add(lootItem.LootListID);
         }
+        // A currency slot counts from the same list as the items. Its amount is as the server
+        // stores it, in hundredths for the currencies the client keeps in hundredths.
         for (var i = 0; i < currencyCount; ++i)
         {
-            packet.ReadUInt8();                 // LootListID
-            packet.ReadUInt32();                // CurrencyID
-            packet.ReadUInt32();                // Quantity
+            LootCurrency currency = new();
+            currency.LootListID = packet.ReadUInt8();
+            currency.CurrencyID = ModernCurrencyId(packet.ReadUInt32());
+            currency.Quantity = packet.ReadUInt32();
+            currency.UIType = (byte)LootSlotTypeModern.AllowLoot;
+            loot.Currencies.Add(currency);
         }
         state.RemainingLootCoins = loot.Coins;
         SendMasterLootListIfApplicable();
