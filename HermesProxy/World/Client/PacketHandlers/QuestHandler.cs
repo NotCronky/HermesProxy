@@ -400,8 +400,12 @@ public partial class WorldClient
             uint currencyCount = packet.ReadUInt32();
             for (int i = 0; i < currencyCount; i++)
             {
-                packet.ReadUInt32();            // CurrencyID
-                packet.ReadUInt32();            // Amount
+                uint currencyId = ModernCurrencyId(packet.ReadUInt32());
+                quest.Currency.Add(new QuestCurrency
+                {
+                    CurrencyID = currencyId,
+                    Amount = (int)(packet.ReadUInt32() * ModernCurrencyScale(currencyId)),
+                });
             }
         }
 
