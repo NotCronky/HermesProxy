@@ -228,85 +228,119 @@ public class SupercededSpells : ServerPacket, ISpanWritable
     public List<int> FavoriteSpellID = new();
 }
 
-public class LearnedSpells : ServerPacket, ISpanWritable
+public sealed class LearnedSpells : ServerPacket, ISpanWritable
 {
     // Practical cap - usually 1 spell per trainer click, hunter pet quest ~5
     private const int MaxSpells = 8;
 
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<LearnedSpells>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new FlatLayout()),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.Zero, new PerSpellBitsLayout()));
+
+    private static readonly ServerPacketLayout<LearnedSpells> Layout = Layouts.ForRunningClient();
+
     public LearnedSpells() : base(Opcode.SMSG_LEARNED_SPELLS, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        // V3_4_3 (WotLK Classic) layout differs from modern retail. Per WotLK
-        // client (and HermesProxy-WOTLK fork LearnedSpells.cs:27-44):
-        //   int32 Count + uint32 SpecializationID + 1-bit SuppressMessaging +
-        //   per-spell { int32 SpellID + 4 bits (IsFavorite, _, HasSuperceded,
-        //   _) + optional int32 SupercededID }.
-        // Our retail layout (flat list + separate favorites + trailing bit)
-        // doesn't match the V3_4_3 cascade — without the per-spell bit gates,
-        // the client mis-parses every entry and the spellbook silently ignores
-        // newly-learned trainer spells (until logout/login resets via
-        // SMSG_SEND_KNOWN_SPELLS, which has its own correct format).
-        if (ModernVersion.IsWotLKClassicOrLater)
-        {
-            _worldPacket.WriteInt32(Spells.Count);
-            _worldPacket.WriteUInt32(SpecializationID);
-            _worldPacket.WriteBit(SuppressMessaging);
-            _worldPacket.FlushBits();
-            foreach (uint spell in Spells)
-            {
-                _worldPacket.WriteInt32((int)spell);
-                _worldPacket.WriteBit(FavoriteSpellID.Contains((int)spell));
-                _worldPacket.WriteBit(false);   // field_8 — reserved
-                _worldPacket.WriteBit(false);   // HasSuperceded — none for this path
-                _worldPacket.WriteBit(false);   // HasTraitDefinitionID — N/A in WotLK
-                _worldPacket.FlushBits();
-            }
-            return;
-        }
-
-        _worldPacket.WriteInt32(Spells.Count);
-        _worldPacket.WriteInt32(FavoriteSpellID.Count);
-        _worldPacket.WriteUInt32(SpecializationID);
-
-        foreach (uint spell in Spells)
-            _worldPacket.WriteUInt32(spell);
-
-        foreach (int spell in FavoriteSpellID)
-            _worldPacket.WriteInt32(spell);
-
-        _worldPacket.WriteBit(SuppressMessaging);
-        _worldPacket.FlushBits();
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     // MaxSize: 3 int32 (12) + 2 lists capped at 8 (64) + 1 bit byte = 77
     public int MaxSize => 12 + MaxSpells * 4 * 2 + 1;
 
     public int WriteToSpan(Span<byte> buffer)
     {
-        // V3_4_3 uses a different bit-packed cascade (see Write()). Fall back to
-        // the boxed Write path for V3_4_3 by returning -1 — the framework will
-        // detect the overflow sentinel and re-emit via Write().
-        if (ModernVersion.IsWotLKClassicOrLater)
-            return -1;
-
         if (Spells.Count > MaxSpells || FavoriteSpellID.Count > MaxSpells)
             return -1;
 
-        var writer = new SpanPacketWriter(buffer);
-        writer.WriteInt32(Spells.Count);
-        writer.WriteInt32(FavoriteSpellID.Count);
-        writer.WriteUInt32(SpecializationID);
+        return Layout.WriteToSpan(this, buffer);
+    }
 
-        foreach (uint spell in Spells)
-            writer.WriteUInt32(spell);
+    /// <summary>Up to 2.5: the spells, then the favourites, then the bit.</summary>
+    internal sealed class FlatLayout : ServerPacketLayout<LearnedSpells>
+    {
+        public override int MaxSize => 12 + MaxSpells * 4 * 2 + 1;
 
-        foreach (int spell in FavoriteSpellID)
-            writer.WriteInt32(spell);
+        public override void Write(LearnedSpells packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Spells.Count);
+            data.WriteInt32(packet.FavoriteSpellID.Count);
+            data.WriteUInt32(packet.SpecializationID);
 
-        writer.WriteBit(SuppressMessaging);
-        writer.FlushBits();
-        return writer.Position;
+            foreach (uint spell in packet.Spells)
+                data.WriteUInt32(spell);
+
+            foreach (int spell in packet.FavoriteSpellID)
+                data.WriteInt32(spell);
+
+            data.WriteBit(packet.SuppressMessaging);
+            data.FlushBits();
+        }
+
+        public override int WriteToSpan(LearnedSpells packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Spells.Count);
+            writer.WriteInt32(packet.FavoriteSpellID.Count);
+            writer.WriteUInt32(packet.SpecializationID);
+
+            foreach (uint spell in packet.Spells)
+                writer.WriteUInt32(spell);
+
+            foreach (int spell in packet.FavoriteSpellID)
+                writer.WriteInt32(spell);
+
+            writer.WriteBit(packet.SuppressMessaging);
+            writer.FlushBits();
+            return writer.Position;
+        }
+    }
+
+    /// <summary>
+    /// 3.4.3 on: int32 Count, uint32 SpecializationID, the SuppressMessaging bit, then per spell an
+    /// int32 and four bits (IsFavorite, reserved, HasSuperceded, HasTraitDefinitionID). Without the
+    /// per-spell bits the client mis-parses every entry and the spellbook ignores trainer spells
+    /// until the next login. The span writer used to return -1 here, sending every learned spell
+    /// down the boxed path with an "exceeded MaxSize" warning (#407).
+    /// </summary>
+    internal sealed class PerSpellBitsLayout : ServerPacketLayout<LearnedSpells>
+    {
+        // count and specialization, the bit's byte, then per spell an int32 and its bits' byte
+        public override int MaxSize => 8 + 1 + MaxSpells * 5;
+
+        public override void Write(LearnedSpells packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Spells.Count);
+            data.WriteUInt32(packet.SpecializationID);
+            data.WriteBit(packet.SuppressMessaging);
+            data.FlushBits();
+            foreach (uint spell in packet.Spells)
+            {
+                data.WriteInt32((int)spell);
+                data.WriteBit(packet.FavoriteSpellID.Contains((int)spell));
+                data.WriteBit(false);
+                data.WriteBit(false);
+                data.WriteBit(false);
+                data.FlushBits();
+            }
+        }
+
+        public override int WriteToSpan(LearnedSpells packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Spells.Count);
+            writer.WriteUInt32(packet.SpecializationID);
+            writer.WriteBit(packet.SuppressMessaging);
+            writer.FlushBits();
+            foreach (uint spell in packet.Spells)
+            {
+                writer.WriteInt32((int)spell);
+                writer.WriteBit(packet.FavoriteSpellID.Contains((int)spell));
+                writer.WriteBit(false);
+                writer.WriteBit(false);
+                writer.WriteBit(false);
+                writer.FlushBits();
+            }
+            return writer.Position;
+        }
     }
 
     public List<uint> Spells = new();
