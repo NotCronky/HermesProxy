@@ -15,7 +15,7 @@ namespace HermesProxy.Tests.World.Client;
 /// loot is nine Fossil Archaeology Fragments and nothing else. The currencies come after the items
 /// and were read past, so the 4.4.2 client opened the find with nothing in it.
 /// The client takes a currency slot as it takes an item, and TrinityCore 4.3.4 hands one out only
-/// on CMSG_LOOT_CURRENCY.
+/// on CMSG_LOOT_CURRENCY and answers with SMSG_CURRENCY_LOOT_REMOVED.
 /// </summary>
 /// <remarks>Runs only under a 4.3.4 legacy build (<c>HERMES_TEST_LEGACY_BUILD</c>).</remarks>
 public sealed class LootCurrencyCataTests
@@ -60,5 +60,20 @@ public sealed class LootCurrencyCataTests
         var sent = Assert.Single(harness.ServerWire.Sent);
         Assert.Equal(LegacyVersion.GetCurrentOpcode(Opcode.CMSG_LOOT_CURRENCY), sent.Opcode);
         Assert.Equal([0], sent.Bytes);
+    }
+
+    [Fact]
+    public void FragmentsTaken_ClearTheSlotAndCloseTheWindow()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var (harness, _) = Deliver();
+        harness.Deliver(Opcode.SMSG_CURRENCY_LOOT_REMOVED, [0, 0, 0], harness.Client.HandleCurrencyLootRemoved);
+
+        var sent = harness.ClientWire.Sent.Select(s => s.Packet).Skip(1).ToList();
+        Assert.Equal(2, sent.Count);
+        Assert.Equal(0, Assert.IsType<LootRemoved>(sent[0]).LootListID);
+        Assert.IsType<LootReleaseResponse>(sent[1]);
     }
 }

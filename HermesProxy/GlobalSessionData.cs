@@ -395,6 +395,7 @@ public sealed class GameSessionData
     // items, and a 4.3.4 server hands one out only on CMSG_LOOT_CURRENCY.
     public List<byte> RemainingLootCurrencySlots = new();
     public uint RemainingLootCoins;
+    public bool LootDrained => RemainingLootSlots.Count == 0 && RemainingLootCurrencySlots.Count == 0 && RemainingLootCoins == 0;
     // V3_4_3 only: set when HandleLootItem pre-claims coins via an injected CMSG_LOOT_MONEY
     // (TC 3.3.5 master closes the loot session after auto-looting items, orphaning any
     // un-claimed coins). The next CMSG_LOOT_MONEY from the modern client is the redundant

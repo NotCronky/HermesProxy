@@ -90,7 +90,7 @@ public partial class WorldClient
         // (c) the loot is genuinely drained.
         bool gateActive = ModernVersion.IsWotLKClassicOrLater;
         bool clientAsked = state.ExpectingLootReleaseResponse;
-        bool drained = state.RemainingLootSlots.Count == 0 && state.RemainingLootCoins == 0;
+        bool drained = state.LootDrained;
 
         // V3_4_3 client expects Owner = the looting player's own GUID (see TC's
         // Player::SendLootRelease in HermesProxy-WOTLK/tmp_certs/tc_player.cpp:8700-8705).
@@ -142,11 +142,37 @@ public partial class WorldClient
         SendPacketToClient(loot);
 
         if (ModernVersion.IsWotLKClassicOrLater
-            && state.RemainingLootSlots.Count == 0
-            && state.RemainingLootCoins == 0)
+            && state.LootDrained)
         {
             // Last item drained: synthesize the close that we will have suppressed (or
             // that the legacy server may still send) so the V3_4_3 UI auto-closes.
+            LootReleaseResponse synth = new();
+            synth.Owner = state.CurrentPlayerGuid;
+            synth.LootObj = state.LastLootTargetGuid.ToLootGuid();
+            SendPacketToClient(synth);
+            state.LastMasterLootSentTarget = default;
+        }
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>SendNotifyCurrencyLootRemoved</c>: the slot of a currency taken out of
+    /// the loot. The 4.4.2 client has no packet of its own for that and clears a currency slot as
+    /// it clears an item's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_CURRENCY_LOOT_REMOVED)]
+    internal void HandleCurrencyLootRemoved(WorldPacket packet)
+    {
+        var state = GetSession().GameState;
+        LootRemoved loot = new();
+        loot.Owner = state.LastLootTargetGuid.To128(state);
+        loot.LootObj = state.LastLootTargetGuid.ToLootGuid();
+        loot.LootListID = packet.ReadUInt8();
+        state.RemainingLootCurrencySlots.Remove(loot.LootListID);
+        SendPacketToClient(loot);
+
+        // The last of it: the close the client waits for, as for the last item.
+        if (state.LootDrained)
+        {
             LootReleaseResponse synth = new();
             synth.Owner = state.CurrentPlayerGuid;
             synth.LootObj = state.LastLootTargetGuid.ToLootGuid();
@@ -170,8 +196,7 @@ public partial class WorldClient
         // *before* the notify. Fire here once the session is fully drained.
         var state = GetSession().GameState;
         if (ModernVersion.IsWotLKClassicOrLater
-            && state.RemainingLootSlots.Count == 0
-            && state.RemainingLootCoins == 0)
+            && state.LootDrained)
         {
             LootReleaseResponse synth = new();
             synth.Owner = state.CurrentPlayerGuid;
