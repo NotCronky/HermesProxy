@@ -64,9 +64,9 @@ public sealed class CataCalendarTests
         => string.Concat(Array.ConvertAll(values, v => Convert.ToHexString(BitConverter.GetBytes(v))));
 
     [Fact]
-    public void HandleCalendarSendCalendar_KeepsTheInvitationsAndEvents()
+    public void HandleCalendarSendCalendar_KeepsTheInvitationsEventsAndSaves()
     {
-        // HandleCalendarGetCalendar: one invitation, one event, the time, then a saved raid, a
+        // HandleCalendarGetCalendar: one invitation, one event, the time, a saved raid, then a
         // raid's reset and a holiday, which are not passed on
         var calendar = Deliver<CalendarSendCalendar>(
             Ints(1) + Longs(1, 7) + "03" + "02" + "00" + "0102"
@@ -93,6 +93,11 @@ public sealed class CataCalendarTests
         Assert.Equal(-1, calendarEvent.TextureId);
         Assert.Equal(0ul, calendarEvent.EventClubId);
         Assert.Equal(_player, calendarEvent.OwnerGuid);
+        CalendarRaidLockout lockout = Assert.Single(calendar.RaidLockouts);
+        Assert.Equal(669, lockout.MapId);
+        Assert.Equal(GameData.ModernInstanceDifficulty(669, 3).DifficultyId, lockout.DifficultyId);
+        Assert.Equal(3600, lockout.ExpireTime);
+        Assert.Equal(42ul, lockout.InstanceId);
     }
 
     [Fact]

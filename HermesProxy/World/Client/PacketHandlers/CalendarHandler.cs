@@ -116,9 +116,11 @@ public partial class WorldClient
     /// <summary>
     /// TrinityCore 4.3.4 <c>HandleCalendarGetCalendar</c>: the invitations, the events, the time,
     /// then the raids the player is saved to, the raids' reset times and the holidays the server
-    /// changed. The client is sent the first two lists. The raid lists are left out (4.3.4 gives
-    /// the seconds until a reset, the 4.4.2 client wants a period and an offset), and the client
-    /// has the holidays in a table of its own.
+    /// changed. The client is sent the first three lists. A save is 3.3.5a's (map, difficulty,
+    /// seconds left, save id); without it a lock made before the calendar's first opening of the
+    /// session never showed there. The resets are left out (4.3.4 gives the seconds until a reset,
+    /// the 4.4.2 client wants a period and an offset), and the client has the holidays in a table
+    /// of its own.
     /// </summary>
     internal void HandleCalendarSendCalendarCata(WorldPacket packet)
     {
@@ -159,6 +161,17 @@ public partial class WorldClient
 
         packet.ReadUInt32();                    // the server's time in seconds
         calendar.ServerTime = packet.ReadUInt32();  // and as a packed date
+
+        uint lockoutCount = packet.ReadUInt32();
+        if (lockoutCount > MaxCalendarEntries)
+            return;
+        for (uint i = 0; i < lockoutCount; i++)
+        {
+            uint mapId = packet.ReadUInt32();
+            uint difficulty = packet.ReadUInt32();
+            uint secondsLeft = packet.ReadUInt32();
+            calendar.RaidLockouts.Add(CalendarLockout(mapId, difficulty, secondsLeft, packet.ReadUInt64()));
+        }
         SendPacketToClient(calendar);
     }
 
