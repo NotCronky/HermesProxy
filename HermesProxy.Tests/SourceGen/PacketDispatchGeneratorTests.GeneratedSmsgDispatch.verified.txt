@@ -2792,6 +2792,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleWhoResponse(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleWorldServerInfo_SMSG_WORLD_SERVER_INFO(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleWorldServerInfo(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleZoneUnderAttack_SMSG_ZONE_UNDER_ATTACK(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleZoneUnderAttack(packet);
@@ -3404,6 +3409,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_VENDOR_INVENTORY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleVendorInventory_SMSG_VENDOR_INVENTORY;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_WEATHER] = &Thunk_HermesProxy_World_Client_WorldClient_HandleWeather_SMSG_WEATHER;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_WHO] = &Thunk_HermesProxy_World_Client_WorldClient_HandleWhoResponse_SMSG_WHO;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_WORLD_SERVER_INFO] = &Thunk_HermesProxy_World_Client_WorldClient_HandleWorldServerInfo_SMSG_WORLD_SERVER_INFO;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_ZONE_UNDER_ATTACK] = &Thunk_HermesProxy_World_Client_WorldClient_HandleZoneUnderAttack_SMSG_ZONE_UNDER_ATTACK;
 
         return table;
@@ -3947,6 +3953,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_VENDOR_INVENTORY,
             global::HermesProxy.World.Enums.Opcode.SMSG_WEATHER,
             global::HermesProxy.World.Enums.Opcode.SMSG_WHO,
+            global::HermesProxy.World.Enums.Opcode.SMSG_WORLD_SERVER_INFO,
             global::HermesProxy.World.Enums.Opcode.SMSG_ZONE_UNDER_ATTACK,
         });
     }

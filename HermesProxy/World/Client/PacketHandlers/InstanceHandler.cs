@@ -40,12 +40,39 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_INSTANCE_DIFFICULTY)]
     internal void HandleInstanceDifficulty(WorldPacket packet)
     {
-        uint difficulty = packet.ReadUInt32();
+        SendInstanceDifficulty(packet.ReadUInt32());
+    }
+
+    /// <summary>
+    /// A 4.3.4 server has no SMSG_INSTANCE_DIFFICULTY: it reports the instance's difficulty in a
+    /// server info of its own, at the same point (TrinityCore 4.3.4
+    /// <c>Player::SendInitialPacketsBeforeAddToMap</c>). Only the difficulty is taken from it; the
+    /// rest of the client's server info stays the proxy's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_WORLD_SERVER_INFO)]
+    internal void HandleWorldServerInfo(WorldPacket packet)
+    {
+        bool hasRestrictedLevel = packet.HasBit();
+        bool hasRestrictedMoney = packet.HasBit();
+        bool hasIneligibleForLootMask = packet.HasBit();
+        if (hasIneligibleForLootMask)
+            packet.ReadUInt32();
+        packet.ReadUInt8(); // IsTournamentRealm
+        if (hasRestrictedMoney)
+            packet.ReadUInt32();
+        if (hasRestrictedLevel)
+            packet.ReadUInt32();
+        packet.ReadUInt32(); // WeeklyReset
+        SendInstanceDifficulty(packet.ReadUInt32());
+    }
+
+    private void SendInstanceDifficulty(uint legacyDifficulty)
+    {
         uint? mapId = GetSession().GameState.CurrentMapId;
-        if (difficulty == 0 || mapId is null || !WorldServerInfo.FollowsInstanceDifficulty)
+        if (legacyDifficulty == 0 || mapId is null || !WorldServerInfo.FollowsInstanceDifficulty)
             return;
 
-        SendPacketToClient(WorldServerInfo.ForMap(mapId.Value, difficulty));
+        SendPacketToClient(WorldServerInfo.ForMap(mapId.Value, legacyDifficulty));
     }
 
     [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_OWNERSHIP)]

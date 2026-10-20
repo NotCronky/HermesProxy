@@ -68,11 +68,9 @@ internal static class DeliberatelyUnhandledOpcodes
 
     internal static readonly FrozenSet<Opcode> FromServer = new HashSet<Opcode>
     {
-        // The proxy tells the client these itself: its own cache version, its own hotfixes and
-        // its own server info.
+        // The proxy tells the client these itself: its own cache version and its own hotfixes.
         Opcode.SMSG_CACHE_VERSION,
         Opcode.SMSG_HOTFIX_NOTIFY_BLOB,
-        Opcode.SMSG_WORLD_SERVER_INFO,
         // No modern client has an opcode for these: the dance studio that never shipped, the
         // guild reputation cap of the week and the guild finder's applicant count.
         Opcode.SMSG_LEARNED_DANCE_MOVES,
