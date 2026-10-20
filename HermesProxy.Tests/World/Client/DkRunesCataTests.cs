@@ -124,4 +124,21 @@ public sealed class DkRunesCataTests
         // an empty rune list, then the index and the type
         Assert.Equal([0, 0, 0, 0, 0, 0, (byte)index, 0, 0, 0, (byte)rune, 0, 0, 0], sent.Bytes);
     }
+
+    [Fact]
+    public void AddRunePower_GoesOnAndReadiesTheRunes()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = InWorld();
+        harness.Session.GameState.RuneState!.Cooldowns[2] = 0;
+        // one of Empower Rune Weapon's four
+        harness.Deliver(Opcode.SMSG_ADD_RUNE_POWER, Convert.FromHexString("156904000000"), harness.Client.HandleAddRunePower);
+
+        var sent = Assert.Single(harness.ClientWire.Sent);
+        Assert.Equal(4u, Assert.IsType<AddRunePower>(sent.Packet).AddedRunesMask);
+        Assert.Equal([4, 0, 0, 0], sent.Bytes);
+        Assert.Equal(255, harness.Session.GameState.RuneState.Cooldowns[2]);
+    }
 }

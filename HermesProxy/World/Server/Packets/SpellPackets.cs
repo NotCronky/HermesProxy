@@ -1695,6 +1695,26 @@ public sealed class ConvertRune : ServerPacket, ISpanWritable
     public uint Rune;  // Blood 0, Frost 1, Unholy 2, Death 3
 }
 
+/// <summary>
+/// The runes a spell made ready at once (Blood Tap, Empower Rune Weapon), as a mask of rune slots.
+/// </summary>
+public sealed class AddRunePower : ServerPacket, ISpanWritable
+{
+    public AddRunePower() : base(Opcode.SMSG_ADD_RUNE_POWER, ConnectionType.Instance) { }
+
+    public override void Write() => _worldPacket.WriteUInt32(AddedRunesMask);
+
+    public int MaxSize => 4;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteUInt32(AddedRunesMask);
+        return writer.Position;
+    }
+
+    public uint AddedRunesMask;
+}
 
 
 

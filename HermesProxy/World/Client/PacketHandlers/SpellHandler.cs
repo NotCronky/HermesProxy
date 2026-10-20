@@ -1942,6 +1942,9 @@ public partial class WorldClient
     // client manages the visual cooldown swirl from that snapshot — that's the dominant
     // path. We only mutate the cached RuneState here so the next CREATE block reflects
     // authoritative state on zone change / mount.
+    // TrinityCore 4.3.4 sends RESYNC_RUNES only at login, and the other two only when a spell or
+    // an aura changes a rune, as TrinityCore cata_classic does; those two go on to the 4.4.2
+    // client, which has no other way to learn of a death rune or of runes made ready at once.
 
     [HandlesSmsg(Opcode.SMSG_RESYNC_RUNES)]
     internal void HandleResyncRunes(WorldPacket packet)
@@ -1991,6 +1994,8 @@ public partial class WorldClient
             if ((mask & (1u << i)) != 0)
                 runeState.Cooldowns[i] = 255;
         }
+        if (IsCataLegacy)
+            SendPacketToClient(new AddRunePower { AddedRunesMask = mask });
     }
 
     // Map TC's per-slot rune type byte (Blood=0, Unholy=1, Frost=2, Death=3) to
