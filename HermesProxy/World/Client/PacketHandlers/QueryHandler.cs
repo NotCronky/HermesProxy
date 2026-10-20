@@ -295,10 +295,23 @@ public partial class WorldClient
                 quest.RewardCurrencyQty[i] = packet.ReadUInt32() * ModernCurrencyScale(quest.RewardCurrencyID[i]);
             }
 
+            // A required currency is an objective of its own to the client, which counts it from
+            // the currency the player holds; it keeps no progress in the quest log.
             for (int i = 0; i < 4; i++)
             {
-                packet.ReadUInt32();            // RequiredCurrencyID
-                packet.ReadUInt32();            // RequiredCurrencyQty
+                uint currencyId = ModernCurrencyId(packet.ReadUInt32());
+                uint currencyQty = packet.ReadUInt32() * ModernCurrencyScale(currencyId);
+                if (currencyId == 0 || currencyQty == 0)
+                    continue;
+
+                QuestObjective objective = new QuestObjective();
+                objective.QuestID = response.QuestID;
+                objective.Id = QuestObjective.QuestObjectiveCounter++;
+                objective.StorageIndex = -1;
+                objective.Type = QuestObjectiveType.Currency;
+                objective.ObjectID = (int)currencyId;
+                objective.Amount = (int)currencyQty;
+                quest.Objectives.Add(objective);
             }
 
             quest.PortraitGiverText = packet.ReadCString();
