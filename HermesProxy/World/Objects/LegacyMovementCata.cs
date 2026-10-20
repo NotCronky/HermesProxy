@@ -282,7 +282,8 @@ public static class LegacyMovementCata
         if (!LegacyMovementSequencesCata.ByOpcode.TryGetValue(opcode, out LegacyMovementElement[]? sequence))
             return false;
 
-        if (!WrittenWithoutPresenceBits.Contains(opcode))
+        bool withPresenceBits = WithPresenceBits.TryGetValue(opcode, out LegacyMovementElement[]? withBits);
+        if (!WrittenWithoutPresenceBits.Contains(opcode) && !withPresenceBits)
         {
             if (Read(packet, sequence, implicitPresence: false, hasFall: false, hasTransport: false, TwoBitExtraAt(opcode),
                     out mover, out info, out movementCounter, out extraFloat, out extraBits, out ulong transportGuid))
@@ -290,51 +291,62 @@ public static class LegacyMovementCata
             return true;
         }
 
-        // Whether the fall data and the transport are there only the length tells: each guess is
-        // read from the start again until one ends where the packet ends.
         int start = packet.ReadPosition;
         int length = packet.Remaining();
-        for (int guess = 0; guess < 4; guess++)
+        if (!WrittenWithoutPresenceBits.Contains(opcode))
         {
-            packet.RewindTo(start);
-            try
-            {
-                bool hasTransport = Read(packet, sequence, implicitPresence: true, hasFall: (guess & 1) != 0,
-                    hasTransport: (guess & 2) != 0, twoBitExtraAt: -1, out mover, out info, out movementCounter,
-                    out extraFloat, out extraBits, out ulong transportGuid);
-                if (packet.Remaining() != 0)
-                    continue;
-                if (hasTransport)
-                    SetTransportGuid(ref info, transportGuid, gameState);
+            // The table's order has its presence bits, but another core writes the client's: the
+            // length tells them apart, as it tells the guesses below.
+            if (ReadsToTheEnd(packet, start, sequence, implicitPresence: false, hasFall: false, hasTransport: false,
+                    TwoBitExtraAt(opcode), gameState, out mover, out info, out movementCounter, out extraFloat, out extraBits))
                 return true;
-            }
-            catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException)
-            {
-            }
         }
-        if (WithPresenceBits.TryGetValue(opcode, out LegacyMovementElement[]? withBits))
+        else
         {
-            packet.RewindTo(start);
-            try
+            // Whether the fall data and the transport are there only the length tells: each guess is
+            // read from the start again until one ends where the packet ends.
+            for (int guess = 0; guess < 4; guess++)
             {
-                bool hasTransport = Read(packet, withBits, implicitPresence: false, hasFall: false, hasTransport: false,
-                    twoBitExtraAt: -1, out mover, out info, out movementCounter, out extraFloat, out extraBits,
-                    out ulong transportGuid);
-                if (packet.Remaining() == 0)
-                {
-                    if (hasTransport)
-                        SetTransportGuid(ref info, transportGuid, gameState);
+                if (ReadsToTheEnd(packet, start, sequence, implicitPresence: true, hasFall: (guess & 1) != 0,
+                        hasTransport: (guess & 2) != 0, twoBitExtraAt: -1, gameState, out mover, out info,
+                        out movementCounter, out extraFloat, out extraBits))
                     return true;
-                }
-            }
-            catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException)
-            {
             }
         }
+        if (withPresenceBits && ReadsToTheEnd(packet, start, withBits!, implicitPresence: false, hasFall: false,
+                hasTransport: false, twoBitExtraAt: -1, gameState, out mover, out info, out movementCounter,
+                out extraFloat, out extraBits))
+            return true;
         MovementLogMessages.LegacyMovementFitsNoShape(_log, opcode, length);
         mover = 0;
         info = default;
         return false;
+    }
+
+    private static bool ReadsToTheEnd(WorldPacket packet, int start, LegacyMovementElement[] sequence,
+        bool implicitPresence, bool hasFall, bool hasTransport, int twoBitExtraAt, GameSessionData gameState,
+        out ulong mover, out MovementInfo info, out uint movementCounter, out float extraFloat, out byte extraBits)
+    {
+        packet.RewindTo(start);
+        try
+        {
+            bool withTransport = Read(packet, sequence, implicitPresence, hasFall, hasTransport, twoBitExtraAt,
+                out mover, out info, out movementCounter, out extraFloat, out extraBits, out ulong transportGuid);
+            if (packet.Remaining() != 0)
+                return false;
+            if (withTransport)
+                SetTransportGuid(ref info, transportGuid, gameState);
+            return true;
+        }
+        catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            mover = 0;
+            info = default;
+            movementCounter = 0;
+            extraFloat = 0f;
+            extraBits = 0;
+            return false;
+        }
     }
 
     /// <summary>
@@ -350,9 +362,11 @@ public static class LegacyMovementCata
 
     /// <summary>
     /// The same updates as another 4.3.4 core writes them, with a bit for everything that may be
-    /// missing: WowPacketParser's 4.3.4 order. Its run-back and walk packets end where this order
-    /// ends and never where the reference table's guesses do; the reference server's packets fit
-    /// only the guesses. Tried after them, by the same length test.
+    /// missing: the order the 4.3.4 client reads them in (WowPacketParser's, for the run-back and
+    /// walk speeds). That core's packets end where this order ends and never where the reference
+    /// table's does; the reference server's packets fit only the table. Tried after it, by the
+    /// same length test. The client's flight-back order has one bit more at the start than the
+    /// table's, and the transport's second time and seat.
     /// </summary>
     private static readonly FrozenDictionary<Opcode, LegacyMovementElement[]> WithPresenceBits = new Dictionary<Opcode, LegacyMovementElement[]>
     {
@@ -409,6 +423,33 @@ public static class LegacyMovementCata
             LegacyMovementElement.PositionY, LegacyMovementElement.GuidByte0, LegacyMovementElement.PositionZ,
             LegacyMovementElement.PositionX, LegacyMovementElement.GuidByte3, LegacyMovementElement.GuidByte5,
             LegacyMovementElement.ExtraElement, LegacyMovementElement.End,
+        ],
+        [Opcode.SMSG_MOVE_UPDATE_FLIGHT_BACK_SPEED] =
+        [
+            LegacyMovementElement.PositionY, LegacyMovementElement.ExtraElement, LegacyMovementElement.PositionX,
+            LegacyMovementElement.PositionZ, LegacyMovementElement.HasSpline, LegacyMovementElement.HasGuidByte6,
+            LegacyMovementElement.HasGuidByte4, LegacyMovementElement.HasPitch, LegacyMovementElement.HasGuidByte7,
+            LegacyMovementElement.HasGuidByte1, LegacyMovementElement.HasTransportData, LegacyMovementElement.HasVehicleId,
+            LegacyMovementElement.HasTransportGuidByte4, LegacyMovementElement.HasTransportGuidByte7, LegacyMovementElement.HasTransportGuidByte6,
+            LegacyMovementElement.HasTransportGuidByte0, LegacyMovementElement.HasTransportTime2, LegacyMovementElement.HasTransportGuidByte2,
+            LegacyMovementElement.HasTransportGuidByte3, LegacyMovementElement.HasTransportGuidByte5, LegacyMovementElement.HasTransportGuidByte1,
+            LegacyMovementElement.HasGuidByte5, LegacyMovementElement.HasGuidByte0, LegacyMovementElement.HasTimestamp,
+            LegacyMovementElement.HasMovementFlags, LegacyMovementElement.MovementFlags, LegacyMovementElement.HasGuidByte3,
+            LegacyMovementElement.HasMovementFlags2, LegacyMovementElement.HasHeightChangeFailed, LegacyMovementElement.HasSplineElevation,
+            LegacyMovementElement.MovementFlags2, LegacyMovementElement.HasGuidByte2, LegacyMovementElement.HasFallData,
+            LegacyMovementElement.HasOrientation, LegacyMovementElement.HasFallDirection, LegacyMovementElement.FlushBits,
+            LegacyMovementElement.FallCosAngle, LegacyMovementElement.FallHorizontalSpeed, LegacyMovementElement.FallSinAngle,
+            LegacyMovementElement.FallTime, LegacyMovementElement.FallVerticalSpeed, LegacyMovementElement.TransportPositionX,
+            LegacyMovementElement.TransportTime, LegacyMovementElement.TransportOrientation, LegacyMovementElement.TransportGuidByte5,
+            LegacyMovementElement.TransportPositionZ, LegacyMovementElement.TransportVehicleId, LegacyMovementElement.TransportGuidByte7,
+            LegacyMovementElement.TransportGuidByte1, LegacyMovementElement.TransportGuidByte3, LegacyMovementElement.TransportGuidByte6,
+            LegacyMovementElement.TransportGuidByte0, LegacyMovementElement.TransportGuidByte2, LegacyMovementElement.TransportTime2,
+            LegacyMovementElement.TransportPositionY, LegacyMovementElement.TransportSeat, LegacyMovementElement.TransportGuidByte4,
+            LegacyMovementElement.GuidByte1, LegacyMovementElement.GuidByte4, LegacyMovementElement.Orientation,
+            LegacyMovementElement.GuidByte5, LegacyMovementElement.Timestamp, LegacyMovementElement.SplineElevation,
+            LegacyMovementElement.GuidByte6, LegacyMovementElement.Pitch, LegacyMovementElement.GuidByte3,
+            LegacyMovementElement.GuidByte2, LegacyMovementElement.GuidByte0, LegacyMovementElement.GuidByte7,
+            LegacyMovementElement.End,
         ],
     }.ToFrozenDictionary();
 

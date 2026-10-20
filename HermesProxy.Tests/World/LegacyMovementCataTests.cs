@@ -75,6 +75,7 @@ public sealed class LegacyMovementCataTests
     [InlineData(Opcode.SMSG_MOVE_SPLINE_SET_RUN_SPEED)]
     [InlineData(Opcode.SMSG_MOVE_ROOT)]
     [InlineData(Opcode.SMSG_MOVE_SPLINE_UNROOT)]
+    [InlineData(Opcode.SMSG_MOVE_UPDATE_FLIGHT_BACK_SPEED)]
     public void ReaderUndoesTheWriter(Opcode opcode)
     {
         var info = new MovementInfo { Position = new Vector3(1f, 2f, 3f), Orientation = 0.5f, MoveTime = 99 };
@@ -317,6 +318,28 @@ public sealed class LegacyMovementCataTests
         Assert.Equal(14375705u, info.MoveTime);
         Assert.Equal(825u, info.FallTime);
         Assert.Equal(-7.9555f, info.JumpVerticalSpeed, 4);
+        Assert.Equal(0, read.GetRemainingSpan().Length);
+    }
+
+    [Fact]
+    public void MoveUpdateFlightBackSpeed_InTheClientsOrder_IsRead()
+    {
+        // The same core (2026-10-20): player 0x2225's flight-back speed back to 4.5 when a slow
+        // ends. The position and the speed come before the bits, and the first bit is one the
+        // reference table does not have.
+        byte[] body = Convert.FromHexString("918B8542" + "00009040" + "EF9F13C6" + "EDCA6042" + "14A24000"
+            + "2364ED30" + "3FE7B5E3" + "0024");
+        using var read = Framed(body);
+
+        Assert.True(LegacyMovementCata.TryRead(read, Opcode.SMSG_MOVE_UPDATE_FLIGHT_BACK_SPEED, null!, out ulong mover, out MovementInfo info, out _, out float speed));
+
+        Assert.Equal(0x2225ul, mover);
+        Assert.Equal(4.5f, speed);
+        Assert.Equal(-9447.983f, info.Position.X, 2);
+        Assert.Equal(66.7726f, info.Position.Y, 3);
+        Assert.Equal(56.1982f, info.Position.Z, 3);
+        Assert.Equal(0.6911f, info.Orientation, 4);
+        Assert.Equal(14923239u, info.MoveTime);
         Assert.Equal(0, read.GetRemainingSpan().Length);
     }
 
