@@ -287,10 +287,12 @@ public partial class WorldClient
         uint completeSoundKit = 878;
         if (IsCataLegacy)
         {
+            // The server's ids and whole points; the client's ids and, for the currencies it keeps
+            // in hundredths, hundredths (10 Justice Points sent as they are read as 0).
             for (int i = 0; i < 4; i++)
             {
-                quest.RewardCurrencyID[i] = packet.ReadUInt32();
-                quest.RewardCurrencyQty[i] = packet.ReadUInt32();
+                quest.RewardCurrencyID[i] = ModernCurrencyId(packet.ReadUInt32());
+                quest.RewardCurrencyQty[i] = packet.ReadUInt32() * ModernCurrencyScale(quest.RewardCurrencyID[i]);
             }
 
             for (int i = 0; i < 4; i++)
