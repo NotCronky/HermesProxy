@@ -107,6 +107,13 @@ public enum CastFlag : uint
     HealPrediction = 0x40000000, // 4.x
     Unknown27      = 0x80000000
 }
+// The modern clients' second word of cast flags (TrinityCore's SpellCastFlagsEx).
+[Flags]
+public enum CastFlagEx : uint
+{
+    None           = 0x00000000,
+    IgnoreCooldown = 0x00000200, // the client starts no cooldown of its own after SMSG_SPELL_GO
+}
 public enum SpellCastSource
 {
     Player  = 2,

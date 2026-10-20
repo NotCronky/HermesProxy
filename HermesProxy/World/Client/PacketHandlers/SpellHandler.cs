@@ -724,7 +724,19 @@ public partial class WorldClient
             flags = packet.ReadUInt16();
         dbdata.CastFlags = flags;
         if (IsCataLegacy)
-            packet.ReadUInt32();                // CastFlagsEx
+        {
+            packet.ReadUInt32();                // CastFlagsEx, which TrinityCore 4.3.4 leaves 0
+
+            // The 4.4.2 client starts the cooldown of a spell the player casts once it is told of
+            // it, triggered ones included, unless told not to; TrinityCore cata_classic tells it
+            // for the casts that ignore cooldowns, the triggered ones. 4.3.4 marks those with
+            // CAST_FLAG_PENDING. Without it Raise Dead's triggered summon (46585) put Raise Dead's
+            // category on a cooldown the server never had, which clearing Raise Dead's left.
+            // Not for a 3.3.5a server: AzerothCore takes Raise Dead's own cooldown off after the
+            // cast and leaves the lock to the client's category cooldown from that summon.
+            if ((flags & (uint)CastFlag.PendingCast) != 0)
+                dbdata.CastFlagsEx |= (uint)CastFlagEx.IgnoreCooldown;
+        }
 
         if (!isSpellGo || LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             dbdata.CastTime = packet.ReadUInt32();
