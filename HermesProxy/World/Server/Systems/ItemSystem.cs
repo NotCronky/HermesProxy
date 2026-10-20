@@ -52,10 +52,14 @@ public static class ItemSystem
             // as a GUID ahead of its slot. The vendor slot is the 1-based MuID. The target slot is
             // the client's Slot, 255 for "anywhere": with no bag that pair is the only one the
             // server auto-stores, and any other slot fails as a wrong slot.
+            // A currency is asked for by the client's id (1901 for honor) and in the amount it
+            // wants, which the server checks against the vendor entry by its own id and takes
+            // as a whole number of the entry's amount; the count of stacks fails as a wrong item.
+            bool currency = item.ItemType == ItemVendorType.Currency;
             packet.WriteUInt8((byte)item.ItemType);
-            packet.WriteUInt32(item.Item.ItemID);
+            packet.WriteUInt32(currency ? WorldClient.CataCurrencyId(item.Item.ItemID) : item.Item.ItemID);
             packet.WriteUInt32(item.MuID);
-            packet.WriteUInt32(quantity);
+            packet.WriteUInt32(currency ? item.Quantity : quantity);
             packet.WriteGuid(item.ContainerGUID.To64());
             packet.WriteUInt8((byte)item.Slot);
             ctx.SendPacketToServer(packet);

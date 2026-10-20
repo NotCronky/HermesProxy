@@ -1,17 +1,22 @@
 using System;
 using System.Linq;
 using HermesProxy.Tests.Support;
+using HermesProxy.World;
 using HermesProxy.World.Client;
+using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
+using HermesProxy.World.Server.Systems;
 using Xunit;
 
 namespace HermesProxy.Tests.World.Client;
 
 /// <summary>
-/// A vendor that sells a currency, as TrinityCore 4.3.4 sends it: Talric Forthright, who trades
-/// 250 Honor Points for 375 Justice Points. The entry names the server's honor (392), "Honor
-/// Deprecated 3" to the 4.4.2 client, which means 1901 by honor.
+/// A vendor that sells a currency, as TrinityCore 4.3.4 sends it, and the purchase: Talric
+/// Forthright, who trades 250 Honor Points for 375 Justice Points. The entry names the server's
+/// honor (392), "Honor Deprecated 3" to the 4.4.2 client, which means 1901 by honor; the client
+/// buys 1901 in its own amount, which the server takes only by its own id and as a whole number of
+/// the entry's amount.
 /// </summary>
 /// <remarks>Runs only under a 4.3.4 legacy build (<c>HERMES_TEST_LEGACY_BUILD</c>).</remarks>
 public sealed class VendorCurrencyCataTests
@@ -26,9 +31,13 @@ public sealed class VendorCurrencyCataTests
         "0000E8760100FFFFFFFF010000000900000000000000500D000088010000020000000000000000000000FFFFFFFFA8610000CA3D87B23100" +
         "F0";
 
+    // What the server took for the honor, once the purchase went through.
+    private const string BuyHonor =
+        "B38600003CCB30F1028801000009000000A86100000000000000000000FF";
+
     private static (LegacyHandlerHarness Harness, VendorInventory Vendor) Deliver()
     {
-        var harness = new LegacyHandlerHarness(recordClientPackets: true);
+        var harness = new LegacyHandlerHarness(recordClientPackets: true, recordServerPackets: true);
         harness.Deliver(Opcode.SMSG_VENDOR_INVENTORY, [0, 0, .. Convert.FromHexString(TalricForthright)],
             harness.Client.HandleVendorInventory);
         return (harness, harness.ClientWire.Sent.Select(s => s.Packet).OfType<VendorInventory>().Single());
@@ -47,5 +56,23 @@ public sealed class VendorCurrencyCataTests
         Assert.Equal(25000u, honor.StackCount);
         Assert.Equal(3408, honor.ExtendedCostID);
         Assert.Equal(9u, honor.MuID);
+    }
+
+    [Fact]
+    public void BuyingHonor_AsksForTheServersHonorInItsAmount()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var (harness, vendor) = Deliver();
+        var ctx = new SessionContext(harness.Session, socket: null, harness.Client);
+        // What the client sent for one purchase: its honor and its amount, 250 points in hundredths.
+        var buy = new BuyItem(vendor.VendorGUID, WowGuid128.Empty, Quantity: 25000, MuID: 9, Slot: 255,
+            BagSlot: 0, ItemVendorType.Currency, new ItemInstance { ItemID = (uint)Currency.HonorPoints });
+
+        ItemSystem.HandleBuyItem(in buy, in ctx);
+
+        var sent = Assert.Single(harness.ServerWire.Sent);
+        Assert.Equal(Convert.FromHexString(BuyHonor), sent.Bytes);
     }
 }
