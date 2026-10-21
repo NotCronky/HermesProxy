@@ -577,10 +577,11 @@ def tc434_sent(tc: Path | None) -> set[int] | None:
     """The opcode values TrinityCore 4.3.4 writes somewhere, read from its HEAD tree.
 
     An opcode name counts when the server code names it, except as a `case` label or in a
-    comparison with an opcode: that is the server reading what a client sent. It does not count
-    inside a function or packet class nothing names: Player::SendAttackSwingDeadTarget writes
-    SMSG_ATTACKSWING_DEADTARGET, and no line calls it. A name that only appears in a table counts
-    as sent, so a doubt keeps a row in the work."""
+    comparison with an opcode: that is the server reading what a client sent. A log string or a
+    comment that names it does not count. Nor does a function or packet class nothing reachable
+    uses (see live_callables): Player::SendAttackSwingDeadTarget writes SMSG_ATTACKSWING_DEADTARGET,
+    and no line calls it. A name that only appears in a table counts as sent, so a doubt keeps a
+    row in the work."""
     if tc is None:
         return None
 
@@ -596,51 +597,98 @@ def tc434_sent(tc: Path | None) -> set[int] | None:
     reading = re.compile(r'case\s+\w+\s*:|\b\w+(?:\(\))?\s*[!=]=\s*(?:SMSG|MSG)_\w+|(?:SMSG|MSG)_\w+\s*[!=]=')
     # Each opcode's places, by the function or packet class around them; None where neither shows.
     places: dict[int, list[str | None]] = {}
-    context: str | None = None
-    for line in git('grep', '-p', '-n', '-E', r'\b(SMSG|MSG)_[A-Z0-9_]+', 'HEAD', '--', 'src/server',
-                    ':(exclude)src/server/game/Server/Protocol/Opcodes.*').splitlines():
-        m = re.match(r'HEAD:[^:=]+([=:])\d+\1(.*)', line)
-        if not m:
-            continue
-        if m.group(1) == '=':   # the function line git prints above its hits
-            callable_ = re.search(r'(\w+)\s*\(', m.group(2))
-            context = callable_.group(1) if callable_ else None
-            continue
-        text = m.group(2).split('//')[0]
+    for context, text in grep_with_context(git, '-E', r'\b(SMSG|MSG)_[A-Z0-9_]+', 'HEAD', '--', 'src/server',
+                                           ':(exclude)src/server/game/Server/Protocol/Opcodes.*'):
         ctor = re.match(r'\s*(\w+)\s*\([^)]*\)\s*:\s*ServerPacket\(', text)
-        for name in re.findall(r'\b((?:SMSG|MSG)_[A-Z0-9_]+)\b', reading.sub('', text)):
+        # Code names an opcode after an operator or `return`; a log string or a comment's prose
+        # ("These movement packets are usually found in SMSG_COMPRESSED_MOVES") does not send it.
+        for name in re.findall(r'(?:[(,={?:|]|\breturn)\s*((?:SMSG|MSG)_[A-Z0-9_]+)\b', reading.sub('', text)):
             if name in values:
                 places.setdefault(values[name], []).append(ctor.group(1) if ctor else context)
 
     callables = {c for cs in places.values() for c in cs if c}
-    named = called(git, callables)
-    return {value for value, cs in places.items() if any(c is None or c in named for c in cs)}
+    live = live_callables(git, callables)
+    return {value for value, cs in places.items() if any(c is None or c in live for c in cs)
+            and value not in {values.get(name) for name in NEVER_SENT_434}}
+
+
+# Read by hand: the writer is called, never with what it takes to send this one.
+NEVER_SENT_434 = {
+    'SMSG_SET_FACTION_NOT_VISIBLE': 'ReputationMgr::SendVisible picks it for visible = false, and every call passes true',
+}
+
+
+def grep_with_context(git, *args: str) -> list[tuple[str | None, str]]:
+    """git grep's hits, comments cut off, each with the name of the function around it (the line
+    git -p prints above them): None outside a function, or where that line is a class."""
+    out: list[tuple[str | None, str]] = []
+    path, context = None, None
+    for line in git('grep', '-p', '-n', *args).splitlines():
+        m = re.match(r'HEAD:([^:=]+)([=:])\d+\2(.*)', line)
+        if not m:
+            continue
+        if m.group(1) != path:
+            path, context = m.group(1), None
+        if m.group(2) == '=':
+            callable_ = re.search(r'(\w+)\s*\(', m.group(3))
+            context = callable_.group(1) if callable_ else None
+            continue
+        text = m.group(3).split('//')[0]
+        if not text.lstrip().startswith('*'):
+            out.append((context, text))
+    return out
 
 
 CPP_KEYWORDS = {'return', 'else', 'new', 'delete', 'case', 'throw', 'do', 'sizeof', 'co_return'}
 
 
-def called(git, names: set[str]) -> set[str]:
-    """The names some line of the server uses: calls them, takes their address, constructs or
-    declares one. A declaration or definition of the function itself does not count."""
+# Called from outside the tree: CMake writes the script loader that calls every AddSC_ function.
+ENTRY_POINTS = re.compile(r'AddSC_\w+|main')
+
+
+def live_callables(git, names: set[str], depth: int = 4) -> set[str]:
+    """The names something reachable uses. A use inside a function counts when that function is
+    used in turn, followed up to `depth` functions; a use outside any function, in an entry point
+    or in a function not followed counts at once. Unit::SendPlaySpellVisual builds the
+    PlaySpellVisual packet, and nothing calls it. Only a name used in one or two functions has them
+    followed: each step is a grep of the whole server, and a name used more widely is not dead."""
+    users: dict[str, set[str | None]] = {}
+    frontier = set(names)
+    for _ in range(depth):
+        found = users_of(git, frontier)
+        users.update(found)
+        frontier = {c for cs in found.values() if None not in cs and len(cs) <= 2 for c in cs
+                    if c not in users and not ENTRY_POINTS.fullmatch(c)}
+        if not frontier:
+            break
+    live: set[str] = set()
+    grew = True
+    while grew:
+        grew = False
+        for name, contexts in users.items():
+            if name not in live and any(c is None or c not in users or ENTRY_POINTS.fullmatch(c) or c in live
+                                        for c in contexts):
+                live.add(name)
+                grew = True
+    return live
+
+
+def users_of(git, names: set[str]) -> dict[str, set[str | None]]:
+    """For each name, the functions whose lines use it (see `uses`); an empty set when none do."""
+    out: dict[str, set[str | None]] = {name: set() for name in names}
     if not names:
-        return set()
-    out: set[str] = set()
-    pattern = '|'.join(sorted(names))
+        return out
     # One name a line through a file: thousands of them on the command line pass Windows' limit.
     with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as f:
         f.write('\n'.join(sorted(names)))
     try:
-        lines = git('grep', '-h', '-w', '-F', '-f', f.name, 'HEAD', '--', 'src/server').splitlines()
+        hits = grep_with_context(git, '-w', '-F', '-f', f.name, 'HEAD', '--', 'src/server')
     finally:
         os.unlink(f.name)
-    for line in lines:
-        text = line.split('//')[0]
-        if text.lstrip().startswith('*'):
-            continue
-        for m in re.finditer(rf'\b({pattern})\b', text):
-            if m.group(1) not in out and uses(text, m.start(), m.end()):
-                out.add(m.group(1))
+    for context, text in hits:
+        for m in re.finditer(r'\w+', text):
+            if m.group() in out and context not in out[m.group()] and uses(text, m.start(), m.end()):
+                out[m.group()].add(context)
     return out
 
 
@@ -650,7 +698,8 @@ def uses(text: str, start: int, end: int) -> bool:
     after = text[end:]
     if not before:
         # `Name(...) : ServerPacket(...)` or `Name(...) {` opens a definition; `Name(...);` calls.
-        return not re.match(r'\s*\([^;]*\)\s*(const\s*)?(override\s*)?(final\s*)?(:|\{|$)', after)
+        # No parentheses inside: `Name(a ? b->Get() : c);` is a call, not an initializer list.
+        return not re.match(r'\s*\([^;()]*\)\s*(const\s*)?(override\s*)?(final\s*)?(:|\{|$)', after)
     if before.endswith(('->', '.')):
         return True
     if before.endswith('&'):
