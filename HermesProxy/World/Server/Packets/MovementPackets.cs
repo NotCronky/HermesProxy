@@ -667,6 +667,30 @@ public sealed class OnCancelExpectedRideVehicleAura : ServerPacket, ISpanWritabl
     public int WriteToSpan(Span<byte> buffer) => 0;
 }
 
+public sealed class FlightSplineSync : ServerPacket, ISpanWritable
+{
+    public FlightSplineSync() : base(Opcode.SMSG_FLIGHT_SPLINE_SYNC, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Guid);
+        _worldPacket.WriteFloat(SplineDist);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 4;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Guid.Low, Guid.High);
+        writer.WriteFloat(SplineDist);
+        return writer.Position;
+    }
+
+    public WowGuid128 Guid;
+    public float SplineDist;
+}
+
 public sealed class SetVehicleRecID : ServerPacket
 {
     public SetVehicleRecID() : base(Opcode.SMSG_SET_VEHICLE_REC_ID, ConnectionType.Instance) { }

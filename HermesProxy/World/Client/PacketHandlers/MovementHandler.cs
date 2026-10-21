@@ -763,6 +763,24 @@ public partial class WorldClient
         }
     }
 
+    /// <summary>
+    /// How far along its looping path a creature is, as a fraction of one lap, sent by a 4.3.4
+    /// server on every heartbeat of a creature on a cyclic spline. The 4.4.2 packet has the same
+    /// two fields the other way round.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_FLIGHT_SPLINE_SYNC)]
+    internal void HandleFlightSplineSync(WorldPacket packet)
+    {
+        // A 2.4.3 or 3.3.5a server sends the same packet; no session on one has been played with it.
+        if (!IsCataLegacy)
+            return;
+
+        FlightSplineSync sync = new();
+        sync.SplineDist = packet.ReadFloat();
+        sync.Guid = packet.ReadPackedGuid().To128(GetSession().GameState);
+        SendPacketToClient(sync);
+    }
+
     // for server controlled units
     [HandlesSmsg(Opcode.SMSG_MOVE_SPLINE_SET_FLIGHT_BACK_SPEED)]
     [HandlesSmsg(Opcode.SMSG_MOVE_SPLINE_SET_FLIGHT_SPEED)]

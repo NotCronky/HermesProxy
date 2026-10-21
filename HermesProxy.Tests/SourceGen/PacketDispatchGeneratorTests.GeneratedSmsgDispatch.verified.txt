@@ -1082,6 +1082,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleFishNotHooked(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleFlightSplineSync_SMSG_FLIGHT_SPLINE_SYNC(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleFlightSplineSync(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceSpeedChange_SMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleMoveForceSpeedChange(packet);
@@ -3064,6 +3069,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FEATURE_SYSTEM_STATUS] = &Thunk_HermesProxy_World_Client_WorldClient_HandleFeatureSystemStatus_SMSG_FEATURE_SYSTEM_STATUS;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FISH_ESCAPED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleFishEscaped_SMSG_FISH_ESCAPED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FISH_NOT_HOOKED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleFishNotHooked_SMSG_FISH_NOT_HOOKED;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FLIGHT_SPLINE_SYNC] = &Thunk_HermesProxy_World_Client_WorldClient_HandleFlightSplineSync_SMSG_FLIGHT_SPLINE_SYNC;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceSpeedChange_SMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_FLIGHT_SPEED_CHANGE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceSpeedChange_SMSG_FORCE_FLIGHT_SPEED_CHANGE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_PITCH_RATE_CHANGE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceSpeedChange_SMSG_FORCE_PITCH_RATE_CHANGE;
@@ -3644,6 +3650,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_FEATURE_SYSTEM_STATUS,
             global::HermesProxy.World.Enums.Opcode.SMSG_FISH_ESCAPED,
             global::HermesProxy.World.Enums.Opcode.SMSG_FISH_NOT_HOOKED,
+            global::HermesProxy.World.Enums.Opcode.SMSG_FLIGHT_SPLINE_SYNC,
             global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_FLIGHT_BACK_SPEED_CHANGE,
             global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_FLIGHT_SPEED_CHANGE,
             global::HermesProxy.World.Enums.Opcode.SMSG_FORCE_PITCH_RATE_CHANGE,

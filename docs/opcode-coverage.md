@@ -37,8 +37,8 @@ the proxy has no reason to translate.
 | build | defined | handled | gap |
 |---|---:|---:|---:|
 | `V1_12_1_5875` | 363 | 271 | 92 |
-| `V2_4_3_8606` | 460 | 310 | 150 |
-| `V3_3_5a_12340` | 583 | 387 | 196 |
+| `V2_4_3_8606` | 460 | 311 | 149 |
+| `V3_3_5a_12340` | 583 | 388 | 195 |
 
 ## 2. Version-ranged handlers
 
