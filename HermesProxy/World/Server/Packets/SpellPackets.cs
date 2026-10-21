@@ -3190,7 +3190,9 @@ class DispelFailed : ServerPacket, ISpanWritable
 /// <summary>Why a mount could not be mounted.</summary>
 public sealed class MountResult : ServerPacket
 {
-    public MountResult() : base(Opcode.SMSG_MOUNT_RESULT) { }
+    // TrinityCore cata_classic sends it on the instance connection; on the realm one the 4.4.2
+    // client drops it, and a refused mount said nothing.
+    public MountResult() : base(Opcode.SMSG_MOUNT_RESULT, ConnectionType.Instance) { }
 
     public override void Write()
     {
