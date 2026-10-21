@@ -19,13 +19,19 @@ A clean pass in a log only means nothing threw: a field read from the wrong offs
 come out wrong without an exception. Rows whose layout changed and that have no 4.3.4 branch
 are therefore listed as suspect even when the logs are clean.
 
+With a TrinityCore 4.3.4 checkout (--tc-434), a server packet whose opcode value the server
+never sends is marked as such and left out of the work: 4.3.4 relays a player's movement as
+SMSG_MOVE_UPDATE, so the 3.3.5a MSG_MOVE_* relays never come. The checkout is read through git
+(the HEAD tree), so a sparse one does.
+
 Usage
 -----
-    python scripts/cata-progress.py --wpp <WowPacketParser checkout> --tc-cata <TrinityCore cata_classic checkout>
+    python scripts/cata-progress.py --wpp <WowPacketParser checkout> --tc-cata <TrinityCore cata_classic checkout> \
+        --tc-434 <TrinityCore 4.3.4 checkout>
     python scripts/cata-progress.py --wpp <...> --logs HermesProxy/bin/Release/Logs --out docs/cata-progress.md
 
-The checkouts can also come from HERMES_WPP_DIR and HERMES_TC_CATA_DIR. Both are optional: without
-one, the column it feeds reads "?".
+The checkouts can also come from HERMES_WPP_DIR, HERMES_TC_CATA_DIR and HERMES_TC_434_DIR. All are
+optional: without one, the column it feeds reads "?".
 """
 from __future__ import annotations
 
@@ -560,6 +566,50 @@ def cmsg_packet_types() -> dict[str, str]:
     return out
 
 
+def tc434_sent(tc: Path | None) -> set[int] | None:
+    """The opcode values TrinityCore 4.3.4 writes somewhere, read from its HEAD tree.
+
+    An opcode name counts when the server code names it, except as a `case` label or in a
+    comparison with an opcode: that is the server reading what a client sent. A name that only
+    appears in a table counts as sent, so a doubt keeps a row in the work."""
+    if tc is None:
+        return None
+
+    def git(*args: str) -> str:
+        return subprocess.run(['git', '-C', str(tc), *args], capture_output=True, text=True,
+                              encoding='utf-8', errors='ignore').stdout
+
+    header = git('show', 'HEAD:src/server/game/Server/Protocol/Opcodes.h')
+    if not header:
+        return None
+    values: dict[str, int] = {m.group(1): int(m.group(2), 0) for m in re.finditer(
+        r'^\s*((?:SMSG|MSG)_[A-Z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)', header, re.M)}
+    reading = re.compile(r'case\s+\w+\s*:|\b\w+(?:\(\))?\s*[!=]=\s*(?:SMSG|MSG)_\w+|(?:SMSG|MSG)_\w+\s*[!=]=')
+    sent: set[int] = set()
+    for line in git('grep', '-h', '-E', r'\b(SMSG|MSG)_[A-Z0-9_]+', 'HEAD', '--', 'src/server',
+                    ':(exclude)src/server/game/Server/Protocol/Opcodes.*').splitlines():
+        for name in re.findall(r'\b((?:SMSG|MSG)_[A-Z0-9_]+)\b', reading.sub('', line)):
+            if name in values:
+                sent.add(values[name])
+    return sent
+
+
+# A feature's name from the file that handles its packets; the aliases join the files of one.
+FEATURE_ALIASES = {'BattleGround': 'Battleground', 'BattlefieldMgr': 'Battlefield', 'Lfg': 'LFG', 'Npc': 'NPC',
+                   'LegacyMovementCata': 'Movement', 'GuildClub': 'Guild', 'Update': 'Objects',
+                   'MeleeAttackOrder': 'Combat', 'WorldClient': 'Connection'}
+# Forwarded opcodes have no file of their own: their name says the feature.
+FORWARDED_FEATURES = [('BF_MGR', 'Battlefield'), ('LFG', 'LFG'), ('CALENDAR', 'Calendar'), ('VEHICLE', 'Movement'),
+                      ('LOOT', 'Loot'), ('BANK', 'Item')]
+
+
+def feature(where: str, opcode: str) -> str:
+    if where.endswith('.cs'):
+        stem = re.sub(r'(Handler|System)$', '', Path(where).stem)
+        return FEATURE_ALIASES.get(stem, stem)
+    return next((name for token, name in FORWARDED_FEATURES if token in opcode), 'Other')
+
+
 def tc_cata_handlers(tc: Path | None) -> dict[str, bool]:
     """Client opcode -> does TrinityCore cata_classic act on it. A native 4.4.2 server that
     ignores a request is the evidence that the client does not wait for an answer to it."""
@@ -772,9 +822,12 @@ LEGACY_REVIEWED = {
 }
 
 
-def status(direction: str, mapped: bool, is_ported: bool, layout: str, seen: Seen | None, changed_since: bool) -> str:
+def status(direction: str, mapped: bool, is_ported: bool, layout: str, seen: Seen | None, changed_since: bool,
+           never_sent: bool) -> str:
     if not mapped:
         return 'unmapped'
+    if never_sent and not (seen and seen.count):
+        return 'not sent'
     if seen and changed_since:
         return 'retest'
     if seen and (seen.errors or seen.dropped):
@@ -787,9 +840,53 @@ def status(direction: str, mapped: bool, is_ported: bool, layout: str, seen: See
     return 'ported, unseen' if is_ported else 'unseen'
 
 
-ORDER = ['failing', 'unmapped', 'todo', 'suspect', 'retest', 'ported, unseen', 'unseen', 'seen ok']
+ORDER = ['failing', 'unmapped', 'todo', 'suspect', 'retest', 'ported, unseen', 'unseen', 'seen ok', 'not sent']
 ICON = {'failing': '❌', 'unmapped': '🚫', 'todo': '⬜', 'suspect': '⚠️', 'retest': '🔁', 'ported, unseen': '🔧',
-        'unseen': '·', 'seen ok': '✅'}
+        'unseen': '·', 'seen ok': '✅', 'not sent': '∅'}
+# The statuses a play session or a look at the code still has to clear, in the order shown.
+WORK = ['failing', 'todo', 'suspect', 'ported, unseen', 'unseen', 'retest']
+
+
+def work_section(graded: list) -> list[str]:
+    """The rows that still ask for work, by feature, the most open first."""
+    # A MSG_ opcode has a row for each direction; it is named once.
+    per: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    dropped_on: dict[str, str] = {}
+    for st, d, op, _, _, seen, where in graded:
+        if st in WORK:
+            per[feature(where, op)][st].add(op)
+        elif st == 'unmapped' and seen and (seen.errors or seen.dropped):
+            per[feature(where, op)]['dropped'].add(op)
+            dropped_on[op] = f'{seen.session[:4]}-{seen.session[4:6]}-{seen.session[6:8]}'
+
+    def named_op(op: str) -> str:
+        return f'`{op}`' + (f' (last {dropped_on[op]})' if op in dropped_on else '')
+    if not per:
+        return ['## What\'s left', '', 'Nothing: every row is seen ok, unmapped without a drop, or never sent.', '']
+    md = ['## What\'s left', '',
+          'The rows of the legacy table below that still ask for work, by feature. A session that plays a '
+          f'feature clears its {ICON["ported, unseen"]}, {ICON["unseen"]} and {ICON["retest"]}; '
+          f'{ICON["suspect"]} and {ICON["todo"]} ask for its 4.3.4 layout to be read; '
+          f'{ICON["unmapped"]} here is an opcode HermesProxy sent that the 4.3.4 table lacks. '
+          f'{ICON["retest"]} goes by file, so one edit marks every opcode the file handles: it is '
+          'counted, not named.', '',
+          f'| Feature | {ICON["failing"]} | {ICON["unmapped"]} | {ICON["todo"]} | {ICON["suspect"]} '
+          f'| {ICON["ported, unseen"]} | {ICON["unseen"]} | {ICON["retest"]} | To play or read |',
+          '|---|---:|---:|---:|---:|---:|---:|---:|---|']
+
+    def weight(item: tuple[str, dict[str, set[str]]]) -> tuple:
+        name, by = item
+        named = sum(len(v) for k, v in by.items() if k != 'retest')
+        return -named, -len(by.get('retest', ())), name
+
+    for name, by in sorted(per.items(), key=weight):
+        cells = [str(len(by[k])) if by.get(k) else '' for k in ('failing', 'dropped', 'todo', 'suspect',
+                                                               'ported, unseen', 'unseen', 'retest')]
+        named = '<br>'.join(f'{ICON["unmapped" if k == "dropped" else k]} ' + ', '.join(named_op(op) for op in sorted(by[k]))
+                            for k in ('failing', 'dropped', 'todo', 'suspect', 'ported, unseen', 'unseen')
+                            if by.get(k))
+        md.append(f'| {name} | ' + ' | '.join(cells) + f' | {named} |')
+    return md + ['']
 
 
 def main() -> None:
@@ -797,6 +894,8 @@ def main() -> None:
     ap.add_argument('--wpp', type=Path, default=os.environ.get('HERMES_WPP_DIR'))
     ap.add_argument('--tc-cata', type=Path, default=os.environ.get('HERMES_TC_CATA_DIR'),
                     help='TrinityCore cata_classic checkout, for the "Requests nothing answered" column')
+    ap.add_argument('--tc-434', type=Path, default=os.environ.get('HERMES_TC_434_DIR'),
+                    help='TrinityCore 4.3.4 git checkout, for the server packets it never sends')
     ap.add_argument('--logs', type=Path, action='append')
     ap.add_argument('--out', type=Path, default=REPO / 'docs' / 'cata-progress.md')
     args = ap.parse_args()
@@ -828,12 +927,17 @@ def main() -> None:
                 for m in re.finditer(r'HandlesCmsg\(Opcode\.((?:CMSG|MSG)_[A-Z0-9_]+)', body):
                     forwarded[m.group(1)].append((rel, body))
 
+    # An opcode only the 4.3.4 table has is 4.3.4 code by construction, and has no 3.3.5a layout to
+    # have changed from.
+    def layout_of(op: str) -> str:
+        return wpp.get(op, '?') if op in v335 else 'new in 4.x'
+
     for op, defs in smsg_handlers.items():
-        if op not in v335:
+        if op not in v335 and op not in v434:
             continue
-        is_ported = any(ported(b, methods) for _, b in defs)
+        is_ported = op not in v335 or any(ported(b, methods) for _, b in defs)
         files = set().union(*(touched_files(r, b, methods) for r, b in defs))
-        rows.append(('S', op, op in v434, is_ported, wpp.get(op, '?'), ev.smsg.get(op), defs[0][0], files))
+        rows.append(('S', op, op in v434, is_ported, layout_of(op), ev.smsg.get(op), defs[0][0], files))
     # Movement CMSGs are built from a variable opcode, so no literal site names them; the ones
     # with a generated 4.3.4 sequence are written through LegacyMovementCata.
     sequences_file = HP / 'World' / 'Objects' / 'LegacyMovementSequencesCata.cs'
@@ -842,17 +946,18 @@ def main() -> None:
     movement_writer = os.path.relpath(HP / 'World' / 'Objects' / 'LegacyMovementCata.cs', REPO).replace(os.sep, '/')
 
     for op in set(cmsg_sites) | set(forwarded) | {o for o in ev.cmsg if o.startswith(('CMSG', 'MSG'))} | sequenced:
-        if op not in v335:
+        if op not in v335 and op not in v434:
             continue
         defs = cmsg_sites.get(op, []) or ([] if op in sequenced else forwarded.get(op, []))
         # A sender inside a method named *Cata is the 4.3.4 version by construction.
         in_cata_method = any(re.search(r'\b\w+Cata\s*\(', b[:b.find('{')]) for _, b in defs)
-        is_ported = op in sequenced or in_cata_method or any(ported(send_segment(b, op), methods) for _, b in defs)
+        is_ported = (op not in v335 or op in sequenced or in_cata_method
+                     or any(ported(send_segment(b, op), methods) for _, b in defs))
         where = defs[0][0] if defs else (movement_writer if op in sequenced else '(variable opcode)')
         files = set().union(*(touched_files(r, send_segment(b, op), methods) for r, b in defs)) if defs else set()
         if op in sequenced:
             files |= {movement_writer, os.path.relpath(sequences_file, REPO).replace(os.sep, '/')}
-        rows.append(('C', op, op in v434, is_ported, wpp.get(op, '?'), ev.cmsg.get(op), where, files))
+        rows.append(('C', op, op in v434, is_ported, layout_of(op), ev.cmsg.get(op), where, files))
 
     all_files = sorted(set().union(*(r[7] for r in rows)))
     current = {f: content_hash((REPO / f).read_bytes()) for f in all_files}
@@ -873,7 +978,13 @@ def main() -> None:
 
     rows = [(d, op, mp, po, 'reviewed' if lay == 'changed' and not po and (d, op) in LEGACY_REVIEWED else lay,
              seen, where, files) for d, op, mp, po, lay, seen, where, files in rows]
-    graded = [(status(d, mp, po, lay, seen, changed_since((d, op), seen, files)), d, op, po, lay, seen, where)
+    sent = tc434_sent(Path(args.tc_434) if args.tc_434 else None)
+
+    def never_sent(d: str, op: str) -> bool:
+        return d == 'S' and sent is not None and op in v434 and v434[op] not in sent
+
+    graded = [(status(d, mp, po, lay, seen, changed_since((d, op), seen, files), never_sent(d, op)),
+               d, op, po, lay, seen, where)
               for d, op, mp, po, lay, seen, where, files in rows]
     graded.sort(key=lambda r: (ORDER.index(r[0]), r[1], r[2]))
     counts = defaultdict(int)
@@ -899,7 +1010,11 @@ def main() -> None:
           f'| {ICON["ported, unseen"]} ported, unseen | {counts["ported, unseen"]} | has a 4.3.4 branch, waiting for a session to exercise it |',
           f'| {ICON["unseen"]} unseen | {counts["unseen"]} | same layout as 3.3.5a per WPP, not exercised yet |',
           f'| {ICON["seen ok"]} seen ok | {counts["seen ok"]} | ported or unchanged, and the latest session passed it cleanly |',
+          f'| {ICON["not sent"]} not sent | {counts["not sent"] if sent is not None else "?"} | a server packet '
+          'TrinityCore 4.3.4 never sends: another opcode carries it there'
+          + ('' if sent is not None else ' (needs --tc-434)') + ' |',
           '']
+    md += work_section(graded)
 
     client = client_layout_section(logs, ev.client_errors)
     # After the session errors and before the layout tables: what hangs comes before what differs.
