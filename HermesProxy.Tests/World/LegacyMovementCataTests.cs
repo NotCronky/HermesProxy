@@ -31,6 +31,7 @@ public sealed class LegacyMovementCataTests
     [InlineData(Opcode.MSG_MOVE_FALL_LAND)]
     [InlineData(Opcode.MSG_MOVE_SET_FACING)]
     [InlineData(Opcode.CMSG_MOVE_KNOCK_BACK_ACK)]
+    [InlineData(Opcode.CMSG_MOVE_SET_CAN_FLY)]
     public void ServerReadsBackWhatWasWritten(Opcode opcode)
     {
         var info = new MovementInfo
@@ -68,6 +69,16 @@ public sealed class LegacyMovementCataTests
         Assert.Equal(info.JumpVerticalSpeed, back.VerticalSpeed);
         Assert.Equal(info.JumpHorizontalSpeed, back.HorizontalSpeed);
         Assert.Equal(0, read.GetRemainingSpan().Length);
+    }
+
+    [Fact]
+    public void SetFly_IsReportedAsSetCanFly()
+    {
+        // The client's CMSG_MOVE_SET_FLY has no MSG_ opcode; TrinityCore 4.3.4 reads a takeoff
+        // or a landing as CMSG_MOVE_SET_CAN_FLY, with a sequence of its own.
+        Assert.Equal(Opcode.CMSG_MOVE_SET_CAN_FLY, LegacyMovementCata.ReportWithoutMsg(Opcode.CMSG_MOVE_SET_FLY));
+        Assert.True(LegacyMovementSequencesCata.ByOpcode.ContainsKey(Opcode.CMSG_MOVE_SET_CAN_FLY));
+        Assert.Equal(Opcode.MSG_NULL_ACTION, LegacyMovementCata.ReportWithoutMsg(Opcode.CMSG_MOVE_SET_FACING_HEARTBEAT));
     }
 
     [Theory]

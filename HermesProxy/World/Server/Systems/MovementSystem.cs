@@ -110,6 +110,8 @@ public static class MovementSystem
         uint legacyOpcode = ClientMoveToLegacyMsg.TryGetValue(universalOpcode, out Opcode legacyMsg)
             ? LegacyVersion.GetCurrentOpcode(legacyMsg)
             : 0u;
+        if (legacyOpcode == 0 && WorldClient.IsCataLegacy)
+            legacyOpcode = LegacyVersion.GetCurrentOpcode(LegacyMovementCata.ReportWithoutMsg(universalOpcode));
         if (legacyOpcode == 0)
             legacyOpcode = LegacyVersion.GetCurrentOpcode(Opcode.MSG_MOVE_SET_FACING);
 

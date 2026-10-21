@@ -38,6 +38,17 @@ public static class LegacyMovementCata
     }
 
     /// <summary>
+    /// The 4.3.4 opcode for a movement report of the client's that has no MSG_ opcode to go out as,
+    /// or MSG_NULL_ACTION. TrinityCore 4.3.4 reads taking off and landing as CMSG_MOVE_SET_CAN_FLY,
+    /// and on it drops the auras that end on landing or flight and updates the zone.
+    /// </summary>
+    public static Opcode ReportWithoutMsg(Opcode clientOpcode) => clientOpcode switch
+    {
+        Opcode.CMSG_MOVE_SET_FLY => Opcode.CMSG_MOVE_SET_CAN_FLY,
+        _ => Opcode.MSG_NULL_ACTION,
+    };
+
+    /// <summary>
     /// Which of the sequence's extra elements is two bits rather than a float: the reason of a
     /// collision-height change, written before the height and read back after it (TrinityCore
     /// 4.3.4 SendHeightChangeToMover and HandleSetCollisionHeightAck, MSEExtraTwoBits). -1: none.
