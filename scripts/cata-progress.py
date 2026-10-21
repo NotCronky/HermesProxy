@@ -381,6 +381,24 @@ def doc_layouts(build_dir: Path) -> dict[str, tuple[str, str]]:
     return out
 
 
+def doc_links(build_dir: Path) -> dict[str, str]:
+    """Opcode -> its heading in one build's docs/protocol structures, as a link from docs/."""
+    out: dict[str, str] = {}
+    files = list((build_dir / 'smsg-structures').glob('*.md')) + [build_dir / 'cmsg-structures.md']
+    for f in files:
+        if not f.exists():
+            continue
+        used: dict[str, int] = defaultdict(int)
+        for heading in re.findall(r'^### (.+?)\s*$', f.read_text(encoding='utf-8'), flags=re.M):
+            # GitHub's anchor: lower case, punctuation but '-' and '_' dropped, spaces as '-',
+            # and '-1', '-2' on a heading that repeats in the file.
+            slug = re.sub(r'[^\w\- ]', '', heading.lower()).replace(' ', '-')
+            anchor = slug + (f'-{used[slug]}' if used[slug] else '')
+            used[slug] += 1
+            out.setdefault(heading.split()[0], f'{f.relative_to(REPO / "docs").as_posix()}#{anchor}')
+    return out
+
+
 def class_has_442_variant(type_name: str, sources: list[str], cache: dict[str, str]) -> bool:
     """A ServerPacketLayouts entry for 4.4.2 inside the class, or a 4.4.2 [PacketCodec]."""
     codec = re.compile(r'\[PacketCodec\(typeof\(' + re.escape(type_name) + r'\)[^\]]*AddedIn\s*=\s*ClientVersionBuild\.V4_4_2')
@@ -669,20 +687,35 @@ def client_layout_section(log_dirs: list[Path], client_errors: dict) -> list[str
         if done:
             md += [f'{done} more shared change(s) are handled (✅) or ruled out (🟰) in every packet '
                    'that carries them.', '']
+    old_links = doc_links(DOCS / '3.4.3.54261')
+    new_links = doc_links(DOCS / '4.4.2.60895')
+    shaped = [r for r in rows if r[0]]
+    ruled = [r for r in rows if not r[0] and notes[r[2]]]
     md += ['### Layouts that changed from 3.4.3', '',
           f'Opcodes HermesProxy writes or reads whose 4.4.2 layout differs from 3.4.3 (docs/protocol, from the '
-          f'clients\' own readers): {len(rows)}, of which {todo} have no 4.4.2 shape yet and no review '
-          'that rules them out (🟰, the reason under the change; REVIEWED_* in the script). "Change" is the '
-          'difference, read as above. "Sent" counts the opcode in 4.4.2 client captures, '
-          'either backend; the busiest gaps are first.', '',
-          '| | Opcode | HP type | Change | Sent | 3.4.3 | 4.4.2 |', '|---|---|---|---|---:|---|---|']
-    for has, sent, name, hp_type, layout, new_layout, hunks in rows:
-        shown = '<br>'.join(show(h) for h in hunks[:4]) + (f'<br>… {len(hunks) - 4} more' if len(hunks) > 4 else '')
-        if notes[name] and not has:
-            shown += f'<br>🟰 {notes[name]}'
-        md.append(f'| {icon(has, name)} | `{name}` | `{hp_type}` | {shown} | {-sent or ""} '
-                  f'| `{layout}` | `{new_layout}` |')
-    md.append('')
+          f'clients\' own readers): {len(rows)}. {todo} open (⬜, no 4.4.2 shape yet and no review that rules '
+          f'them out), {len(shaped)} with a 4.4.2 shape (✅), {len(ruled)} reviewed, no change needed (🟰, the '
+          'reason under the change; REVIEWED_* in the script). "Change" is the difference, read as above; '
+          '"Layouts" links each build\'s full layout. "Sent" counts the opcode in 4.4.2 client captures, '
+          'either backend; the busiest are first.', '']
+
+    def table(part: list) -> list[str]:
+        out = ['| | Opcode | HP type | Change | Sent | Layouts |', '|---|---|---|---|---:|---|']
+        for has, sent, name, hp_type, _, _, hunks in part:
+            shown = '<br>'.join(show(h) for h in hunks[:4]) + (f'<br>… {len(hunks) - 4} more' if len(hunks) > 4 else '')
+            if notes[name] and not has:
+                shown += f'<br>🟰 {notes[name]}'
+            links = ' · '.join(f'[{build}]({link})' for build, link in
+                               (('3.4.3', old_links.get(name)), ('4.4.2', new_links.get(name))) if link)
+            out.append(f'| {icon(has, name)} | `{name}` | `{hp_type}` | {shown} | {-sent or ""} | {links} |')
+        return out + ['']
+
+    if todo:
+        md += table([r for r in rows if not r[0] and not notes[r[2]]])
+    # GitHub renders markdown inside <details> only with a blank line after the summary.
+    for part, title in ((shaped, 'with a 4.4.2 shape (✅)'), (ruled, 'reviewed, no change needed (🟰)')):
+        if part:
+            md += ['<details>', f'<summary>{len(part)} {title}</summary>', ''] + table(part) + ['</details>', '']
     if unresolved:
         md += [f'Not compared, one side unresolved in the docs ({len(unresolved)}): '
                + ', '.join(f'`{n}`' for n in sorted(unresolved)), '']
