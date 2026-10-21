@@ -150,7 +150,7 @@ public partial class WorldClient
             moverMask[1] = packet.HasBit();
             packet.HasBit();                                // HeightChangeFailed
             if (!packet.HasBit())
-                movementFlagsExtra = packet.ReadBits<uint>(12);
+                movementFlagsExtra = LegacyMovementCata.FlagsExtraFromLegacy(packet.ReadBits<uint>(12));
         }
 
         if (hasMovementTransport)

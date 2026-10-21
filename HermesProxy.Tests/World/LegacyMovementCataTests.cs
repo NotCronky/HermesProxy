@@ -71,6 +71,27 @@ public sealed class LegacyMovementCataTests
         Assert.Equal(0, read.GetRemainingSpan().Length);
     }
 
+    [Theory]
+    [InlineData(0x110u, 0x410u)] // can pass from swimming to flying, always allow pitching
+    [InlineData(0x400u, 0x000u)] // the client's turning while falling, which 4.3.4 has no flag for
+    public void ExtraFlags_ServerReadsSwimToFlyAsItsOwnBit(uint client, uint server)
+    {
+        // TrinityCore 4.3.4 MOVEMENTFLAG2_CAN_SWIM_TO_FLY_TRANS is 0x400; the 4.4.2 client's is 0x100.
+        var info = new MovementInfo { Position = new Vector3(-9723.4f, 55.9f, 42f), FlagsExtra = client };
+        var sequence = LegacyMovementSequencesCata.ByOpcode[Opcode.MSG_MOVE_HEARTBEAT];
+
+        using var packet = new WorldPacket(Opcode.MSG_MOVE_HEARTBEAT);
+        LegacyMovementCata.Write(packet, sequence, new WowGuid64(0x0000000000A1B2C3), in info);
+        packet.FlushBits();
+        using var read = Framed(packet.GetDataSpan().ToArray());
+
+        Assert.Equal(server, ReadLikeTrinityCore434(read, sequence).Flags2);
+    }
+
+    [Fact]
+    public void ExtraFlags_SwimToFlyComesBackAsTheClientsBit()
+        => Assert.Equal(0x110u, LegacyMovementCata.FlagsExtraFromLegacy(0x410));
+
     [Fact]
     public void SetFly_IsReportedAsSetCanFly()
     {
@@ -373,7 +394,7 @@ public sealed class LegacyMovementCataTests
     }
 
     private sealed record Read(ulong Guid, uint Flags, uint Time, Vector3 Position, float Orientation,
-        uint FallTime, float VerticalSpeed, float HorizontalSpeed, ulong ExtraGuid, sbyte ExtraInt8);
+        uint FallTime, float VerticalSpeed, float HorizontalSpeed, ulong ExtraGuid, sbyte ExtraInt8, uint Flags2);
 
     // TrinityCore 4.3.4 Player::ReadMovementInfo, reduced to the fields asserted above; an extra
     // element takes the next one of `extra`, as its ExtraMovementStatusElement does.
@@ -387,7 +408,7 @@ public sealed class LegacyMovementCataTests
         sbyte extraInt8 = 0;
         bool hasFlags = false, hasFlags2 = false, hasTime = false, hasOrientation = false, hasTransport = false;
         bool hasPitch = false, hasFall = false, hasFallDirection = false, hasSplineElevation = false;
-        uint flags = 0, time = 0, fallTime = 0;
+        uint flags = 0, flags2 = 0, time = 0, fallTime = 0;
         float x = 0, y = 0, z = 0, o = 0, vertical = 0, horizontal = 0;
 
         foreach (var element in sequence)
@@ -416,7 +437,7 @@ public sealed class LegacyMovementCataTests
                     data.HasBit();
                     break;
                 case LegacyMovementElement.MovementFlags: if (hasFlags) flags = data.ReadBits<uint>(30); break;
-                case LegacyMovementElement.MovementFlags2: if (hasFlags2) data.ReadBits<uint>(12); break;
+                case LegacyMovementElement.MovementFlags2: if (hasFlags2) flags2 = data.ReadBits<uint>(12); break;
                 case LegacyMovementElement.Timestamp: if (hasTime) time = data.ReadUInt32(); break;
                 case LegacyMovementElement.PositionX: x = data.ReadFloat(); break;
                 case LegacyMovementElement.PositionY: y = data.ReadFloat(); break;
@@ -450,6 +471,6 @@ public sealed class LegacyMovementCataTests
 
         Assert.Equal(extra?.Length ?? 0, extraIndex);
         return new Read(MaskedGuid.ToUInt64(guid), flags, time, new Vector3(x, y, z), o, fallTime, vertical, horizontal,
-            MaskedGuid.ToUInt64(extraGuid), extraInt8);
+            MaskedGuid.ToUInt64(extraGuid), extraInt8, flags2);
     }
 }

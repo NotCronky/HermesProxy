@@ -22,6 +22,21 @@ public static class LegacyMovementCata
     private const MovementFlagModern PitchFlags = MovementFlagModern.Swimming | MovementFlagModern.Flying;
     private const uint FlagsExtraMask = 0xFFF;          // 4.3.4 sends 12 bits of extra flags
 
+    // The extra flag that moved between 4.3.4 and the 4.4.2 client: being able to pass from swimming
+    // to flying is 0x400 to TrinityCore 4.3.4 and 0x100 to the client, whose 0x400 is turning while
+    // falling. Passed through as it is, every movement packet tells the server the ability is gone,
+    // and a dismount in the air leaves it with the client.
+    private const uint CanSwimToFlyLegacy = 0x400;
+    private const uint CanSwimToFlyModern = 0x100;
+
+    internal static uint FlagsExtraToLegacy(uint modern) =>
+        (modern & FlagsExtraMask & ~(CanSwimToFlyLegacy | CanSwimToFlyModern))
+        | ((modern & CanSwimToFlyModern) != 0 ? CanSwimToFlyLegacy : 0);
+
+    internal static uint FlagsExtraFromLegacy(uint legacy) =>
+        (legacy & ~(CanSwimToFlyLegacy | CanSwimToFlyModern))
+        | ((legacy & CanSwimToFlyLegacy) != 0 ? CanSwimToFlyModern : 0);
+
     /// <summary>
     /// The opcode's sequence, or null when 4.3.4 has none for it. <paramref name="extraFloat"/>
     /// fills the sequence's extra element: the new speed of a speed-change ack, the height of a
@@ -92,7 +107,7 @@ public static class LegacyMovementCata
     {
         int extraIndex = 0;
         uint flags = (uint)info.Flags & 0x3FFFFFFF;
-        uint flagsExtra = info.FlagsExtra & FlagsExtraMask;
+        uint flagsExtra = FlagsExtraToLegacy(info.FlagsExtra);
         TransportInfo transport = info.Transport.GetValueOrDefault();
         ulong guid = mover.Low;
         ulong transportGuid = info.TransportGuid != default ? transport.Guid.To64().Low : 0;
@@ -537,7 +552,7 @@ public static class LegacyMovementCata
                     break;
                 case LegacyMovementElement.MovementFlags2:
                     if (hasFlags2)
-                        info.FlagsExtra = packet.ReadBits<uint>(12);
+                        info.FlagsExtra = FlagsExtraFromLegacy(packet.ReadBits<uint>(12));
                     break;
                 case LegacyMovementElement.Timestamp: if (hasTime) info.MoveTime = packet.ReadUInt32(); break;
                 case LegacyMovementElement.PositionX: position.X = packet.ReadFloat(); break;
