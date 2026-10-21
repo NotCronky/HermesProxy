@@ -147,7 +147,13 @@ public partial class WorldClient
         SupercededSpells spells = new SupercededSpells();
         uint spellId;
         uint supercededId;
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        if (IsCataLegacy)
+        {
+            // 4.3.4 names the new spell first, 3.3.5a the old one
+            spellId = packet.ReadUInt32();
+            supercededId = packet.ReadUInt32();
+        }
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
         {
             supercededId = packet.ReadUInt32();
             spellId = packet.ReadUInt32();
