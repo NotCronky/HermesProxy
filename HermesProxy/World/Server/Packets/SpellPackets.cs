@@ -1906,6 +1906,38 @@ public class ClearCooldown : ServerPacket, ISpanWritable
     public bool ClearOnHold;
 }
 
+public sealed class ModifyCooldown : ServerPacket, ISpanWritable
+{
+    public ModifyCooldown() : base(Opcode.SMSG_MODIFY_COOLDOWN, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteInt32(SpellID);
+        _worldPacket.WriteInt32(DeltaTime);
+        _worldPacket.WriteBit(IsPet);
+        _worldPacket.WriteBit(WithoutCategoryCooldown);
+        _worldPacket.FlushBits();
+    }
+
+    public int MaxSize => 9; // two ints + 1 byte for 2 bits
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteInt32(SpellID);
+        writer.WriteInt32(DeltaTime);
+        writer.WriteBit(IsPet);
+        writer.WriteBit(WithoutCategoryCooldown);
+        writer.FlushBits();
+        return writer.Position;
+    }
+
+    public int SpellID;
+    public int DeltaTime;
+    public bool IsPet;
+    public bool WithoutCategoryCooldown;
+}
+
 public class CooldownCheat : ServerPacket, ISpanWritable
 {
     public CooldownCheat() : base(Opcode.SMSG_COOLDOWN_CHEAT, ConnectionType.Instance) { }

@@ -1178,6 +1178,26 @@ public partial class WorldClient
     }
 
     /// <summary>
+    /// A 4.3.4 server moves a running cooldown by a signed number of milliseconds (Whirlwind on
+    /// four targets, Restless Blades). Its packet names the unit by GUID where the 4.4.2 one only
+    /// says whether it is the pet's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_MODIFY_COOLDOWN)]
+    internal void HandleModifyCooldown(WorldPacket packet)
+    {
+        // A 3.3.5a server sends the same packet; no 3.3.5a session has been played with it.
+        if (!IsCataLegacy)
+            return;
+
+        ModifyCooldown cooldown = new();
+        cooldown.SpellID = (int)packet.ReadUInt32();
+        WowGuid64 guid = packet.ReadGuid();
+        cooldown.IsPet = guid.GetHighType() == HighGuidType.Pet;
+        cooldown.DeltaTime = packet.ReadInt32();
+        SendPacketToClient(cooldown);
+    }
+
+    /// <summary>
     /// 4.3.4 clears a batch of cooldowns in one packet where 3.3.5a sent one SMSG_CLEAR_COOLDOWN
     /// per spell (TrinityCore 4.3.4 ClearCooldowns::Write: a masked GUID with a 24-bit count in
     /// its bit section, the spell ids between its bytes). Each spell goes on as its own clear.
