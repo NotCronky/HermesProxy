@@ -1237,6 +1237,30 @@ public partial class WorldClient
     }
 
     /// <summary>
+    /// TrinityCore 4.3.4 <c>AchievementMgr&lt;Guild&gt;::SendAchievementEarned</c>, sent to every member:
+    /// the guild's masked GUID, the packed date and the achievement among its bytes.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_GUILD_ACHIEVEMENT_EARNED)]
+    internal void HandleGuildAchievementEarned(WorldPacket packet)
+    {
+        Span<bool> mask = stackalloc bool[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [3, 1, 0, 7, 4, 6, 2, 5]);
+
+        Span<byte> guildBytes = stackalloc byte[8];
+        MaskedGuid.ReadBytes(packet, mask, guildBytes, [2]);
+        uint earnedAt = packet.ReadPackedTime();
+        MaskedGuid.ReadBytes(packet, mask, guildBytes, [0, 4, 1, 3]);
+        uint achievementId = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guildBytes, [7, 5, 6]);
+
+        GuildAchievementEarned earned = new();
+        earned.GuildGUID = WowGuid128.Create(HighGuidType703.Guild, (uint)MaskedGuid.ToUInt64(guildBytes));
+        earned.AchievementID = achievementId;
+        earned.TimeEarned = earnedAt;
+        SendPacketToClient(earned);
+    }
+
+    /// <summary>
     /// TrinityCore 4.3.4 <c>GuildEventLogQueryResults::Write</c>: 23 bits of count and the masks
     /// of two GUIDs for each entry, then for each entry the GUID bytes with the rank, the age in
     /// seconds and the kind of event among them.

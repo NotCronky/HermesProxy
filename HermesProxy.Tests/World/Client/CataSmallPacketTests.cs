@@ -454,6 +454,37 @@ public sealed class CataSmallPacketTests
     }
 
     [Fact]
+    public void HandleGuildAchievementEarned_ReadsTheDateAndTheIdAmongTheGuildBytes()
+    {
+        // AchievementMgr<Guild>::SendAchievementEarned as TrinityCore 4.3.4 sent it: guild 10
+        // (0x1FF000000000000A, bytes 0, 6 and 7) earned Everyone Needs A Logo (5362)
+        var earned = Deliver<GuildAchievementEarned>(Opcode.SMSG_GUILD_ACHIEVEMENT_EARNED,
+            "34 ca 1d 95 1a 0b f2 14 00 00 1e f1", _harness.Client.HandleGuildAchievementEarned);
+
+        Assert.Equal(WowGuid128.Create(HighGuidType703.Guild, 10), earned.GuildGUID);
+        Assert.Equal(5362u, earned.AchievementID);
+        Assert.Equal(Time.GetUnixTimeFromPackedTime(0x1A951DCA), earned.TimeEarned);
+    }
+
+    [Fact]
+    public void GuildAchievementEarned_WritesTheGuildTheIdThenThePackedDate()
+    {
+        long earnedAt = 1_700_000_040;
+        var packet = new GuildAchievementEarned
+        {
+            GuildGUID = WowGuid128.Create(HighGuidType703.Guild, 10),
+            AchievementID = 5362,
+            TimeEarned = earnedAt,
+        };
+
+        using var reader = new WorldPacket(1, Written(packet));
+        Assert.Equal(packet.GuildGUID, reader.ReadPackedGuid128());
+        Assert.Equal(5362u, reader.ReadUInt32());
+        Assert.Equal(Time.GetPackedTimeFromUnixTime(earnedAt), reader.ReadUInt32());
+        Assert.False(reader.CanRead());
+    }
+
+    [Fact]
     public void HandleGuildEventLogQueryResults_ReadsBothGuidsAroundTheNumbers()
     {
         // GuildEventLogQueryResults::Write, one entry: player 2 promoted player 0x21 to rank 3, 90 seconds ago

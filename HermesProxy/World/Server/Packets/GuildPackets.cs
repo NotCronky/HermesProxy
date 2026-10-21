@@ -1373,6 +1373,25 @@ public sealed class AllGuildAchievements : ServerPacket
 }
 
 /// <summary>
+/// The guild has just earned an achievement: the client shows the toast and marks it done.
+/// </summary>
+public sealed class GuildAchievementEarned : ServerPacket
+{
+    public GuildAchievementEarned() : base(Opcode.SMSG_GUILD_ACHIEVEMENT_EARNED) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(GuildGUID);
+        _worldPacket.WriteUInt32(AchievementID);
+        _worldPacket.WritePackedTime(TimeEarned);
+    }
+
+    public WowGuid128 GuildGUID;
+    public uint AchievementID;
+    public long TimeEarned;
+}
+
+/// <summary>
 /// The guild log: who invited, promoted or removed whom, who joined and who left.
 /// </summary>
 public sealed class GuildEventLogQueryResults : ServerPacket
