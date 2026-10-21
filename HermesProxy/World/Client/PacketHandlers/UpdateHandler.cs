@@ -2245,7 +2245,7 @@ public partial class WorldClient
         return GetGuidValue64(updates, field).To128(GetSession().GameState);
     }
 
-    public QuestLog? ReadQuestLogEntry(int i, BitArray? updateMaskArray, Dictionary<int, UpdateField> updates)
+    public QuestLog? ReadQuestLogEntry(int i, BitArray? updateMaskArray, Dictionary<int, UpdateField> updates, bool isActivePlayer)
     {
         int PLAYER_QUEST_LOG_1_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_QUEST_LOG_1_1);
         // Quest log slot stride is backend-version dependent (verified against the
@@ -2268,6 +2268,24 @@ public partial class WorldClient
         QuestLog? questLog = null;
 
         int index = PLAYER_QUEST_LOG_1_1 + i * sizePerEntry;
+        // Everything the session keeps per slot below (the QuestID cache, the remembered
+        // counters, the bag recount) is the active player's. A party member's quest log reaches
+        // us too, all 25 slots of it when they join, and writing it into those caches put their
+        // quest into our own slot at the next update that left the id out. Another player's slot
+        // is read whole from that player's own field cache instead, which holds every field the
+        // server has sent for it.
+        if (!isActivePlayer)
+        {
+            if (updateMaskArray != null)
+            {
+                bool touched = false;
+                for (int field = index; field < index + sizePerEntry && !touched; field++)
+                    touched = updateMaskArray[field];
+                if (!touched)
+                    return null;
+            }
+            updateMaskArray = null;
+        }
         if ((updateMaskArray != null && updateMaskArray[index]) ||
             (updateMaskArray == null && updates.ContainsKey(index)))
         {
@@ -2284,7 +2302,7 @@ public partial class WorldClient
             // quest moved in", drops the cached counters the very next update needs and
             // the client is told every objective is 0.
             int previousId = GetSession().GameState.QuestLogQuestIDs[i];
-            if (questLog.QuestID.Value != 0)
+            if (isActivePlayer && questLog.QuestID.Value != 0)
             {
                 GetSession().GameState.QuestLogQuestIDs[i] = questLog.QuestID.Value;
                 if (previousId != questLog.QuestID.Value)
@@ -2357,6 +2375,9 @@ public partial class WorldClient
 
             questLog.EndTime = updates[index + timerOffset].UInt32Value;
         }
+
+        if (!isActivePlayer)
+            return questLog;
 
         // Cache fallback: if this update touched the slot but QuestID wasn't
         // marked dirty (TC commonly sends state/progress-only updates), populate
@@ -3911,12 +3932,13 @@ public partial class WorldClient
                 // and 13,318 strings in a four-minute session, all of it discarded when
                 // Trace was off.
                 int questsCount = LegacyVersion.GetQuestLogSize();
+                bool isActivePlayer = guid == GetSession().GameState.CurrentPlayerGuid;
                 for (int i = 0; i < questsCount; i++)
                 {
                     // Only a slot the update carries materialises the array. Storing null into a
                     // fresh one changed nothing a reader can see, but it allocated the whole log
                     // for every player update in view, quest fields or not.
-                    QuestLog? entry = ReadQuestLogEntry(i, updateMaskArray, updates);
+                    QuestLog? entry = ReadQuestLogEntry(i, updateMaskArray, updates, isActivePlayer);
                     if (entry != null)
                         updateData.EnsurePlayerData().EnsureQuestLog()[i] = entry;
                 }

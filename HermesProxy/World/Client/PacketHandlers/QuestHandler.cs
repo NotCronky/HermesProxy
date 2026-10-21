@@ -745,7 +745,7 @@ public partial class WorldClient
         int questsCount = LegacyVersion.GetQuestLogSize();
         for (int i = 0; i < questsCount; i++)
         {
-            QuestLog? logEntry = ReadQuestLogEntry(i, null, updateFields);
+            QuestLog? logEntry = ReadQuestLogEntry(i, null, updateFields, isActivePlayer: true);
             if (logEntry?.QuestID == null)
                 continue;
             if (GameData.GetQuestTemplate((uint)logEntry.QuestID) != null)
