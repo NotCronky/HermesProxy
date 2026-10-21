@@ -21,8 +21,9 @@ are therefore listed as suspect even when the logs are clean.
 
 With a TrinityCore 4.3.4 checkout (--tc-434), a server packet whose opcode value the server
 never sends is marked as such and left out of the work: 4.3.4 relays a player's movement as
-SMSG_MOVE_UPDATE, so the 3.3.5a MSG_MOVE_* relays never come. The checkout is read through git
-(the HEAD tree), so a sparse one does.
+SMSG_MOVE_UPDATE, so the 3.3.5a MSG_MOVE_* relays never come; and nothing calls
+Player::SendAttackSwingDeadTarget, the one writer of SMSG_ATTACKSWING_DEADTARGET. The checkout is
+read through git (the HEAD tree), so a sparse one does.
 
 Usage
 -----
@@ -41,6 +42,7 @@ import hashlib
 import os
 import re
 import subprocess
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -152,11 +154,16 @@ def ported(body: str, methods: dict[str, list[tuple[str, str]]], depth: int = 2)
 
 
 def touched_files(rel: str, body: str, methods: dict[str, list[tuple[str, str]]], depth: int = 2) -> set[str]:
-    """The file holding this code and the files of every method it hands the packet to."""
+    """The file holding this code and the files of every method it hands the packet to. A call on
+    a type (`MaskedGuid.Write(packet, …)`) is the method of that name in the type's own file when
+    there is one: every packet layout has a Write too."""
     files = {rel}
     if depth:
-        for callee in set(re.findall(r'\b([A-Z]\w+)\s*\(\s*(?:ref\s+)?packet\b', body)):
-            for callee_rel, callee_body in methods.get(callee, []):
+        for owner, callee in set(re.findall(r'(?:\b(\w+)\.)?\b([A-Z]\w+)\s*\(\s*(?:ref\s+)?packet\b', body)):
+            candidates = methods.get(callee, [])
+            if owner[:1].isupper():
+                candidates = [c for c in candidates if Path(c[0]).stem == owner] or candidates
+            for callee_rel, callee_body in candidates:
                 files |= touched_files(callee_rel, callee_body, methods, depth - 1)
     return files
 
@@ -570,8 +577,10 @@ def tc434_sent(tc: Path | None) -> set[int] | None:
     """The opcode values TrinityCore 4.3.4 writes somewhere, read from its HEAD tree.
 
     An opcode name counts when the server code names it, except as a `case` label or in a
-    comparison with an opcode: that is the server reading what a client sent. A name that only
-    appears in a table counts as sent, so a doubt keeps a row in the work."""
+    comparison with an opcode: that is the server reading what a client sent. It does not count
+    inside a function or packet class nothing names: Player::SendAttackSwingDeadTarget writes
+    SMSG_ATTACKSWING_DEADTARGET, and no line calls it. A name that only appears in a table counts
+    as sent, so a doubt keeps a row in the work."""
     if tc is None:
         return None
 
@@ -585,13 +594,73 @@ def tc434_sent(tc: Path | None) -> set[int] | None:
     values: dict[str, int] = {m.group(1): int(m.group(2), 0) for m in re.finditer(
         r'^\s*((?:SMSG|MSG)_[A-Z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)', header, re.M)}
     reading = re.compile(r'case\s+\w+\s*:|\b\w+(?:\(\))?\s*[!=]=\s*(?:SMSG|MSG)_\w+|(?:SMSG|MSG)_\w+\s*[!=]=')
-    sent: set[int] = set()
-    for line in git('grep', '-h', '-E', r'\b(SMSG|MSG)_[A-Z0-9_]+', 'HEAD', '--', 'src/server',
+    # Each opcode's places, by the function or packet class around them; None where neither shows.
+    places: dict[int, list[str | None]] = {}
+    context: str | None = None
+    for line in git('grep', '-p', '-n', '-E', r'\b(SMSG|MSG)_[A-Z0-9_]+', 'HEAD', '--', 'src/server',
                     ':(exclude)src/server/game/Server/Protocol/Opcodes.*').splitlines():
-        for name in re.findall(r'\b((?:SMSG|MSG)_[A-Z0-9_]+)\b', reading.sub('', line)):
+        m = re.match(r'HEAD:[^:=]+([=:])\d+\1(.*)', line)
+        if not m:
+            continue
+        if m.group(1) == '=':   # the function line git prints above its hits
+            callable_ = re.search(r'(\w+)\s*\(', m.group(2))
+            context = callable_.group(1) if callable_ else None
+            continue
+        text = m.group(2).split('//')[0]
+        ctor = re.match(r'\s*(\w+)\s*\([^)]*\)\s*:\s*ServerPacket\(', text)
+        for name in re.findall(r'\b((?:SMSG|MSG)_[A-Z0-9_]+)\b', reading.sub('', text)):
             if name in values:
-                sent.add(values[name])
-    return sent
+                places.setdefault(values[name], []).append(ctor.group(1) if ctor else context)
+
+    callables = {c for cs in places.values() for c in cs if c}
+    named = called(git, callables)
+    return {value for value, cs in places.items() if any(c is None or c in named for c in cs)}
+
+
+CPP_KEYWORDS = {'return', 'else', 'new', 'delete', 'case', 'throw', 'do', 'sizeof', 'co_return'}
+
+
+def called(git, names: set[str]) -> set[str]:
+    """The names some line of the server uses: calls them, takes their address, constructs or
+    declares one. A declaration or definition of the function itself does not count."""
+    if not names:
+        return set()
+    out: set[str] = set()
+    pattern = '|'.join(sorted(names))
+    # One name a line through a file: thousands of them on the command line pass Windows' limit.
+    with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8') as f:
+        f.write('\n'.join(sorted(names)))
+    try:
+        lines = git('grep', '-h', '-w', '-F', '-f', f.name, 'HEAD', '--', 'src/server').splitlines()
+    finally:
+        os.unlink(f.name)
+    for line in lines:
+        text = line.split('//')[0]
+        if text.lstrip().startswith('*'):
+            continue
+        for m in re.finditer(rf'\b({pattern})\b', text):
+            if m.group(1) not in out and uses(text, m.start(), m.end()):
+                out.add(m.group(1))
+    return out
+
+
+def uses(text: str, start: int, end: int) -> bool:
+    """Whether the name at text[start:end] is used there rather than declared or defined."""
+    before = re.sub(r'(\w+::)+$', '', text[:start]).rstrip()
+    after = text[end:]
+    if not before:
+        # `Name(...) : ServerPacket(...)` or `Name(...) {` opens a definition; `Name(...);` calls.
+        return not re.match(r'\s*\([^;]*\)\s*(const\s*)?(override\s*)?(final\s*)?(:|\{|$)', after)
+    if before.endswith(('->', '.')):
+        return True
+    if before.endswith('&'):
+        # An address: `&Spell::EffectDispel,` opens a line of the spell effect table.
+        return bool(re.search(r'(^|[(,={])\s*&$', before))
+    word = re.search(r'(\w+)$', before)
+    if word or before.endswith(('*', '>')):
+        # A type in front: `void Player::Name(` or `class Name`, unless that word is a keyword.
+        return bool(word) and word.group(1) in CPP_KEYWORDS
+    return True
 
 
 # A feature's name from the file that handles its packets; the aliases join the files of one.
@@ -1011,7 +1080,7 @@ def main() -> None:
           f'| {ICON["unseen"]} unseen | {counts["unseen"]} | same layout as 3.3.5a per WPP, not exercised yet |',
           f'| {ICON["seen ok"]} seen ok | {counts["seen ok"]} | ported or unchanged, and the latest session passed it cleanly |',
           f'| {ICON["not sent"]} not sent | {counts["not sent"] if sent is not None else "?"} | a server packet '
-          'TrinityCore 4.3.4 never sends: another opcode carries it there'
+          'TrinityCore 4.3.4 never sends: another opcode carries it there, or nothing calls its writer'
           + ('' if sent is not None else ' (needs --tc-434)') + ' |',
           '']
     md += work_section(graded)
