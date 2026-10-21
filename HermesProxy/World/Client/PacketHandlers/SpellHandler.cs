@@ -415,6 +415,18 @@ public partial class WorldClient
             if (pendingNormal.LegacySpellId != 0)
                 spellId = pendingNormal.SpellId;
         }
+        // A channel stopped early fails after its SPELL_GO took it off the pending queue; the
+        // client knows the channel by the cast id it started with.
+        else if (IsCataLegacy && GetSession().GameState.CurrentPlayerGuid == casterUnit &&
+                 GetSession().GameState.LastCompletedNormalCast is { } completed &&
+                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)
+                  || (completed.OverrideSpellId != 0 && completed.OverrideSpellId == spellId)))
+        {
+            castId = completed.ServerGUID;
+            spellVisual = completed.SpellXSpellVisualId;
+            if (completed.LegacySpellId != 0)
+                spellId = completed.SpellId;
+        }
         else if (GetSession().GameState.CurrentPetGuid == casterUnit &&
                  GetSession().GameState.PendingPetCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)) is { } pendingPet)
         {
@@ -429,13 +441,22 @@ public partial class WorldClient
             spellVisual = GameData.GetSpellVisual(spellId);
         }
 
-        SpellFailure spell = new SpellFailure();
-        spell.CasterUnit = casterUnit;
-        spell.CastID = castId;
-        spell.SpellID = spellId;
-        spell.SpellXSpellVisualID = spellVisual;
-        spell.Reason = reason;
-        SendPacketToClient(spell);
+        // TrinityCore 4.3.4 sends both packets itself (Spell::SendInterrupted), so each one goes
+        // over once, as a native server sends them.
+        Opcode received = packet.GetUniversalOpcode(false);
+        if (!IsCataLegacy || received == Opcode.SMSG_SPELL_FAILURE)
+        {
+            SpellFailure spell = new SpellFailure();
+            spell.CasterUnit = casterUnit;
+            spell.CastID = castId;
+            spell.SpellID = spellId;
+            spell.SpellXSpellVisualID = spellVisual;
+            spell.Reason = reason;
+            SendPacketToClient(spell);
+        }
+
+        if (IsCataLegacy && received != Opcode.SMSG_SPELL_FAILED_OTHER)
+            return;
 
         SpellFailedOther spell2 = new SpellFailedOther();
         spell2.CasterUnit = casterUnit;
