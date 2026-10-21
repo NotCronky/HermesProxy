@@ -2525,26 +2525,47 @@ class EnvironmentalDamageLog : ServerPacket, ISpanWritable
     public SpellCastLogData LogData = null!;
 }
 
-public class SpellInstakillLog : ServerPacket, ISpanWritable
+public sealed class SpellInstakillLog : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellInstakillLog>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new GuidOrderLayout(casterFirst: false)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new GuidOrderLayout(casterFirst: true)));
+
+    private static readonly ServerPacketLayout<SpellInstakillLog> Layout = Layouts.ForRunningClient();
+
     public SpellInstakillLog() : base(Opcode.SMSG_SPELL_INSTAKILL_LOG, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        _worldPacket.WritePackedGuid128(TargetGUID);
-        _worldPacket.WritePackedGuid128(CasterGUID);
-        _worldPacket.WriteUInt32(SpellID);
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size * 2 + 4; // 2 GUIDs + uint
 
-    public int WriteToSpan(Span<byte> buffer)
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    /// <summary>
+    /// The 4.4.2 client logs the first GUID as the SPELL_INSTAKILL source, the one whose spell
+    /// "instantly kills" the other. TrinityCore cata_classic and WowPacketParser call the first
+    /// GUID the target, and with the target first the 4.4.2 client logged the victim as the killer
+    /// of the caster. The older clients are untested and keep the target first.
+    /// </summary>
+    internal sealed class GuidOrderLayout(bool casterFirst) : ServerPacketLayout<SpellInstakillLog>
     {
-        var writer = new SpanPacketWriter(buffer);
-        writer.WritePackedGuid128(TargetGUID.Low, TargetGUID.High);
-        writer.WritePackedGuid128(CasterGUID.Low, CasterGUID.High);
-        writer.WriteUInt32(SpellID);
-        return writer.Position;
+        public override void Write(SpellInstakillLog packet, WorldPacket data)
+        {
+            var (first, second) = casterFirst ? (packet.CasterGUID, packet.TargetGUID) : (packet.TargetGUID, packet.CasterGUID);
+            data.WritePackedGuid128(first);
+            data.WritePackedGuid128(second);
+            data.WriteUInt32(packet.SpellID);
+        }
+
+        public override int WriteToSpan(SpellInstakillLog packet, Span<byte> buffer)
+        {
+            var (first, second) = casterFirst ? (packet.CasterGUID, packet.TargetGUID) : (packet.TargetGUID, packet.CasterGUID);
+            var writer = new SpanPacketWriter(buffer);
+            writer.WritePackedGuid128(first.Low, first.High);
+            writer.WritePackedGuid128(second.Low, second.High);
+            writer.WriteUInt32(packet.SpellID);
+            return writer.Position;
+        }
     }
 
     public WowGuid128 TargetGUID;
