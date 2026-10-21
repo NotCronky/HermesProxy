@@ -220,13 +220,58 @@ def sources_at_page_commit(out: Path, files: list[str]) -> dict[str, str]:
     return hashes
 
 
+def packet_sites(body: str) -> list[tuple[int, set[str]]]:
+    """Each `new WorldPacket(...)` in the body and the opcodes it can be built with: those its
+    argument names (`packet.Player ? Opcode.A : Opcode.B`), or those given to the local it is
+    handed (`Opcode mgrOpcode = queue ? A : B;`)."""
+    sites = []
+    for m in re.finditer(r'new WorldPacket\(', body):
+        arg = body[m.end():_match(body, m.end() - 1, '(', ')')].strip()
+        ops = set(re.findall(r'Opcode\.((?:CMSG|MSG)_[A-Z0-9_]+)', arg))
+        if re.fullmatch(r'\w+', arg) and arg != 'opcode':
+            for value in re.findall(rf'\b{arg}\s*=(?!=)([^;]*);', body):
+                ops |= set(re.findall(r'Opcode\.((?:CMSG|MSG)_[A-Z0-9_]+)', value))
+        sites.append((m.start(), ops))
+    return sites
+
+
+def packet_site(body: str, opcode: str) -> int:
+    return next((start for start, ops in packet_sites(body) if opcode in ops), -1)
+
+
 def send_segment(body: str, opcode: str) -> str:
-    """The code from `new WorldPacket(Opcode.X)` to the call that sends it."""
-    start = body.find(f'new WorldPacket(Opcode.{opcode}')
+    """The code from the `new WorldPacket` that builds this opcode to the call that sends it."""
+    start = packet_site(body, opcode)
     if start == -1:
         start = body.find('new WorldPacket(opcode)')
+    if start == -1:
+        return ''
     end = body.find('SendPacketToServer(', start)
     return body[start:end if end != -1 else len(body)]
+
+
+def cata_returns_before(body: str, opcode: str) -> bool:
+    """The method is done with a 4.3.4 server before it builds this opcode's packet: an
+    `if (IsCataLegacy) { ... return; }` above it."""
+    site = packet_site(body, opcode)
+    if site == -1:
+        return False
+    for m in re.finditer(r'\bif\s*\(', body[:site]):
+        close = _match(body, m.end() - 1, '(', ')')
+        if not re.fullmatch(r'\s*(?:[\w.]+\.)?IsCataLegacy\s*', body[m.end():close]):
+            continue
+        brace = re.compile(r'\s*').match(body, close + 1).end()
+        if brace < site and body[brace] == '{':
+            end = _match(body, brace, '{', '}')
+            if end < site and re.search(r'\breturn\b', body[brace:end]):
+                return True
+    return False
+
+
+# Read by hand: every sender is behind a gate that is false on a 4.3.4 server.
+RETIRED_ON_434 = {
+    'CMSG_ITEM_QUERY_SINGLE': 'LegacyHasItemQuery: a 4.3.4 server sends item records as hotfixes',
+}
 
 
 def wpp_signals(wpp: Path | None) -> dict[str, str]:
@@ -615,6 +660,7 @@ def tc434_sent(tc: Path | None) -> set[int] | None:
 # Read by hand: the writer is called, never with what it takes to send this one.
 NEVER_SENT_434 = {
     'SMSG_SET_FACTION_NOT_VISIBLE': 'ReputationMgr::SendVisible picks it for visible = false, and every call passes true',
+    'SMSG_CLEAR_TARGET': 'Spell::EffectForceDeselect builds it in notifierClear, then visits with notifierBreak again',
 }
 
 
@@ -970,10 +1016,12 @@ def work_section(graded: list) -> list[str]:
     # A MSG_ opcode has a row for each direction; it is named once.
     per: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     dropped_on: dict[str, str] = {}
-    for st, d, op, _, _, seen, where in graded:
+    for st, d, op, po, _, seen, where in graded:
         if st in WORK:
             per[feature(where, op)][st].add(op)
-        elif st == 'unmapped' and seen and (seen.errors or seen.dropped):
+        # A drop counts only while the sender still sends it to a 4.3.4 server: one that has a
+        # 4.3.4 branch of its own by now was dropped before that branch was written.
+        elif st == 'unmapped' and seen and (seen.errors or seen.dropped) and not po:
             per[feature(where, op)]['dropped'].add(op)
             dropped_on[op] = f'{seen.session[:4]}-{seen.session[4:6]}-{seen.session[6:8]}'
 
@@ -985,7 +1033,7 @@ def work_section(graded: list) -> list[str]:
           'The rows of the legacy table below that still ask for work, by feature. A session that plays a '
           f'feature clears its {ICON["ported, unseen"]}, {ICON["unseen"]} and {ICON["retest"]}; '
           f'{ICON["suspect"]} and {ICON["todo"]} ask for its 4.3.4 layout to be read; '
-          f'{ICON["unmapped"]} here is an opcode HermesProxy sent that the 4.3.4 table lacks. '
+          f'{ICON["unmapped"]} here is an opcode HermesProxy sent, and still sends, that the 4.3.4 table lacks. '
           f'{ICON["retest"]} goes by file, so one edit marks every opcode the file handles: it is '
           'counted, not named.', '',
           f'| Feature | {ICON["failing"]} | {ICON["unmapped"]} | {ICON["todo"]} | {ICON["suspect"]} '
@@ -1038,8 +1086,8 @@ def main() -> None:
             for m in re.finditer(r'HandlesSmsg\(Opcode\.([A-Z0-9_]+)', body):
                 if '/Client/' in rel:
                     smsg_handlers[m.group(1)].append((rel, body))
-            for m in re.finditer(r'new WorldPacket\(Opcode\.((?:CMSG|MSG)_[A-Z0-9_]+)', body):
-                cmsg_sites[m.group(1)].append((rel, body))
+            for op in set().union(*(ops for _, ops in packet_sites(body))):
+                cmsg_sites[op].append((rel, body))
             # a forwarder that builds the packet from the opcode it is handed sends the ones it handles
             if 'new WorldPacket(opcode)' in body:
                 for m in re.finditer(r'HandlesCmsg\(Opcode\.((?:CMSG|MSG)_[A-Z0-9_]+)', body):
@@ -1069,8 +1117,10 @@ def main() -> None:
         defs = cmsg_sites.get(op, []) or ([] if op in sequenced else forwarded.get(op, []))
         # A sender inside a method named *Cata is the 4.3.4 version by construction.
         in_cata_method = any(re.search(r'\b\w+Cata\s*\(', b[:b.find('{')]) for _, b in defs)
+        # An opcode the 4.3.4 table lacks is ported once a 4.3.4 server is sent something else.
         is_ported = (op not in v335 or op in sequenced or in_cata_method
-                     or any(ported(send_segment(b, op), methods) for _, b in defs))
+                     or any(ported(send_segment(b, op), methods) for _, b in defs)
+                     or op not in v434 and (op in RETIRED_ON_434 or any(cata_returns_before(b, op) for _, b in defs)))
         where = defs[0][0] if defs else (movement_writer if op in sequenced else '(variable opcode)')
         files = set().union(*(touched_files(r, send_segment(b, op), methods) for r, b in defs)) if defs else set()
         if op in sequenced:
