@@ -380,6 +380,20 @@ public static class MovementSystem
         ctx.SendPacketToServer(packet);
     }
 
+    [HandlesCmsg(Opcode.CMSG_MOVE_ENABLE_SWIM_TO_FLY_TRANS_ACK)]
+    public static void HandleMoveEnableSwimToFlyTransAck(in MovementAckMessage movementAck, in SessionContext ctx)
+    {
+        // TrinityCore 4.3.4 sends the change on mounting a flying mount and holds it pending until
+        // this ack; with a pending-move timeout set, it kicks a player who leaves one unacked.
+        // No 3.3.5a server sends it.
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_MOVE_ENABLE_SWIM_TO_FLY_TRANS_ACK);
+        if (LegacyMovementCata.TryWrite(packet, Opcode.CMSG_MOVE_ENABLE_SWIM_TO_FLY_TRANS_ACK, movementAck.MoverGUID.To64(), movementAck.Ack.MoveInfo, movementAck.Ack.MoveCounter))
+            ctx.SendPacketToServer(packet);
+    }
+
     [HandlesCmsg(Opcode.CMSG_MOVE_SET_COLLISION_HEIGHT_ACK)]
     public static void HandleMoveSetCollisionHeightAck(in MoveSetCollisionHeightAck collisionHeightAck, in SessionContext ctx)
     {
