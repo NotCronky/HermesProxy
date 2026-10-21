@@ -403,6 +403,15 @@ public static partial class GameData
         return 0;
     }
 
+    // PLAYER_VISIBLE_ITEM_X_ENCHANTMENT (3.x and 4.x servers) holds the permanent enchant in its low
+    // half and the temporary one in its high half (Player::SetVisibleItemSlot). The temporary one
+    // shows, as on the older layout's two fields.
+    public static uint GetVisibleItemEnchantVisual(uint packedEnchants)
+    {
+        uint visualId = GetItemEnchantVisual(packedEnchants >> 16);
+        return visualId != 0 ? visualId : GetItemEnchantVisual(packedEnchants & 0xFFFF);
+    }
+
     public static uint GetSpellVisual(uint spellId)
     {
         uint visual;

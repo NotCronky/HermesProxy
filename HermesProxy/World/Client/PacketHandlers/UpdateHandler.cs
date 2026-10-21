@@ -3760,11 +3760,10 @@ public partial class WorldClient
                     if (updateMaskArray[itemIdIndex] || updateMaskArray[enchantIndex])
                     {
                         int itemId = updates.ContainsKey(itemIdIndex) ? updates[itemIdIndex].Int32Value : 0;
-                        // WotLK packs both perm and temp enchant visuals into one PLAYER_VISIBLE_ITEM_X_ENCHANTMENT
-                        // dword (TC's SetVisibleItemSlot resolves perm vs. temp server-side); shaman imbues
-                        // and similar temp enchants flow through this same field for the visual-glow path.
-                        ushort itemVisual = updates.ContainsKey(enchantIndex)
-                            ? (ushort)GameData.GetItemEnchantVisual(updates[enchantIndex].UInt32Value)
+                        // Both enchants share the field. Read whole, a shaman imbue or a poison named no
+                        // enchant and the weapon showed nothing.
+                        ushort itemVisual = updates.TryGetValue(enchantIndex, out UpdateField enchantField)
+                            ? (ushort)GameData.GetVisibleItemEnchantVisual(enchantField.UInt32Value)
                             : (ushort)0;
                         updateData.EnsurePlayerData().EnsureVisibleItems()[i] = new VisibleItem(itemId, 0, itemVisual);
                     }
