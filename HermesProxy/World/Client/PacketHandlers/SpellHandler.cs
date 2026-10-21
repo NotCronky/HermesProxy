@@ -301,7 +301,8 @@ public partial class WorldClient
         // AC EffectDuel (SPELL_FAILED_NO_DUELING) and similar hit-time checks
         // send CAST_FAILED after SPELL_GO already dequeued the pending cast.
         else if (GetSession().GameState.LastCompletedNormalCast is { } completed &&
-                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)))
+                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)
+                  || (completed.OverrideSpellId != 0 && completed.OverrideSpellId == spellId)))
         {
             CastFailed failed = new();
             failed.SpellID = completed.SpellId;
@@ -406,7 +407,8 @@ public partial class WorldClient
         // Try to find pending cast info (peek, don't remove - this is informational).
         // Match by either modern SpellId or LegacySpellId for SoM-renumbered items.
         if (GetSession().GameState.CurrentPlayerGuid == casterUnit &&
-            GetSession().GameState.PendingNormalCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)) is { } pendingNormal)
+            GetSession().GameState.PendingNormalCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)
+                || (c.OverrideSpellId != 0 && c.OverrideSpellId == spellId)) is { } pendingNormal)
         {
             castId = pendingNormal.ServerGUID;
             spellVisual = pendingNormal.SpellXSpellVisualId;
@@ -455,7 +457,8 @@ public partial class WorldClient
 
         // Mark pending cast as started (queue-based, FIFO order)
         if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
-            GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out var pendingCast))
+            (GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out var pendingCast) ||
+             ClaimOverriddenCast(spell.Cast) && GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out pendingCast)))
         {
             spell.Cast.CastID = pendingCast!.ServerGUID;
             spell.Cast.SpellXSpellVisualID = pendingCast.SpellXSpellVisualId;
@@ -514,6 +517,21 @@ public partial class WorldClient
 
         ApplyV343NativeCastPolicy(spell.Cast, isSpellGo: false);
         SendPacketToClient(spell);
+    }
+
+    /// <summary>
+    /// A 4.3.4 SMSG_SPELL_START no pending cast has the id of: TrinityCore 4.3.4 cast the spell an
+    /// aura overrides the requested one with. Only a cast that is not triggered (4.3.4 marks those
+    /// CAST_FLAG_PENDING) and is not an auto-repeat or next-melee spell, which are tracked apart.
+    /// </summary>
+    bool ClaimOverriddenCast(SpellCastData cast)
+    {
+        uint spellId = (uint)cast.SpellID;
+        return IsCataLegacy
+            && (cast.CastFlags & (uint)CastFlag.PendingCast) == 0
+            && !GameData.AutoRepeatSpells.Contains(spellId)
+            && !GameData.NextMeleeSpells.Contains(spellId)
+            && GetSession().GameState.TryClaimOverriddenNormalCast(spellId);
     }
 
     private static readonly Microsoft.Extensions.Logging.ILogger _melSpellLog =

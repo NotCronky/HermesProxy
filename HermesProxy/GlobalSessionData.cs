@@ -1742,7 +1742,27 @@ public sealed class GameSessionData
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool CastMatchesSpellId(ClientCastRequest cast, uint spellId)
     {
-        return cast.SpellId == spellId || (cast.LegacySpellId != 0 && cast.LegacySpellId == spellId);
+        return cast.SpellId == spellId || (cast.LegacySpellId != 0 && cast.LegacySpellId == spellId)
+            || (cast.OverrideSpellId != 0 && cast.OverrideSpellId == spellId);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 casts the spell an aura overrides the requested one with (Trap Launcher
+    /// turns Ice Trap 13809 into the thrown 82941), so no pending cast carries the id it starts.
+    /// Gives that id to the oldest pending cast not yet started, the one the server took up.
+    /// </summary>
+    public bool TryClaimOverriddenNormalCast(uint serverSpellId)
+    {
+        foreach (var item in PendingNormalCasts)
+        {
+            if (!item.HasStarted)
+            {
+                item.OverrideSpellId = serverSpellId;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2229,6 +2249,7 @@ public class ClientCastRequest
     public bool PrepareSent;
     public uint SpellId;
     public uint LegacySpellId; // 0 = same as SpellId; non-zero when modern client used a renumbered spell (e.g. SoM 1.14.1+ items)
+    public uint OverrideSpellId; // 0 = none; the spell a 4.3.4 server cast in its place (Trap Launcher's thrown traps)
     public uint SpellXSpellVisualId;
     public long Timestamp;
     public WowGuid128 ClientGUID;
