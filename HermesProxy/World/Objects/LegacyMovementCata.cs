@@ -55,11 +55,13 @@ public static class LegacyMovementCata
     /// <summary>
     /// The 4.3.4 opcode for a movement report of the client's that has no MSG_ opcode to go out as,
     /// or MSG_NULL_ACTION. TrinityCore 4.3.4 reads taking off and landing as CMSG_MOVE_SET_CAN_FLY,
-    /// and on it drops the auras that end on landing or flight and updates the zone.
+    /// and on it drops the auras that end on landing or flight and updates the zone. A change of
+    /// transport, such as leaving a vehicle, keeps its own opcode and sequence.
     /// </summary>
     public static Opcode ReportWithoutMsg(Opcode clientOpcode) => clientOpcode switch
     {
         Opcode.CMSG_MOVE_SET_FLY => Opcode.CMSG_MOVE_SET_CAN_FLY,
+        Opcode.CMSG_MOVE_CHANGE_TRANSPORT => Opcode.CMSG_MOVE_CHANGE_TRANSPORT,
         _ => Opcode.MSG_NULL_ACTION,
     };
 

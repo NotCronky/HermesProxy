@@ -32,6 +32,7 @@ public sealed class LegacyMovementCataTests
     [InlineData(Opcode.MSG_MOVE_SET_FACING)]
     [InlineData(Opcode.CMSG_MOVE_KNOCK_BACK_ACK)]
     [InlineData(Opcode.CMSG_MOVE_SET_CAN_FLY)]
+    [InlineData(Opcode.CMSG_MOVE_CHANGE_TRANSPORT)]
     public void ServerReadsBackWhatWasWritten(Opcode opcode)
     {
         var info = new MovementInfo
@@ -100,6 +101,15 @@ public sealed class LegacyMovementCataTests
         Assert.Equal(Opcode.CMSG_MOVE_SET_CAN_FLY, LegacyMovementCata.ReportWithoutMsg(Opcode.CMSG_MOVE_SET_FLY));
         Assert.True(LegacyMovementSequencesCata.ByOpcode.ContainsKey(Opcode.CMSG_MOVE_SET_CAN_FLY));
         Assert.Equal(Opcode.MSG_NULL_ACTION, LegacyMovementCata.ReportWithoutMsg(Opcode.CMSG_MOVE_SET_FACING_HEARTBEAT));
+    }
+
+    [Fact]
+    public void ChangeTransport_KeepsItsOwnOpcode()
+    {
+        // TrinityCore 4.3.4 reads a change of transport as CMSG_MOVE_CHNG_TRANSPORT (0x3102), with a
+        // sequence of its own; there is no MSG_ opcode for it.
+        Assert.Equal(Opcode.CMSG_MOVE_CHANGE_TRANSPORT, LegacyMovementCata.ReportWithoutMsg(Opcode.CMSG_MOVE_CHANGE_TRANSPORT));
+        Assert.True(LegacyMovementSequencesCata.ByOpcode.ContainsKey(Opcode.CMSG_MOVE_CHANGE_TRANSPORT));
     }
 
     [Theory]
