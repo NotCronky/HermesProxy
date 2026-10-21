@@ -426,8 +426,10 @@ public class ObjectUpdate
             // CreateObject MoveInfo placeholder. `FlagsExtra = 512` is PreventChangePitch (0x200).
             // Required by all modern Classic clients (V1_14 / V2_5 / V3_4_3) so legacy-server-spawned
             // creatures render — without it creatures spawn invisible while combat events still fire.
-            // Issue #74 reopen confirmed V1_14 needs it too.
-            if (moveInfo.FlagsExtra == 0)
+            // Issue #74 reopen confirmed V1_14 needs it too. The one layout that sends the server's
+            // own extra flags (4.4.2 against 4.3.4) sends them as they are: a native create's are
+            // zero almost every time.
+            if (moveInfo.FlagsExtra == 0 && ModernMovementLayouts.Current != ModernMovementLayout.CataClassic)
                 moveInfo.FlagsExtra = 512;
             CreateData.MoveInfo = moveInfo;
         }

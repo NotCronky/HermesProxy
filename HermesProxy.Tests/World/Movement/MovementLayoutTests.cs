@@ -106,6 +106,53 @@ public class MovementLayoutTests
         Assert.Equal(ModernMovementLayout.WotLKClassic, ModernMovementLayouts.For(ClientVersionBuild.V4_4_2_60895));
     }
 
+    /// <summary>
+    /// The pair decides whether a 4.4.2 client is sent the server's extra flags: a 4.3.4 server's
+    /// are read into the client's own numbering, a 3.3.5a server's are not.
+    /// </summary>
+    [Theory]
+    [InlineData(ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.V4_3_4_15595, ModernMovementLayout.CataClassic)]
+    [InlineData(ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.V3_3_5a_12340, ModernMovementLayout.WotLKClassic)]
+    [InlineData(ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.V3_3_5a_12340, ModernMovementLayout.WotLKClassic)]
+    [InlineData(ClientVersionBuild.V1_14_2_42597, ClientVersionBuild.V1_12_1_5875, ModernMovementLayout.WordFlags)]
+    public void ModernLayout_ForThePair(ClientVersionBuild modern, ClientVersionBuild legacy, ModernMovementLayout expected)
+    {
+        Assert.Equal(expected, ModernMovementLayouts.For(modern, legacy));
+    }
+
+    /// <summary>
+    /// A Wintergrasp Catapult's flags as TrinityCore 4.3.4 sends them (no strafing, no jumping,
+    /// full-speed turning, always allow pitching): the 4.4.2 client enforces them only if it gets
+    /// them, and the one layout that sends them differs from 3.4.3's in nothing else.
+    /// </summary>
+    [Fact]
+    public void ModernWrite_CataClassicSendsTheExtraFlags_WotLKClassicSendsZero()
+    {
+        var info = new MovementInfo { Position = new Vector3(-9723.4f, 40.9f, 40.1f), FlagsExtra = 0x217, SwimPitch = 0.3f };
+        var mover = new WowGuid128(0xCD99, 0x24000400001B3A40);
+
+        Span<byte> cata = stackalloc byte[ModernMovementCodec.MaxSize];
+        Span<byte> wotlk = stackalloc byte[ModernMovementCodec.MaxSize];
+        int cataLength = ModernMovementCodec.Write(ModernMovementLayout.CataClassic, cata, mover, in info);
+        int wotlkLength = ModernMovementCodec.Write(ModernMovementLayout.WotLKClassic, wotlk, mover, in info);
+
+        var reader = new SpanPacketReader(cata[..cataLength]);
+        reader.ReadPackedGuid128(out _, out _);
+        reader.ReadUInt32();                                // flags
+        Assert.Equal(0x217u, reader.ReadUInt32());         // extra flags
+
+        var read = new SpanPacketReader(cata[..cataLength]);
+        read.ReadPackedGuid128(out _, out _);               // the caller's part, as in a CMSG
+        ModernMovementCodec.Read(ModernMovementLayout.CataClassic, ref read, out MovementInfo back);
+        Assert.Equal(0x217u, back.FlagsExtra);
+        Assert.Equal(0.3f, back.SwimPitch);
+
+        Assert.Equal(wotlkLength, cataLength);
+        info.FlagsExtra = 0;
+        int zeroed = ModernMovementCodec.Write(ModernMovementLayout.CataClassic, cata, mover, in info);
+        Assert.Equal(Convert.ToHexString(wotlk[..wotlkLength]), Convert.ToHexString(cata[..zeroed]));
+    }
+
     /// <summary>What each modern layout struct says, against the wire: the table the codec is compiled from.</summary>
     [Fact]
     public void ModernLayouts_StateTheirWireFacts()
@@ -113,6 +160,7 @@ public class MovementLayoutTests
         Assert.Equal((false, false, false, false, false), Facts<BitFlagsMovementLayout>());
         Assert.Equal((true, true, false, false, false), Facts<WordFlagsMovementLayout>());
         Assert.Equal((true, true, true, true, true), Facts<WotLKClassicMovementLayout>());
+        Assert.Equal((true, true, true, true, false), Facts<CataClassicMovementLayout>());
 
         static (bool, bool, bool, bool, bool) Facts<T>() where T : struct, IModernMovementLayout
             => (T.FlagsAreWords, T.HasInertia, T.HasStandingOnGameObject, T.HasAdvFlying, T.WritesExtraFlagsAsZero);
@@ -199,7 +247,9 @@ public class MovementLayoutTests
         var pairs = SnapshotPairs().Select(row => (Legacy: Enum.Parse<ClientVersionBuild>((string)row.Data.Item1), Modern: Enum.Parse<ClientVersionBuild>((string)row.Data.Item2))).ToArray();
 
         Assert.Equal(Enum.GetValues<LegacyMovementLayout>().Length, pairs.Select(p => LegacyMovementLayouts.For(p.Legacy)).Distinct().Count());
-        Assert.Equal(Enum.GetValues<ModernMovementLayout>().Length, pairs.Select(p => ModernMovementLayouts.For(p.Modern)).Distinct().Count());
+        // CataClassic is 4.4.2 against 4.3.4, whose server side is LegacyMovementCata rather than
+        // a layout of the codec these snapshots replay; its write is pinned by its own test above.
+        Assert.Equal(Enum.GetValues<ModernMovementLayout>().Length - 1, pairs.Select(p => ModernMovementLayouts.For(p.Modern)).Distinct().Count());
     }
 
     /// <summary>
