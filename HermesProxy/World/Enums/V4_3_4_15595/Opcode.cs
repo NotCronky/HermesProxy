@@ -109,6 +109,7 @@ public enum Opcode : uint
     CMSG_CHAT_ADDON_MESSAGE_WHISPER                       = 0x2146,
     CMSG_CHAT_CHANNEL_ANNOUNCEMENTS                       = 0x1146,
     CMSG_CHAT_CHANNEL_BAN                                 = 0x3D56,
+    CMSG_CHAT_CHANNEL_DECLINE_INVITE                      = 0x0225, // spelled CSMG_ in TrinityCore's Opcodes.h
     CMSG_CHAT_CHANNEL_DISPLAY_LIST                        = 0x2144,
     CMSG_CHAT_CHANNEL_INVITE                              = 0x0144,
     CMSG_CHAT_CHANNEL_KICK                                = 0x3156,
