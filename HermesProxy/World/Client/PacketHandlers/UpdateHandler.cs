@@ -436,6 +436,49 @@ public partial class WorldClient
         return LegacyPowerSlotsCata.TypeAt(classId, slot);
     }
 
+    // 4.3.4 sends what a power's regeneration adds to its power type's base, in the class's power
+    // slot, and the 4.4.2 client adds the same bases from its PowerType table, so the modifiers go
+    // over as they are. Without them the client counted a hunter's focus back at the bare 5 a
+    // second while the server gave 4, and let shots go out that the server refused for want of focus.
+    void CopyPowerRegenModifiersCata(WowGuid128 guid, ObjectUpdate updateData, BitArray updateMaskArray, Dictionary<int, UpdateField> updates)
+    {
+        int flat = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER);
+        int interrupted = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER);
+        if (flat < 0 || interrupted < 0)
+            return;
+
+        var state = GetSession().GameState;
+        for (int i = 0; i < LegacyVersion.GetPowersCount(); i++)
+        {
+            bool hasFlat = updateMaskArray[flat + i];
+            bool hasInterrupted = updateMaskArray[interrupted + i];
+            if (!hasFlat && !hasInterrupted)
+                continue;
+
+            PowerType power = LegacyPowerTypeAt(guid, updateData, i);
+            if (power == PowerType.Invalid)
+                continue;
+
+            sbyte slot;
+            if (state.HunterPetGuids.Contains(guid))
+                slot = ClassPowerTypes.GetPowerSlotForPet(power);
+            else
+            {
+                Class classId = updateData.UnitData.ClassId != null
+                    ? (Class)updateData.UnitData.ClassId
+                    : state.GetUnitClass(guid);
+                slot = ClassPowerTypes.GetPowerSlotForClass(classId, power);
+            }
+            if (slot < 0)
+                continue;
+
+            if (hasFlat)
+                updateData.UnitData.EnsurePowerRegenFlatModifier()[slot] = updates[flat + i].FloatValue;
+            if (hasInterrupted)
+                updateData.UnitData.EnsurePowerRegenInterruptedFlatModifier()[slot] = updates[interrupted + i].FloatValue;
+        }
+    }
+
     [HandlesSmsg(Opcode.SMSG_UPDATE_OBJECT)]
     internal void HandleUpdateObject(WorldPacket packet)
     {
@@ -3260,6 +3303,8 @@ public partial class WorldClient
                     }
                 }
             }
+            if (IsCataLegacy)
+                CopyPowerRegenModifiersCata(guid, updateData, updateMaskArray, updates);
             int UNIT_VIRTUAL_ITEM_SLOT_DISPLAY = LegacyVersion.GetUpdateField(UnitField.UNIT_VIRTUAL_ITEM_SLOT_DISPLAY);
             if (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY >= 0)
             {
