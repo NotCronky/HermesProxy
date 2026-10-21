@@ -457,8 +457,19 @@ public partial class WorldClient
             if (chatType == ChatMessageTypeWotLK.Whisper)
             { // In legacy versions the client handled the ignore itself and also sends a "You are ignored" message back.
                 WorldPacket ignoreResponsePacket = new WorldPacket(Opcode.CMSG_CHAT_REPORT_IGNORED);
-                ignoreResponsePacket.WriteGuid(sender!.To64());
-                ignoreResponsePacket.WriteUInt8(0); // unk
+                if (IsCataLegacy)
+                {
+                    // TrinityCore 4.3.4 HandleChatIgnoredOpcode reads the byte first and the sender
+                    // as a masked GUID. Sent the 3.3.5a way it named no one, and the sender was
+                    // never told it is ignored.
+                    ignoreResponsePacket.WriteUInt8(0);
+                    MaskedGuid.Write(ignoreResponsePacket, sender!.To64().Low, [5, 2, 6, 4, 7, 0, 1, 3], [0, 6, 5, 1, 4, 3, 7, 2]);
+                }
+                else
+                {
+                    ignoreResponsePacket.WriteGuid(sender!.To64());
+                    ignoreResponsePacket.WriteUInt8(0); // unk
+                }
                 SendPacketToServer(ignoreResponsePacket);
             }
             return;
