@@ -1984,12 +1984,18 @@ public partial class WorldClient
     void HandlePowerUpdateCata(WorldPacket packet, WowGuid128 guid)
     {
         PowerUpdate update = new PowerUpdate(guid);
+        var runeState = guid == GetSession().GameState.CurrentPlayerGuid ? GetSession().GameState.RuneState : null;
         uint count = packet.ReadUInt32();
         for (uint i = 0; i < count; i++)
         {
             var powerType = ClassPowerTypes.ToModernPowerType((PowerType)packet.ReadUInt8());
             int power = packet.ReadInt32();
             update.Powers.Add(new PowerUpdatePower(power, (byte)powerType));
+            // The death knight's next rune cast tells the client this runic power in its
+            // SMSG_SPELL_GO. Left at 0, every rune spell emptied the client's runic power, which
+            // only the next change put back: at full, Frost Strike showed nothing to spend.
+            if (runeState != null && powerType == PowerType.RunicPower)
+                runeState.LastRunicPower = power;
         }
         SendPacketToClient(update);
     }

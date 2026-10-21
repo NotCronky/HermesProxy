@@ -34,6 +34,9 @@ public sealed class DkRunesCataTests
         "166E010501050096B1000000092400000000006D8E4D10000145090000D86030F10102000000F34509D86030F100000000" +
         "2E2E2CFFFFFF56FF";
 
+    // SMSG_POWER_UPDATE: player 5 at full runic power (1000, which the client shows as 100).
+    private const string FullRunicPower = "074A010501000000" + "06E8030000";
+
     private static LegacyHandlerHarness InWorld(uint playerLow = 5)
     {
         var harness = new LegacyHandlerHarness(recordClientPackets: true);
@@ -87,6 +90,19 @@ public sealed class DkRunesCataTests
         Assert.Equal(0x2E, cast.RemainingRunes.Count);
         Assert.Equal([0x2C, 255, 255, 255, 0x56, 255], cast.RemainingRunes.Cooldowns);
         Assert.DoesNotContain(cast.RemainingPower, p => p.Type is PowerType.RuneBlood or PowerType.RuneFrost or PowerType.RuneUnholy);
+    }
+
+    [Fact]
+    public void RuneCast_TellsTheClientTheRunicPowerTheServerLastSent()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = InWorld();
+        harness.Deliver(Opcode.SMSG_POWER_UPDATE, Convert.FromHexString(FullRunicPower), harness.Client.HandlePowerUpdate);
+        var cast = Go(harness, IcyTouch);
+
+        Assert.Equal(1000, Assert.Single(cast.RemainingPower, p => p.Type == PowerType.RunicPower).Cost);
     }
 
     [Fact]
