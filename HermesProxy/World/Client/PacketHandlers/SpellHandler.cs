@@ -1358,7 +1358,7 @@ public partial class WorldClient
         spell.TargetGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
         spell.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
         spell.SpellID = packet.ReadUInt32();
-        spell.Type = (PowerType)packet.ReadUInt32();
+        spell.Type = ClassPowerTypes.ToModernPowerType((PowerType)packet.ReadUInt32());
         spell.Amount = packet.ReadInt32();
         SendPacketToClient(spell);
     }
@@ -1938,9 +1938,9 @@ public partial class WorldClient
         uint count = packet.ReadUInt32();
         for (uint i = 0; i < count; i++)
         {
-            byte powerType = packet.ReadUInt8();
+            var powerType = ClassPowerTypes.ToModernPowerType((PowerType)packet.ReadUInt8());
             int power = packet.ReadInt32();
-            update.Powers.Add(new PowerUpdatePower(power, powerType));
+            update.Powers.Add(new PowerUpdatePower(power, (byte)powerType));
         }
         SendPacketToClient(update);
     }

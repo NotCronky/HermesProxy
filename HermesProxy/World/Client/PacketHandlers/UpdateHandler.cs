@@ -3205,7 +3205,7 @@ public partial class WorldClient
 
                         if (powerUpdate != null &&
                            (guid == GetSession().GameState.CurrentPlayerGuid || guid == GetSession().GameState.CurrentPetGuid))
-                            powerUpdate.Powers.Add(new PowerUpdatePower(updates[UNIT_FIELD_POWER1 + i].Int32Value, (byte)power));
+                            powerUpdate.Powers.Add(new PowerUpdatePower(updates[UNIT_FIELD_POWER1 + i].Int32Value, (byte)ClassPowerTypes.ToModernPowerType(power)));
 
                         sbyte powerSlot;
                         if (GetSession().GameState.HunterPetGuids.Contains(guid))

@@ -27,4 +27,6 @@ public enum PowerType : sbyte
     RuneBlood                     = 20,
     RuneFrost                     = 21,
     RuneUnholy                    = 22,
+    // The 4.4.2 client's Eclipse (-100 to 100); its 8 is retail's Lunar Power, shown a tenth.
+    Balance                       = 26,
 };

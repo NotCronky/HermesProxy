@@ -24,8 +24,10 @@ public static class ClassPowerTypes
                 case (Class.Paladin, PowerType.HolyPower):
                 case (Class.Warlock, PowerType.SoulShards):
                     return 1;
+                // Balance, after Lunar Power (4) and Alternate (5); in slot 4 the eclipse showed as
+                // Lunar Power, a tenth of it, and the Eclipse bar had nothing.
                 case (Class.Druid, PowerType.Eclipse):
-                    return 4;
+                    return 6;
                 case (Class.Deathknight, PowerType.RuneBlood):
                     return 2;
                 case (Class.Deathknight, PowerType.RuneFrost):
@@ -141,6 +143,10 @@ public static class ClassPowerTypes
 
         return -1;
     }
+    // The power type a packet names, for the modern client. Only a 4.3.4 server's eclipse differs.
+    public static PowerType ToModernPowerType(PowerType power) =>
+        power == PowerType.Eclipse && ModernVersion.AddedInVersion(4, 4, 0) ? PowerType.Balance : power;
+
     public static sbyte GetPowerSlotForPet(PowerType power)
     {
         switch (power)
