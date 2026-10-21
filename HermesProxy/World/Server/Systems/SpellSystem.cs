@@ -409,9 +409,16 @@ public static class SpellSystem
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_TOTEM_DESTROYED);
         packet.WriteUInt8(totem.Slot);
-        // TrinityCore 4.3.4 TotemDestroyed::Read: the totem's GUID follows the slot.
+        // TrinityCore 4.3.4 TotemDestroyed::Read: the totem's GUID follows the slot, and only the totem
+        // it names is destroyed. The 4.4.2 client names none when the totem frame destroys one (a
+        // native server takes the slot's totem then), so the server kept it.
         if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
-            packet.WriteGuid(totem.Guid.To64(ctx.GetSession().GameState));
+        {
+            WowGuid64[] totems = ctx.GetSession().GameState.TotemGuids;
+            packet.WriteGuid(totem.Guid.IsEmpty() && totem.Slot < totems.Length
+                ? totems[totem.Slot]
+                : totem.Guid.To64(ctx.GetSession().GameState));
+        }
         ctx.SendPacketToServer(packet);
     }
 

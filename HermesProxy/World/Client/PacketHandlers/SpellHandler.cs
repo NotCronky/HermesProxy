@@ -2057,7 +2057,10 @@ public partial class WorldClient
     {
         TotemCreated totem = new();
         totem.Slot = packet.ReadUInt8();
-        totem.Totem = packet.ReadGuid().To128(GetSession().GameState);
+        WowGuid64 legacyTotem = packet.ReadGuid();
+        if (totem.Slot < GetSession().GameState.TotemGuids.Length)
+            GetSession().GameState.TotemGuids[totem.Slot] = legacyTotem;
+        totem.Totem = legacyTotem.To128(GetSession().GameState);
         totem.Duration = packet.ReadUInt32();
         totem.SpellId = packet.ReadUInt32();
         SendPacketToClient(totem);

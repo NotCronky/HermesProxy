@@ -361,6 +361,7 @@ public sealed class GameSessionData
     }
     public uint LastWhoRequestId;
     public WowGuid128 CurrentPetGuid;
+    public WowGuid64[] TotemGuids = new WowGuid64[4];   // by SMSG_TOTEM_CREATED slot
     public WowGuid64 CurrentAttackTarget;        // active CMSG_ATTACK_SWING victim; see MeleeAttackOrder
     public uint[] CurrentArenaTeamIds = new uint[3];
     // Personal rated standing per arena bracket, mirrored from the legacy arena-team player
