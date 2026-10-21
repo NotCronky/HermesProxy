@@ -779,7 +779,11 @@ public partial class WorldClient
             // category on a cooldown the server never had, which clearing Raise Dead's left.
             // Not for a 3.3.5a server: AzerothCore takes Raise Dead's own cooldown off after the
             // cast and leaves the lock to the client's category cooldown from that summon.
-            if ((flags & (uint)CastFlag.PendingCast) != 0)
+            // Not for a spell whose cooldown starts on an event either: the flag also makes the
+            // client drop the server's SMSG_COOLDOWN_EVENT, so the Stealth Vanish casts came back
+            // ready when it went, while the server held it for its six seconds.
+            if ((flags & (uint)CastFlag.PendingCast) != 0
+                && !GameData.CooldownOnEventSpells.Contains((uint)dbdata.SpellID))
                 dbdata.CastFlagsEx |= (uint)CastFlagEx.IgnoreCooldown;
         }
 

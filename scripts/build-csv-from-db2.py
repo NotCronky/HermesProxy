@@ -454,6 +454,23 @@ def build_map_difficulty(build: str) -> tuple[list[str], list[list[str]]]:
     return header, rows
 
 
+def build_cooldown_on_event_spells(build: str) -> tuple[list[str], list[list[str]]]:
+    """Spells whose cooldown starts on an event, not when they are cast.
+
+    Stealth and Prowl start theirs when the aura goes, a combat potion when combat ends:
+    the client holds the spell until the server's SMSG_COOLDOWN_EVENT. A spell carries it
+    itself (SpellMisc Attributes_0 COOLDOWN_ON_EVENT, 0x02000000) or through its category
+    (SpellCategory Flags COOLDOWN_STARTS_ON_EVENT, 0x04).
+    """
+    ids = {int(r["SpellID"]) for r in read_csv(fetch_client_csv("SpellMisc", build))
+           if r["DifficultyID"] == "0" and int(r["Attributes_0"]) & 0x02000000}
+    categories = {r["ID"] for r in read_csv(fetch_client_csv("SpellCategory", build))
+                  if int(r["Flags"]) & 0x04}
+    ids |= {int(r["SpellID"]) for r in read_csv(fetch_client_csv("SpellCategories", build))
+            if r["Category"] in categories}
+    return ["SpellId"], [[str(i)] for i in sorted(ids)]
+
+
 RECIPES: dict[str, Recipe] = {
     "Item3.csv": Recipe(source="Item", columns=ITEM_COLUMNS),
     "ItemSparse3.csv": Recipe(source="ItemSparse", columns=ITEM_SPARSE_COLUMNS, quote_all=True),
@@ -612,6 +629,10 @@ RECIPES.update({
     "TaxiPath4.csv": RECIPES["TaxiPath3.csv"],
     "TaxiPathNode4.csv": RECIPES["TaxiPathNode3.csv"],
     "MapDifficulty4.csv": RECIPES["MapDifficulty3.csv"],
+    "CooldownOnEventSpells4.csv": Recipe(
+        builder=build_cooldown_on_event_spells,
+        note="SpellMisc COOLDOWN_ON_EVENT + SpellCategory COOLDOWN_STARTS_ON_EVENT",
+    ),
     # The *3 recipes read these from committed 3.4.3 exports; for 4.4.2 they come from wago.
     "ItemEffect4.csv": Recipe(source="ItemEffect", columns=RECIPES["ItemEffect3.csv"].columns),
     "SpellVisuals4.csv": Recipe(

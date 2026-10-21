@@ -66,6 +66,7 @@ that hotfix loader reads the column as a byte.
 | `TaxiPath` | 1 2 3 4 | client | `TaxiPath`, paths whose two nodes exist |
 | `TaxiPathNode` | 1 2 3 4 | client | `TaxiPathNode` |
 | `MapDifficulty` | 3 4 | client | `MapDifficulty` of dungeons and raids, difficulty ≠ 0 |
+| `CooldownOnEventSpells` | 4 | client | `SpellMisc` with `COOLDOWN_ON_EVENT`, and the spells of a `SpellCategory` whose cooldown starts on an event |
 | `SpellVisuals` | 1 2 3 4 | client | `SpellXSpellVisual` spell → id, last row per spell wins |
 | `ItemSpellsData` | 1 2 3 4 | client | **curated id set** (`*3`), values from `SpellCategories` + `SpellCooldowns` |
 | `ItemDisplayIdToFileDataId` | 1 2 3 4 | client | **additive**: the committed rows, plus server display ids the client's `Item` table resolves to an icon. 14,445 keys came from a source no longer at hand |

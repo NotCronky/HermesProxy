@@ -13,7 +13,8 @@ namespace HermesProxy.Tests.World.Client;
 /// A triggered cast's SMSG_SPELL_GO from TrinityCore 4.3.4, which marks it with CAST_FLAG_PENDING
 /// and leaves its CastFlagsEx 0. The 4.4.2 client starts the cooldown of every spell the player
 /// casts unless CAST_FLAG_EX_IGNORE_COOLDOWN says not to, as TrinityCore cata_classic does for
-/// triggered casts. From a capture of a level 55 death knight (player 5) casting Raise Dead.
+/// triggered casts. From a capture of a level 55 death knight (player 5) casting Raise Dead, and
+/// of a level 1 rogue (player 7) casting Vanish.
 /// </summary>
 /// <remarks>Runs only under a 4.3.4 legacy build (<c>HERMES_TEST_LEGACY_BUILD</c>).</remarks>
 public sealed class TriggeredCastCataTests
@@ -26,11 +27,24 @@ public sealed class TriggeredCastCataTests
     private const string RaiseDead =
         "166E0105010500F8B500000009000000000000D9C1861001050000000000000000020000000000000000";
 
-    private static SpellCastData Go(string logged)
+    // Stealth (1784) as Vanish casts it, triggered: flags 0x40901.
+    private const string VanishStealth =
+        "166E0107010700F80600000109040000000000B8DD461201070000000000000000020000000000000000";
+
+    private static SpellCastData Go(string logged, uint player = 5)
     {
         var harness = new LegacyHandlerHarness(recordClientPackets: true);
-        harness.SetActivePlayer(new WowGuid64(HighGuidTypeLegacy.Player, 5));
-        harness.Deliver(Opcode.SMSG_SPELL_GO, Convert.FromHexString(logged), harness.Client.HandleSpellGo);
+        harness.SetActivePlayer(new WowGuid64(HighGuidTypeLegacy.Player, player));
+        var shipped = GameData.CooldownOnEventSpells;
+        GameData.LoadCooldownOnEventSpells();
+        try
+        {
+            harness.Deliver(Opcode.SMSG_SPELL_GO, Convert.FromHexString(logged), harness.Client.HandleSpellGo);
+        }
+        finally
+        {
+            GameData.CooldownOnEventSpells = shipped;
+        }
         return Assert.IsType<SpellGo>(Assert.Single(harness.ClientWire.Sent.Where(s => s.Packet is SpellGo)).Packet).Cast;
     }
 
@@ -55,6 +69,20 @@ public sealed class TriggeredCastCataTests
         var cast = Go(RaiseDead);
 
         Assert.Equal(46584, cast.SpellID);
+        Assert.Equal(0u, cast.CastFlagsEx);
+    }
+
+    // The client holds Stealth while it lasts and starts its six seconds on the server's
+    // SMSG_COOLDOWN_EVENT, which IGNORE_COOLDOWN would have it drop.
+    [Fact]
+    public void TriggeredStealth_KeepsTheCooldownThatStartsWhenItEnds()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var cast = Go(VanishStealth, player: 7);
+
+        Assert.Equal(1784, cast.SpellID);
         Assert.Equal(0u, cast.CastFlagsEx);
     }
 }

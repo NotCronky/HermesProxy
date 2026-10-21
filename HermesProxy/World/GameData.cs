@@ -137,6 +137,7 @@ public static partial class GameData
     public static FrozenSet<uint> MountAuras = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> NextMeleeSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> AutoRepeatSpells = FrozenSet<uint>.Empty;
+    public static FrozenSet<uint> CooldownOnEventSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> AuraSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> PassiveSpells = FrozenSet<uint>.Empty;
     public static FrozenDictionary<uint, int> AuraDurations = FrozenDictionary<uint, int>.Empty;
@@ -741,6 +742,7 @@ public static partial class GameData
             LoadMountAuras,
             LoadMeleeSpells,
             LoadAutoRepeatSpells,
+            LoadCooldownOnEventSpells,
             LoadAuraSpells,
             LoadPassiveSpells,
             LoadAuraDurations,
@@ -2026,6 +2028,21 @@ public static partial class GameData
         }
         AutoRepeatSpells = set.ToFrozenSet();
     }
+
+    public static void LoadCooldownOnEventSpells()
+    {
+        var path = Path.Combine("CSV", $"CooldownOnEventSpells{ModernVersion.ExpansionVersion}.csv");
+
+        if (!File.Exists(path))
+            return;
+
+        using var reader = Sep.Reader(o => o with { HasHeader = true }).FromFile(path);
+        var set = new HashSet<uint>(EstimateRowCount(path, 8));
+        foreach (var row in reader)
+            set.Add(uint.Parse(row[0].Span));
+        CooldownOnEventSpells = set.ToFrozenSet();
+    }
+
     public static void LoadAuraSpells()
     {
         var path = Path.Combine("CSV", $"AuraSpells{LegacyVersion.ExpansionVersion}.csv");
