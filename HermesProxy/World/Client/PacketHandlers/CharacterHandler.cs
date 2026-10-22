@@ -864,6 +864,20 @@ public partial class WorldClient
         SendPacketToClient(updatePacket);
     }
 
+    // TrinityCore and AzerothCore send this to the player that moves the unit, and a player moves
+    // itself: every combo point change of a player comes twice, once as SMSG_UPDATE_COMBO_POINTS,
+    // which the proxy translates, and once here. CMaNGOS sends it for other units only.
+    [HandlesSmsg(Opcode.SMSG_PET_UPDATE_COMBO_POINTS)]
+    internal void HandlePetUpdateComboPoints(WorldPacket packet)
+    {
+        var unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        if (unit == GetSession().GameState.CurrentPlayerGuid)
+            return;
+
+        packet.ReadPackedGuid();
+        WorldClientLogMessages.PetComboPointsNotTranslated(_melLog, _sourceFile, _netDirRecv, packet.ReadUInt8());
+    }
+
     [HandlesSmsg(Opcode.SMSG_INSPECT_RESULT)]
     [HandlesSmsg(Opcode.SMSG_INSPECT_TALENT)]
     internal void HandleInspectResult(WorldPacket packet)

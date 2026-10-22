@@ -354,4 +354,19 @@ internal static partial class WorldClientLogMessages
         ILogger logger,
         string SourceFile,
         string NetDir);
+
+    /// <summary>
+    /// The combo points of a unit the player moves or owns other than the player itself: a vehicle
+    /// or a charmed unit. The player's own come with SMSG_UPDATE_COMBO_POINTS; these have no
+    /// translation yet.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 228,
+        Level = LogLevel.Warning,
+        Message = "SMSG_PET_UPDATE_COMBO_POINTS for a vehicle or charmed unit is not translated ({ComboPoints} combo points).")]
+    public static partial void PetComboPointsNotTranslated(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        byte ComboPoints);
 }
