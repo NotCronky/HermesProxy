@@ -12,7 +12,7 @@ There are 4 major components to the application:
 
 HermesProxy translates between modern WoW Classic clients and legacy private server emulators. **WotLK Classic (3.4.3 → 3.3.5a) support is in beta.** Most of the game works, but rather than summarise that here, what has actually been verified — and on which backend — is tracked subsystem by subsystem in the [status matrix](wotlk.md).
 
-**Cataclysm Classic (4.4.2 → 4.3.4) is an early preview, very much a work in progress.** A 4.4.2 client logs in, enters the world and plays solo content — combat, quests, loot, vendors, trainers, the bank, mail — but groups, guilds, the auction house, LFG and PvP are untested or known to be incomplete. What is done and what is still open is generated into [docs/cata-progress.md](docs/cata-progress.md); progress is tracked in [#202](https://github.com/Xian55/HermesProxy/issues/202).
+**Cataclysm Classic (4.4.2 → 4.3.4) is a preview.** A 4.4.2 client logs in and plays: all ten classes, combat, quests, loot, vendors, trainers, professions, the bank, mail, the auction house, groups and raids, guilds and the guild bank, the dungeon finder, battlegrounds, rated arenas, Tol Barad and Wintergrasp. What is done and what is still open is generated into [docs/cata-progress.md](docs/cata-progress.md); progress is tracked in [#202](https://github.com/Xian55/HermesProxy/issues/202).
 
 ### Modern Client Versions (What You Play With)
 
