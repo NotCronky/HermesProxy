@@ -211,6 +211,7 @@ public static class SendMailCodec
 
 // ---- petition ----
 
+[PacketCodec(typeof(PetitionBuy), RemovedIn = ClientVersionBuild.V4_4_2_60895)]
 public static class PetitionBuyCodec
 {
     /// <remarks>
@@ -221,6 +222,20 @@ public static class PetitionBuyCodec
     public static void Read(ref SpanPacketReader r, out PetitionBuy packet)
     {
         uint titleLen = r.ReadBits<uint>(7);
+        WowGuid128 unit = r.ReadPackedGuid128();
+        uint index = r.ReadUInt32();
+        packet = new PetitionBuy(unit, index, r.ReadString(titleLen));
+    }
+}
+
+// 4.4.2 sizes the title in 8 bits (docs/protocol, the client's writer; TrinityCore cata_classic
+// still reads 7). Read in 7, a name of 14 letters reached the server as its first 7.
+[PacketCodec(typeof(PetitionBuy), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class PetitionBuyCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out PetitionBuy packet)
+    {
+        uint titleLen = r.ReadBits<uint>(8);
         WowGuid128 unit = r.ReadPackedGuid128();
         uint index = r.ReadUInt32();
         packet = new PetitionBuy(unit, index, r.ReadString(titleLen));

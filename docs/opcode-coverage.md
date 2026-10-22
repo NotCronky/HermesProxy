@@ -88,7 +88,7 @@ Each of these has more than one codec, chosen by build range at table-build time
 anyone adding a client this is the short list worth checking first: a layout that already
 changed once is the most likely to have changed again.
 
-46 packets across 93 codecs.
+47 packets across 95 codecs.
 
 | packet | codec | axis | added in | removed in |
 |---|---|---|---|---|
@@ -157,6 +157,8 @@ changed once is the most likely to have changed again.
 | `PartyUninvite` | `PartyUninviteCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `PetCastSpell` | `PetCastSpellCodec` | modern | — | `V4_4_2_60895` |
 | `PetCastSpell` | `PetCastSpellCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `PetitionBuy` | `PetitionBuyCodec` | modern | — | `V4_4_2_60895` |
+| `PetitionBuy` | `PetitionBuyCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `RandomRollClient` | `RandomRollClientCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `RandomRollClient` | `RandomRollClientCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `ReadyCheckResponseClient` | `ReadyCheckResponseClientCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |

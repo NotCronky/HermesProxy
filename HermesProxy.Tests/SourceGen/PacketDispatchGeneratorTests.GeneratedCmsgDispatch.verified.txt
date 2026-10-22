@@ -2137,9 +2137,15 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.GroupSystem.HandlePartyUninvite(in packet, in ctx);
     }
 
-    private static void Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    private static void Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY_PetitionBuyCodec(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.PetitionBuyCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.PetitionSystem.HandlePetitionBuy(in packet, in ctx);
+    }
+
+    private static void Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY_PetitionBuyCodecCataClassic(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.PetitionBuyCodecCataClassic.Read(ref reader, out var packet);
         global::HermesProxy.World.Server.Systems.PetitionSystem.HandlePetitionBuy(in packet, in ctx);
     }
 
@@ -3639,7 +3645,12 @@ internal static unsafe class GeneratedCmsgDispatch
             else if (global::HermesProxy.ModernVersion.AddedInVersion(3, 4, 3))
                 table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PARTY_UNINVITE] = &Thunk_HermesProxy_World_Server_Systems_GroupSystem_HandlePartyUninvite_CMSG_PARTY_UNINVITE_PartyUninviteCodecWotLKClassic;
         }
-        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PETITION_BUY] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY;
+        {
+            if (!global::HermesProxy.ModernVersion.AddedInVersion(4, 4, 2))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PETITION_BUY] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY_PetitionBuyCodec;
+            else if (global::HermesProxy.ModernVersion.AddedInVersion(4, 4, 2))
+                table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PETITION_BUY] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionBuy_CMSG_PETITION_BUY_PetitionBuyCodecCataClassic;
+        }
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PETITION_RENAME_GUILD] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionRenameGuild_CMSG_PETITION_RENAME_GUILD;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PETITION_SHOW_SIGNATURES] = &Thunk_HermesProxy_World_Server_Systems_PetitionSystem_HandlePetitionShowSignatures_CMSG_PETITION_SHOW_SIGNATURES;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_PET_ABANDON] = &Thunk_HermesProxy_World_Server_Systems_PetSystem_HandlePetAbandon_CMSG_PET_ABANDON;

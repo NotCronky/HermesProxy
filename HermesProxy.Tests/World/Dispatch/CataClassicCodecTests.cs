@@ -464,4 +464,27 @@ public sealed class CataClassicCodecTests
         Assert.Equal(2, packet.DstSeatIndex);
         Assert.Equal(0, r.Remaining);
     }
+
+    // The title's length in 8 bits, the registrar, the index, the title (docs/protocol/4.4.2.60895).
+    // Read in 7 bits, a 14-letter name came out as its first 7.
+    [Fact]
+    public void PetitionBuy_CataClassic_ReadsTheWholeTitle()
+    {
+        const string title = "Hermes Charter";
+        byte[] f = Framed(w =>
+        {
+            w.WriteBits(title.Length, 8);
+            w.FlushBits();
+            w.WritePackedGuid128(Npc);
+            w.WriteUInt32(0);
+            w.WriteString(title);
+        });
+
+        var r = ReaderOver(f);
+        PetitionBuyCodecCataClassic.Read(ref r, out var packet);
+        Assert.Equal(Npc, packet.Unit);
+        Assert.Equal(0u, packet.Index);
+        Assert.Equal(title, packet.Title);
+        Assert.Equal(0, r.Remaining);
+    }
 }
