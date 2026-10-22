@@ -123,6 +123,25 @@ public sealed class CataLfgTests
     }
 
     [Fact]
+    public void HandleLFGPlayerInfoCata_AGearLock_KeepsItsReasonAndItemLevels()
+    {
+        var info = Deliver<LFGPlayerInfoPkt>(packet =>
+        {
+            packet.WriteUInt8(0);
+            packet.WriteUInt32(1);
+            packet.WriteUInt32(Slot(LfgSlots.LfgTypeDungeon, 435)); // End Time, heroic
+            packet.WriteUInt32(4);                                  // too low an item level
+            packet.WriteUInt32(353);                                // needed
+            packet.WriteUInt32(336);                                // had
+        }, _harness.Client.HandleLFGPlayerInfoCata);
+
+        LFGBlackListSlot locked = info.BlackList.Slots[0];
+        Assert.Equal((uint)LFGLockStatus.TooLowGearScore, locked.Reason);
+        Assert.Equal(353, locked.SubReason1);
+        Assert.Equal(336, locked.SubReason2);
+    }
+
+    [Fact]
     public void HandleLFGPartyInfoCata_FourNumbersALock()
     {
         var info = Deliver<LFGPartyInfo>(packet =>

@@ -706,7 +706,9 @@ public partial class WorldClient
         {
             LFGBlackListSlot slot = new LFGBlackListSlot();
             slot.Slot = packet.ReadUInt32();
-            slot.Reason = LfgSlots.ToDisplayLockStatus(packet.ReadUInt32());
+            // A gear lock goes on as one: unlike 3.3.5a, 4.3.4 sends the item level needed and
+            // had, which the client's "Requires: N. Currently M." is made of.
+            slot.Reason = packet.ReadUInt32();
             slot.SubReason1 = packet.ReadInt32();
             slot.SubReason2 = packet.ReadInt32();
             slot.SoftLock = LfgSlots.ToSoftLock(slot.Reason);
