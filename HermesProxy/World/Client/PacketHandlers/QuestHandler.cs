@@ -949,7 +949,9 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_QUEST_LOG_FULL)]
     internal void HandleQuestLogFull(WorldPacket packet)
     {
-        if (IsCataLegacy)
+        // The client says "Your quest log is full." only when told. The 1.14 and 2.5 tables have
+        // the opcode as well, but those clients are left as they were until it is played there.
+        if (ModernVersion.IsWotLKClassicOrLater)
             SendPacketToClient(new QuestLogFull());
     }
 }
