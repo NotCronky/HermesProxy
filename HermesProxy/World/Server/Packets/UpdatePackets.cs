@@ -686,13 +686,23 @@ public class UpdateObject : ServerPacket
         int beforeCount = obj.ObjectUpdates.Count;
         var known = gameState.ClientKnownGuids;
 
-        // First pass: register every CreateObject in this batch as a guid the client
-        // will know after this packet is sent. We add BEFORE the strip pass so that a
-        // Values entry later in the same batch (uncommon but legal) wouldn't be
-        // dropped just because we register guids only after.
         int createKept = 0;
-        foreach (var u in obj.ObjectUpdates)
+        int valuesKept = 0;
+        int valuesUnknownStripped = 0;
+        int valuesEmptyStripped = 0;
+
+        // One pass in wire order: the client applies the batch in that order, so a CreateObject
+        // makes its guid known to the entries after it and not to the ones before. cMangos sends
+        // an item it has just put in a currency-token slot as a Values entry and then the item's
+        // CreateObject, in one packet; the Values entry came back as CMSG_OBJECT_UPDATE_FAILED,
+        // and the create carries every field it set.
+        // Compacted in place rather than through RemoveAll, whose predicate captured this frame
+        // and allocated a closure and a delegate on every call - twice per batch.
+        var updates = obj.ObjectUpdates;
+        int keep = 0;
+        for (int i = 0; i < updates.Count; i++)
         {
+            var u = updates[i];
             if (u.Type == UpdateTypeModern.CreateObject1 || u.Type == UpdateTypeModern.CreateObject2)
             {
                 known.Add(u.Guid);
@@ -707,20 +717,7 @@ public class UpdateObject : ServerPacket
                 World.Logging.ObjectLifecycleLogMessages.CreateRegistered(
                     _melObjLife, u.Guid.Low, u.Guid.High, u.Type);
             }
-        }
-
-        int valuesKept = 0;
-        int valuesUnknownStripped = 0;
-        int valuesEmptyStripped = 0;
-
-        // Compacted in place rather than through RemoveAll, whose predicate captured this frame
-        // and allocated a closure and a delegate on every call - twice per batch.
-        var updates = obj.ObjectUpdates;
-        int keep = 0;
-        for (int i = 0; i < updates.Count; i++)
-        {
-            var u = updates[i];
-            if (u.Type == UpdateTypeModern.Values)
+            else if (u.Type == UpdateTypeModern.Values)
             {
                 // The player's own Values are the one exception: at login the player's create can
                 // still be held for item templates (issue #34), and at a teleport the client is
