@@ -697,11 +697,11 @@ public class UpdateObject : ServerPacket
             {
                 known.Add(u.Guid);
                 createKept++;
+                // The player's delivery flag is set by the sending path, after its
+                // CreateObject has been handed to the client outbox. Set here, a batch that
+                // is filtered and then held let a later Values batch skip the pre-create hold.
                 if (u.Guid == gameState.CurrentPlayerGuid)
-                {
-                    gameState.ClientHasPlayerObject = true;
                     gameState.OwnSpawnFallPending = true;
-                }
                 else if (u.Guid == gameState.CurrentPetGuid)
                     gameState.ClientHasPetObject = true;
                 World.Logging.ObjectLifecycleLogMessages.CreateRegistered(

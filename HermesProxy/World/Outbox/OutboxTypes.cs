@@ -134,6 +134,8 @@ public enum HoldKeyKind : ushort
     BattlegroundClock = 15,
     /// <summary>A = ticket id. A 4.3.4 battlefield entry invite the server lets run out without a word.</summary>
     BattlefieldInviteExpiry = 16,
+    /// <summary>V3_4_3 packets whose subject is the player, held until its create is queued.</summary>
+    PlayerGuidSubject = 17,
 }
 
 /// <summary>How a hold behaves while it waits.</summary>
