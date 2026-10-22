@@ -487,4 +487,28 @@ public sealed class CataClassicCodecTests
         Assert.Equal(title, packet.Title);
         Assert.Equal(0, r.Remaining);
     }
+
+    // The party index bit, the reason's length in 9 bits, the target, the index, the reason
+    // (docs/protocol/4.4.2.60895). Read in 8 bits, a five-letter reason came out as its first two.
+    [Fact]
+    public void PartyUninvite_CataClassic_ReadsTheWholeReason()
+    {
+        const string reason = "noisy";
+        byte[] f = Framed(w =>
+        {
+            w.WriteBit(true);
+            w.WriteBits(reason.Length, 9);
+            w.FlushBits();
+            w.WritePackedGuid128(Npc);
+            w.WriteUInt8(1);
+            w.WriteString(reason);
+        });
+
+        var r = ReaderOver(f);
+        PartyUninviteCodecCataClassic.Read(ref r, out var packet);
+        Assert.Equal((byte)1, packet.PartyIndex);
+        Assert.Equal(Npc, packet.TargetGUID);
+        Assert.Equal(reason, packet.Reason);
+        Assert.Equal(0, r.Remaining);
+    }
 }

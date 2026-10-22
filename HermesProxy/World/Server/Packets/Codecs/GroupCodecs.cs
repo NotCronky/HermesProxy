@@ -100,7 +100,7 @@ public static class ClearRaidMarkerCodec
         => packet = new ClearRaidMarker(r.ReadUInt8());
 }
 
-[PacketCodec(typeof(PartyUninvite), AddedIn = ClientVersionBuild.V3_4_3_54261)]
+[PacketCodec(typeof(PartyUninvite), AddedIn = ClientVersionBuild.V3_4_3_54261, RemovedIn = ClientVersionBuild.V4_4_2_60895)]
 public static class PartyUninviteCodecWotLKClassic
 {
     public static void Read(ref SpanPacketReader r, out PartyUninvite packet)
@@ -108,6 +108,27 @@ public static class PartyUninviteCodecWotLKClassic
         // Bits first, then the GUID, then the optional PartyIndex byte.
         bool hasPartyIndex = r.HasBit();
         byte reasonLen = r.ReadBits<byte>(8);
+        WowGuid128 targetGuid = r.ReadPackedGuid128();
+
+        byte partyIndex = 0;
+        if (hasPartyIndex)
+            partyIndex = r.ReadUInt8();
+
+        string reason = r.ReadString(reasonLen);
+        packet = new PartyUninvite(partyIndex, targetGuid, reason);
+    }
+}
+
+// 4.4.2 sizes the reason in 9 bits (docs/protocol, the client's writer; TrinityCore cata_classic
+// still reads 8). Read in 8, the five-letter reason for a vote to remove someone reached the server
+// as its first two.
+[PacketCodec(typeof(PartyUninvite), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class PartyUninviteCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out PartyUninvite packet)
+    {
+        bool hasPartyIndex = r.HasBit();
+        uint reasonLen = r.ReadBits<uint>(9);
         WowGuid128 targetGuid = r.ReadPackedGuid128();
 
         byte partyIndex = 0;

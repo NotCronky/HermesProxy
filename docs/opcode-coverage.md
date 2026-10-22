@@ -88,7 +88,7 @@ Each of these has more than one codec, chosen by build range at table-build time
 anyone adding a client this is the short list worth checking first: a layout that already
 changed once is the most likely to have changed again.
 
-47 packets across 95 codecs.
+47 packets across 96 codecs.
 
 | packet | codec | axis | added in | removed in |
 |---|---|---|---|---|
@@ -153,8 +153,9 @@ changed once is the most likely to have changed again.
 | `MinimapPingClient` | `MinimapPingClientCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `PartyInviteResponse` | `PartyInviteResponseCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `PartyInviteResponse` | `PartyInviteResponseCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `PartyUninvite` | `PartyUninviteCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `PartyUninvite` | `PartyUninviteCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
-| `PartyUninvite` | `PartyUninviteCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `PartyUninvite` | `PartyUninviteCodecWotLKClassic` | modern | `V3_4_3_54261` | `V4_4_2_60895` |
 | `PetCastSpell` | `PetCastSpellCodec` | modern | — | `V4_4_2_60895` |
 | `PetCastSpell` | `PetCastSpellCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `PetitionBuy` | `PetitionBuyCodec` | modern | — | `V4_4_2_60895` |
