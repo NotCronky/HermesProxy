@@ -373,7 +373,7 @@ public partial class WorldClient
     void DropBattlefieldMgrQueueTicket(uint battleId)
         => DropBattlefieldMgrTicket(BattlefieldMgrTranslation.TicketFor(battleId, BattlefieldMgrTicketKind.Queue));
 
-    void DropBattlefieldMgrTicket(uint ticketId)
+    internal void DropBattlefieldMgrTicket(uint ticketId)
     {
         var gameState = GetSession().GameState;
         if (gameState.GetBattleFieldQueueType(ticketId) == 0)

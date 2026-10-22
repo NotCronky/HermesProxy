@@ -3,6 +3,7 @@ using Framework.Util;
 using HermesProxy.Tests.Support;
 using HermesProxy.World;
 using HermesProxy.World.Client;
+using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
 using HermesProxy.World.Server.Systems;
@@ -162,6 +163,52 @@ public class BattlefieldMgrCataTests
             Assert.Equal(201u, failed.Ticket.Id);
             Assert.Equal(0u, harness.Session.GameState.GetBattleFieldQueueType(201));
         }
+    }
+
+    // Leave Queue on a queued battle is the client's CMSG_BATTLEFIELD_PORT refusal. TrinityCore
+    // 4.3.4 ignores a refused queue invitation and keeps the player queued until an exit request,
+    // and answers neither.
+    [Fact]
+    public void QueueLeft_AsksToLeaveTheQueueAndTakesTheTicketOffTheList()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var harness = new LegacyHandlerHarness(recordClientPackets: true, recordServerPackets: true);
+        harness.SetActivePlayer(new WowGuid64(HighGuidTypeLegacy.Player, 1));
+        byte[] wire = LegacyPacketBuilder.Build(Opcode.SMSG_BATTLEFIELD_MGR_QUEUE_REQUEST_RESPONSE, p =>
+        {
+            MaskedGuid.WriteMaskBits(p, Battlefield, [1, 6, 5, 7]);
+            p.WriteBit(false);
+            MaskedGuid.WriteMaskBits(p, Battlefield, [0]);
+            p.WriteBit(true);
+            MaskedGuid.WriteMaskBits(p, Battlefield, [4, 3, 2]);
+            p.FlushBits();
+            p.WriteUInt8(1);
+            MaskedGuid.WriteBytes(p, Battlefield, [1, 3, 6, 7, 0]);
+            p.WriteUInt8(1);
+            MaskedGuid.WriteBytes(p, Battlefield, [2, 4, 5]);
+            p.WriteUInt32(BattlefieldMgrTranslation.TolBaradZoneId);
+        });
+        harness.Deliver(Opcode.SMSG_BATTLEFIELD_MGR_QUEUE_REQUEST_RESPONSE, wire, harness.Client.HandleBattlefieldMgrQueueRequestResponse);
+        uint ticket = BattlefieldMgrTranslation.TicketFor(BattlefieldMgrTranslation.TolBaradBattleId, BattlefieldMgrTicketKind.Queue);
+        Assert.NotEqual(0u, harness.Session.GameState.GetBattleFieldQueueType(ticket));
+
+        var ctx = new SessionContext(harness.Session, socket: null, harness.Client);
+        BattlegroundSystem.HandleBattlefieldPort(new BattlefieldPort(new RideTicket { Id = ticket }, AcceptedInvite: false), in ctx);
+
+        Assert.Equal(2, harness.ServerWire.Sent.Count);
+        Assert.Equal(LegacyVersion.GetCurrentOpcode(Opcode.CMSG_BF_MGR_QUEUE_INVITE_RESPONSE), harness.ServerWire.Sent[0].Opcode);
+        var exit = harness.ServerWire.Sent[1];
+        Assert.Equal(LegacyVersion.GetCurrentOpcode(Opcode.CMSG_BF_MGR_QUEUE_EXIT_REQUEST), exit.Opcode);
+        using var r = new WorldPacket(Framed(exit.Bytes));
+        var mask = new bool[8];
+        ReadMask(r, mask, [2, 0, 3, 7, 4, 5, 6, 1]);
+        Assert.Equal(Battlefield, ReadBytes(r, mask, [5, 2, 0, 1, 4, 3, 7, 6]));
+
+        var none = Assert.IsType<BattlefieldStatusNone>(harness.ClientWire.Sent[^1].Packet);
+        Assert.Equal(ticket, none.Ticket.Id);
+        Assert.Equal(0u, harness.Session.GameState.GetBattleFieldQueueType(ticket));
     }
 
     [Fact]

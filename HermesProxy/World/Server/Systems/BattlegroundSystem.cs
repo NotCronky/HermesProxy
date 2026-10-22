@@ -128,7 +128,9 @@ public static class BattlegroundSystem
                 _melLog, port.Ticket.Id, port.AcceptedInvite, mgrOpcode.ToString(), mgrBattleId);
             ctx.GetSession().ToClient.Cancel(HermesProxy.World.Client.WorldClient.BattlefieldInviteExpiryKey(port.Ticket.Id));
             ctx.SendPacketToServer(mgrPacket);
-            if (!port.AcceptedInvite)
+            if (!port.AcceptedInvite && mgrKind == BattlefieldMgrTicketKind.Queue && HermesProxy.World.Client.WorldClient.IsCataLegacy)
+                LeaveCataBattlefieldQueue(port.Ticket.Id, ctx.GameState.BattlefieldMgrGuids.GetValueOrDefault(mgrBattleId), ctx);
+            else if (!port.AcceptedInvite)
                 ctx.GetSession().GameState.RemoveBattleFieldQueue(port.Ticket.Id);
             return;
         }
@@ -263,6 +265,26 @@ public static class BattlegroundSystem
             packet.FlushBits();
             MaskedGuid.WriteBytes(packet, battlefield, [0, 3, 4, 2, 1, 6, 7, 5]);
         }
+    }
+
+    /// <summary>
+    /// The 4.4.2 client's Leave Queue on a battle it is queued for is the same refusal as on an
+    /// offered queue. TrinityCore 4.3.4 acts on CMSG_BF_MGR_QUEUE_INVITE_RESPONSE only when it
+    /// accepts, and takes a player out of the queue only on CMSG_BF_MGR_QUEUE_EXIT_REQUEST
+    /// (Battlefield::AskToLeaveQueue, a no-op for one who never joined). It answers neither, so the
+    /// ticket also goes from the client's list here, as a server of the client's own era answers
+    /// with STATUS_NONE.
+    /// </summary>
+    static void LeaveCataBattlefieldQueue(uint ticketId, ulong battlefield, in SessionContext ctx)
+    {
+        WorldPacket exit = new WorldPacket(Opcode.CMSG_BF_MGR_QUEUE_EXIT_REQUEST);
+        WriteLegacyBfExitRequest(exit, battlefield);
+        ctx.SendPacketToServer(exit);
+
+        if (ctx.GetSession().WorldClient is { } client)
+            client.DropBattlefieldMgrTicket(ticketId);
+        else
+            ctx.GameState.RemoveBattleFieldQueue(ticketId);
     }
 
     /// <summary>TrinityCore 4.3.4 HandleBfExitRequest: the battlefield's GUID, nothing else.</summary>
