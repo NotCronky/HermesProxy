@@ -974,24 +974,64 @@ public readonly record struct ReclaimCorpse(WowGuid128 CorpseGUID);
 
 public readonly record struct StandStateChange(uint StandState);
 
-public class StandStateUpdate : ServerPacket, ISpanWritable
+public sealed class StandStateUpdate : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<StandStateUpdate>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new AnimKitFirstLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new StateFirstLayout()));
+
+    private static readonly ServerPacketLayout<StandStateUpdate> Layout = Layouts.ForRunningClient();
+
     public StandStateUpdate() : base(Opcode.SMSG_STAND_STATE_UPDATE) { }
 
-    public override void Write()
+    public override void Write() => Layout.Write(this, _worldPacket);
+
+    public int MaxSize => Layout.MaxSize;
+
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    /// <summary>Up to 3.4.3: the anim kit, then the state.</summary>
+    internal sealed class AnimKitFirstLayout : ServerPacketLayout<StandStateUpdate>
     {
-        _worldPacket.WriteUInt32(AnimKitID);
-        _worldPacket.WriteUInt8(StandState);
+        public override int MaxSize => 5; // uint + byte
+
+        public override void Write(StandStateUpdate packet, WorldPacket data)
+        {
+            data.WriteUInt32(packet.AnimKitID);
+            data.WriteUInt8(packet.StandState);
+        }
+
+        public override int WriteToSpan(StandStateUpdate packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteUInt32(packet.AnimKitID);
+            writer.WriteUInt8(packet.StandState);
+            return writer.Position;
+        }
     }
 
-    public int MaxSize => 5; // uint + byte
-
-    public int WriteToSpan(Span<byte> buffer)
+    /// <summary>
+    /// 4.4.2 (docs/protocol, and TrinityCore cata_classic StandStateUpdate::Write): the state, then
+    /// the anim kit. Written the 3.4.3 way, the client read the state from the anim kit's low byte,
+    /// always 0: after sitting down it thought the player stood, and /stand never asked the server.
+    /// </summary>
+    internal sealed class StateFirstLayout : ServerPacketLayout<StandStateUpdate>
     {
-        var writer = new SpanPacketWriter(buffer);
-        writer.WriteUInt32(AnimKitID);
-        writer.WriteUInt8(StandState);
-        return writer.Position;
+        public override int MaxSize => 5; // byte + uint
+
+        public override void Write(StandStateUpdate packet, WorldPacket data)
+        {
+            data.WriteUInt8(packet.StandState);
+            data.WriteUInt32(packet.AnimKitID);
+        }
+
+        public override int WriteToSpan(StandStateUpdate packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteUInt8(packet.StandState);
+            writer.WriteUInt32(packet.AnimKitID);
+            return writer.Position;
+        }
     }
 
     public uint AnimKitID;
