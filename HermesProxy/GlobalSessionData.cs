@@ -543,7 +543,7 @@ public sealed class GameSessionData
     // arrives as a Values update carrying only GAMEOBJECT_BYTES_1, so the stop frame it has
     // to sail to is no longer on the wire, and a rider's deck-relative offset can only be
     // derived from where the deck actually is. Keyed by the modern guid; a struct value so
-    // registering a boat does not allocate.
+    // registering a boat does not allocate. Emptied at every world port (HandleNewWorld).
     public Dictionary<WowGuid128, SynthesizedTransport> SynthesizedTransports = [];
 
     // The transport guid the client last reported in its own movement, so boarding and

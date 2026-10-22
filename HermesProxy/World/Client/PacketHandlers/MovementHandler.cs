@@ -753,6 +753,11 @@ public partial class WorldClient
             {
                 GetSession().GameState.ClientKnownGuids.Clear();
                 GetSession().GameState.VehicleRecIds.Clear();
+                // The sails go with the transports. An arena's transports carry the same guid in
+                // every instance of the map, and AzerothCore does not always send OUT_OF_RANGE
+                // for them on the way out: a Ring of Valor elevator the last match left raised would
+                // meet the next match's create as a flip back down, and be lowered from the top.
+                GetSession().GameState.SynthesizedTransports.Clear();
                 GetSession().GameState.ClientHasPlayerObject = false;
                 GetSession().GameState.ClientHasPetObject = false;
                 // The player create for the new map carries the server's movement flags only.
