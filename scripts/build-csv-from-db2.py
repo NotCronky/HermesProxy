@@ -586,6 +586,27 @@ def carry(relative: str, checks: Sequence[tuple[str, str, str]] = ()):
     return builder
 
 
+def build_gems_with_cataclysm(build: str) -> tuple[str, list[str]]:
+    """Gems3's rows carried over, then the gems Cataclysm added.
+
+    The enchantment column is the server's. A 3.3.5a server knows none of Cataclysm's, so the
+    carried rows are left as they are. A 4.3.4 server socketing a Cataclysm gem names it by the
+    enchantment the 4.4.2 client's GemProperties gives it (Brilliant Inferno Ruby, 52207: 3995 on
+    both); without these rows the gem was not shown.
+    """
+    header, body = carry("Gems3.csv", [("ItemId", "Item", "ID")])(build)
+    known = {next(csv.reader([line]))[0] for line in body}
+    enchant_of = {r["ID"]: r["Enchant_ID"] for r in read_csv(fetch_client_csv("GemProperties", build))}
+    added: dict[int, int] = {}
+    for row in read_csv(fetch_client_csv("ItemSparse", build)):
+        enchant = enchant_of.get(row["Gem_properties"], "0")
+        if enchant in ("", "0") or enchant in known:
+            continue
+        item = int(row["ID"])
+        added[int(enchant)] = min(added.get(int(enchant), item), item)
+    return header, body + [f"{enchant},{item}" for enchant, item in sorted(added.items())]
+
+
 # Hotfix/ files the loaders read as client data. The verbatim ones keep the committed header;
 # BattlePetSpecies, Mount and SpellVisualMissile are projections of one table.
 HOTFIX_EXPORTS: dict[str, Recipe] = {
@@ -651,7 +672,7 @@ RECIPES.update({
     "MeleeSpells4.csv": Recipe(builder=carry("MeleeSpells3.csv"), raw=True),
     "AutoRepeatSpells4.csv": Recipe(builder=carry("AutoRepeatSpells3.csv"), raw=True),
     "AreaTriggerProximity4.csv": Recipe(builder=carry("AreaTriggerProximity3.csv"), raw=True),
-    "Gems4.csv": Recipe(builder=carry("Gems3.csv", [("ItemId", "Item", "ID")]), raw=True),
+    "Gems4.csv": Recipe(builder=build_gems_with_cataclysm, raw=True),
     "AreaTriggerRemap4.csv": Recipe(
         builder=carry("AreaTriggerRemap3.csv", [("ModernId", "AreaTrigger", "ID")]), raw=True),
     "AuraSpellRemap4.csv": Recipe(

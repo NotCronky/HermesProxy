@@ -1601,6 +1601,12 @@ public static partial class GameData
             return;
         }
 
+        Gems = ReadGems(path).ToFrozenDictionary();
+    }
+
+    /// <summary>Parses a Gems*.csv: gem enchantment id → gem item id.</summary>
+    internal static Dictionary<uint, uint> ReadGems(string path)
+    {
         using var reader = Sep.Reader(o => o with { HasHeader = true }).FromFile(path);
         var dict = new Dictionary<uint, uint>(EstimateRowCount(path, 20));
 
@@ -1610,7 +1616,7 @@ public static partial class GameData
             uint itemId = uint.Parse(row[1].Span);
             dict.Add(enchantId, itemId);
         }
-        Gems = dict.ToFrozenDictionary();
+        return dict;
     }
 
     // GlyphProperties.dbc — maps GlyphID (row ID, what 3.3.5a sends in PLAYER_FIELD_GLYPHS_*

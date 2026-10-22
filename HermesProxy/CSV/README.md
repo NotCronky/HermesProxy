@@ -110,7 +110,9 @@ Most mix two sides: an id from the legacy server and an id in the modern client'
 `carry` in the script copies the `*3` rows and drops any whose client-side id the 4.4.2 tables no
 longer have. Seven `Gems` items and `UiMap` 1416 (Alterac Mountains, merged into Hillsbrad by
 Cataclysm) were dropped; everything else exists in 4.4.2. Behind a 4.3.4 server the server-side
-half of these rows needs redoing.
+half of these rows needs redoing. `Gems4` has been: after the carried rows come the gems
+Cataclysm added, with the enchantments the 4.4.2 client's `GemProperties` gives them, which a
+4.3.4 server uses too.
 
 ## Read for the server's expansion
 
