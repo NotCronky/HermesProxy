@@ -1498,6 +1498,10 @@ public partial class WorldClient
             school = (1u << (byte)school);
 
         spell.SchoolMask = school;
+
+        // 4.x added what an absorb took off the damage (TrinityCore 4.3.4 SpellDamageShield::Write).
+        if (IsCataLegacy)
+            spell.LogAbsorbed = packet.ReadUInt32();
         SendPacketToClient(spell);
     }
 
