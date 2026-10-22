@@ -76,6 +76,10 @@ internal static class DeliberatelyUnhandledOpcodes
         Opcode.SMSG_LEARNED_DANCE_MOVES,
         Opcode.SMSG_GUILD_REPUTATION_WEEKLY_CAP,
         Opcode.SMSG_LF_GUILD_APPLICANT_LIST_CHANGED,
+        // A trainer's word that a spell was bought, which TrinityCore, AzerothCore and CMaNGOS also
+        // send after an innkeeper made the inn home: no modern client has an opcode for it. The
+        // spell arrives as a learned spell, the new home as SMSG_BINDPOINT_UPDATE.
+        Opcode.SMSG_TRAINER_BUY_SUCCEEDED,
         // The answer to buying a bank bag slot, which TrinityCore sends on success too: no modern
         // client has an opcode for it, and the new slot count arrives in the player's fields.
         Opcode.SMSG_BUY_BANK_SLOT_RESULT,
