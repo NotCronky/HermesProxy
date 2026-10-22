@@ -569,8 +569,13 @@ public partial class WorldClient
             if (GetSession().GameState.CurrentGroups[0] == null && GetSession().GameState.CurrentGroups[1] == null)
                 GetSession().GameState.GroupAssignedRoles.Clear();
 
-            // leaving a battle is not being removed from a group; nothing to say
-            if (!GetSession().GameState.WeWantToLeaveGroup && !leftInstanceGroup)
+            // leaving a battle is not being removed from a group; nothing to say. TrinityCore
+            // 4.3.4 says the rest itself: SMSG_GROUP_UNINVITE to a member it removes, and
+            // SMSG_GROUP_DESTROYED to everyone in a group it disbands. Said here as well, a leader
+            // who removed the last member, and everyone in a disbanded group, read "You have been
+            // removed from the group." after "Your group has been disbanded.". A 3.3.5a server
+            // sends the same, but no 3.3.5a session has been played without this.
+            if (!GetSession().GameState.WeWantToLeaveGroup && !leftInstanceGroup && !IsCataLegacy)
                 SendPacketToClient(new GroupUninvite()); // Send kick message
         }
 
