@@ -78,6 +78,7 @@ public class ObjectUpdateConstructorTests
         var session = CreateGlobalSession();
         var gameState = (GameSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GameSessionData));
         gameState.WmoMapObjectGuids = [];
+        gameState.SynthesizedTransports = [];
         session.GameState = gameState;
 
         var guid = WowGuid128.Create(HighGuidType703.GameObject, 0, 190375, 7);
@@ -108,6 +109,7 @@ public class ObjectUpdateConstructorTests
         var session = CreateGlobalSession();
         var gameState = (GameSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GameSessionData));
         gameState.WmoMapObjectGuids = [];
+        gameState.SynthesizedTransports = [];
         session.GameState = gameState;
 
         var guid = WowGuid128.Create(HighGuidType703.GameObject, 0, 193182, 13);
@@ -135,6 +137,7 @@ public class ObjectUpdateConstructorTests
         var session = CreateGlobalSession();
         var gameState = (GameSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GameSessionData));
         gameState.WmoMapObjectGuids = [];
+        gameState.SynthesizedTransports = [];
         session.GameState = gameState;
 
         // Nothing ever established this guid as a map object, so the memory must not invent

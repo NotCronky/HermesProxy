@@ -9,7 +9,7 @@ using Xunit;
 namespace HermesProxy.Tests.World;
 
 [Collection("V343ValuesFilter")]
-public class AzerothCoreTransportTests
+public sealed class AzerothCoreTransportTests
 {
     private static readonly WowGuid128 Boat = WowGuid128.Create(HighGuidType703.Transport, 1);
 
