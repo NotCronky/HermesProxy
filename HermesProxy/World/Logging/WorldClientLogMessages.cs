@@ -76,6 +76,28 @@ internal static partial class WorldClientLogMessages
         uint OpcodeId);
 
     [LoggerMessage(
+        EventId = 229,
+        Level = LogLevel.Warning,
+        Message = "SMSG_LOAD_CUF_PROFILES could not be read ({Length} bytes); the client keeps the raid frame profiles it has.")]
+    public static partial void CufProfilesUnreadable(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        int Length);
+
+    /// <summary>An opcode of <see cref="DeliberatelyUnhandledOpcodes.FromServer"/>.</summary>
+    [LoggerMessage(
+        EventId = 228,
+        Level = LogLevel.Debug,
+        Message = "Opcode {Opcode} ({OpcodeId}) not passed on, on purpose.")]
+    public static partial void LeftUnhandledOnPurpose(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        Opcode Opcode,
+        uint OpcodeId);
+
+    [LoggerMessage(
         EventId = 203,
         Level = LogLevel.Error,
         Message = "Packet Read Error: {Message}")]
@@ -302,4 +324,34 @@ internal static partial class WorldClientLogMessages
         string SourceFile,
         string NetDir,
         uint PetNumber);
+
+    [LoggerMessage(
+        EventId = 225,
+        Level = LogLevel.Error,
+        Message = "Legacy world server opened with an unexpected connection greeting (size {Size}). Dropping the connection.")]
+    public static partial void UnexpectedConnectionGreeting(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        ushort Size);
+
+    [LoggerMessage(
+        EventId = 226,
+        Level = LogLevel.Error,
+        Message = "Compressed legacy packet (opcode={OpcodeId}) claims {InflatedSize} bytes inflated; dropping the connection rather than reading a desynced stream.")]
+    public static partial void BadCompressedPacket(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        ushort OpcodeId,
+        uint InflatedSize);
+
+    [LoggerMessage(
+        EventId = 227,
+        Level = LogLevel.Error,
+        Message = "The auth client was torn down before world auth; cannot sign CMSG_AUTH_SESSION.")]
+    public static partial void AuthClientGoneBeforeWorldAuth(
+        ILogger logger,
+        string SourceFile,
+        string NetDir);
 }

@@ -22,6 +22,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -34,6 +35,7 @@ using HermesProxy.Configuration.Options;
 using HermesProxy.Enums;
 using Microsoft.Extensions.Options;
 using Framework.Realm;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 
 using HermesProxy.World.Enums;
@@ -62,11 +64,6 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
 
     static readonly string ClientConnectionInitialize = "WORLD OF WARCRAFT CONNECTION - CLIENT TO SERVER - V2";
     static readonly string ServerConnectionInitialize = "WORLD OF WARCRAFT CONNECTION - SERVER TO CLIENT - V2";
-
-    static readonly byte[] AuthCheckSeed = { 0xC5, 0xC6, 0x98, 0x95, 0x76, 0x3F, 0x1D, 0xCD, 0xB6, 0xA1, 0x37, 0x28, 0xB3, 0x12, 0xFF, 0x8A };
-    static readonly byte[] SessionKeySeed = { 0x58, 0xCB, 0xCF, 0x40, 0xFE, 0x2E, 0xCE, 0xA6, 0x5A, 0x90, 0xB8, 0x01, 0x68, 0x6C, 0x28, 0x0B };
-    static readonly byte[] ContinuedSessionSeed = { 0x16, 0xAD, 0x0C, 0xD4, 0x46, 0xF9, 0x4F, 0xB2, 0xEF, 0x7D, 0xEA, 0x2A, 0x17, 0x66, 0x4D, 0x2F };
-    static readonly byte[] EncryptionKeySeed = { 0xE9, 0x75, 0x3C, 0x50, 0x90, 0x93, 0x61, 0xDA, 0x3B, 0x07, 0xEE, 0xFA, 0xFF, 0x9D, 0x41, 0xB8 };
 
     static readonly int HeaderSize = PacketHeader.StructSize;
 
@@ -168,10 +165,10 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         _instancePort = networkOptions.Value.InstancePort;
 
         _connectType = ConnectionType.Realm;
-        _serverChallenge = Array.Empty<byte>().GenerateRandomKey(16);
+        _serverChallenge = RandomNumberGenerator.GetBytes(WorldHandshake.Current.ChallengeLength);
         _worldCrypt = new WorldCrypt();
 
-        _encryptKey = new byte[16];
+        _encryptKey = [];
 
         _headerBuffer = new SocketBuffer(HeaderSize);
         _packetBuffer = new SocketBuffer(0);
@@ -404,6 +401,9 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
                     for (int n = 0; n < _recentSentCount; n++)
                         Log.Print(LogType.Trace, $"[SendHistory]   #{n + 1,2} {FormatRecentSent((oldest + n) % RecentSentCap)}");
                 }
+                // A client can give up before CMSG_AUTH_SESSION, while there is no session yet.
+                if (_globalSession is null)
+                    break;
                 if (_connectType == ConnectionType.Realm)
                 {
                     // Change-realm sends this then a new AUTH_SESSION. Keep
@@ -488,7 +488,10 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         var generated = GeneratedCmsgDispatch.Get(universalOpcode);
         if (generated == null)
         {
-            WorldSocketLogMessages.NoHandlerForOpcode(_melLog, _sourceFile, _netDirRecv, universalOpcode.ToStringFast(), packet.GetOpcode());
+            if (DeliberatelyUnhandledOpcodes.IsFromClient(universalOpcode))
+                WorldSocketLogMessages.LeftUnhandledOnPurpose(_melLog, _sourceFile, _netDirRecv, universalOpcode, packet.GetOpcode());
+            else
+                WorldSocketLogMessages.NoHandlerForOpcode(_melLog, _sourceFile, _netDirRecv, universalOpcode.ToStringFast(), packet.GetOpcode());
             return;
         }
 
@@ -838,19 +841,9 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         // For hook purposes, we get Remoteaddress at this point.
         var address = GetRemoteIpAddress();
 
-        bool TrySeed(byte[] seed)
-        {
-            Sha256 digestKeyHash = new();
-            digestKeyHash.Process(GetSession().SessionKey, GetSession().SessionKey.Length);
-            digestKeyHash.Finish(seed);
-            HmacSha256 hmac = new(digestKeyHash.Digest!);
-            hmac.Process(authSession.LocalChallenge, authSession.LocalChallenge.Length);
-            hmac.Process(_serverChallenge, 16);
-            hmac.Finish(AuthCheckSeed, 16);
-
-            // Check that Key and account name are the same on client and server
-            return hmac.Digest!.Compare(authSession.Digest);
-        }
+        // Check that Key and account name are the same on client and server
+        bool TrySeed(byte[] seed) => WorldHandshake.Current.CheckAuthSessionDigest(
+            GetSession().SessionKey, seed, authSession.LocalChallenge, _serverChallenge, authSession.Digest);
 
         if (GetSession().OS != "Wn64" && GetSession().OS != "Mc64" && GetSession().OS != "MacA" && GetSession().OS != "WinA")
         {
@@ -888,25 +881,8 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
             }
         }
 
-        Sha256 keyData = new();
-        keyData.Finish(GetSession().SessionKey);
-
-        HmacSha256 sessionKeyHmac = new(keyData.Digest!);
-        sessionKeyHmac.Process(_serverChallenge, 16);
-        sessionKeyHmac.Process(authSession.LocalChallenge, authSession.LocalChallenge.Length);
-        sessionKeyHmac.Finish(SessionKeySeed, 16);
-
-        _sessionKey = new byte[40];
-        var sessionKeyGenerator = new SessionKeyGenerator(sessionKeyHmac.Digest!, 32);
-        sessionKeyGenerator.Generate(_sessionKey, 40);
-
-        HmacSha256 encryptKeyGen = new(_sessionKey);
-        encryptKeyGen.Process(authSession.LocalChallenge, authSession.LocalChallenge.Length);
-        encryptKeyGen.Process(_serverChallenge, 16);
-        encryptKeyGen.Finish(EncryptionKeySeed, 16);
-
-        // only first 16 bytes of the hmac are used
-        Buffer.BlockCopy(encryptKeyGen.Digest!, 0, _encryptKey, 0, 16);
+        _sessionKey = WorldHandshake.Current.DeriveSessionKey(GetSession().SessionKey, _serverChallenge, authSession.LocalChallenge);
+        _encryptKey = WorldHandshake.Current.DeriveEncryptKey(_sessionKey, authSession.LocalChallenge, _serverChallenge);
 
         GetSession().SessionKey = _sessionKey;
 
@@ -996,26 +972,14 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         string login = GetSession().AccountInfo.Login;
         _sessionKey = GetSession().SessionKey;
 
-        HmacSha256 hmac = new(_sessionKey);
-        hmac.Process(BitConverter.GetBytes(authSession.Key), 8);
-        hmac.Process(authSession.LocalChallenge, authSession.LocalChallenge.Length);
-        hmac.Process(_serverChallenge, 16);
-        hmac.Finish(ContinuedSessionSeed, 16);
-
-        if (!hmac.Digest!.Compare(authSession.Digest))
+        if (!WorldHandshake.Current.CheckContinuedSessionDigest(_sessionKey, authSession.Key, authSession.LocalChallenge, _serverChallenge, authSession.Digest))
         {
             Log.Print(LogType.Error, $"WorldSocket.HandleAuthContinuedSession: Authentication failed for account: {accountId} ('{login}') address: {GetRemoteIpAddress()}");
             CloseSocket();
             return;
         }
 
-        HmacSha256 encryptKeyGen = new(_sessionKey);
-        encryptKeyGen.Process(authSession.LocalChallenge, authSession.LocalChallenge.Length);
-        encryptKeyGen.Process(_serverChallenge, 16);
-        encryptKeyGen.Finish(EncryptionKeySeed, 16);
-
-        // only first 16 bytes of the hmac are used
-        Buffer.BlockCopy(encryptKeyGen.Digest!, 0, _encryptKey, 0, 16);
+        _encryptKey = WorldHandshake.Current.DeriveEncryptKey(_sessionKey, authSession.LocalChallenge, _serverChallenge);
 
         SendPacket(new EnterEncryptedMode(_encryptKey, true));
     }
@@ -1169,6 +1133,8 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
             // 0-indexed expansion (Classic=0, TBC=1, WotLK=2). LegacyVersion.ExpansionVersion is
             // the 1-indexed major; advertising it verbatim puts the client one expansion ahead,
             // which zeroes its quest/mob green range. SMSG_INITIAL_SETUP uses the same mapping.
+            // For a 4.4.2 client one too high is Mists of Pandaria, for which it has no level
+            // cap: its reputation bar then compares against nil.
             response.SuccessInfo.ActiveExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
             response.SuccessInfo.AccountExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
             response.SuccessInfo.VirtualRealmAddress = _realmId.GetAddress();
@@ -1372,6 +1338,10 @@ public partial class WorldSocket : SocketBase, BnetServices.INetwork
         features.KioskSessionMinutes = 30;
         features.BpayStoreProductDeliveryDelay = 180;
         features.HiddenUIClubsPresenceUpdateTimer = 60000;
+        // Without clubs the 4.4.2 client never asks for its guild club, and its guild window
+        // stays shut.
+        features.ClubsEnabled = GuildClub.Served;
+        features.ClubsPresenceUpdateEnabled = GuildClub.Served;
         features.VoiceEnabled = false;
         features.BrowserEnabled = false;
 

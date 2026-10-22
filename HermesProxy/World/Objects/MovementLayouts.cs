@@ -39,6 +39,9 @@ public enum ModernMovementLayout : byte
 
     /// <summary>3.4.3: <see cref="WordFlags"/> plus two header bits, and extra flags that are not forwarded.</summary>
     WotLKClassic,
+
+    /// <summary>4.4.2 against a 4.3.4 server: <see cref="WotLKClassic"/>, with the extra flags forwarded.</summary>
+    CataClassic,
 }
 
 public static class LegacyMovementLayouts
@@ -60,8 +63,18 @@ public static class LegacyMovementLayouts
 
 public static class ModernMovementLayouts
 {
-    /// <summary>The layout of the modern build this process serves.</summary>
-    public static readonly ModernMovementLayout Current = For(ModernVersion.Build);
+    /// <summary>The layout of the modern build this process serves, against the legacy build it talks to.</summary>
+    public static readonly ModernMovementLayout Current = For(ModernVersion.Build, LegacyVersion.Build);
+
+    /// <summary>
+    /// A 4.3.4 server's extra flags are read into the 4.4.2 client's own numbering
+    /// (<c>LegacyMovementCata.FlagsExtraFromLegacy</c>), which a 3.3.5a server's are not, so only
+    /// that pair is sent them: a vehicle's no-jumping, no-strafing and pitching flags among them.
+    /// </summary>
+    public static ModernMovementLayout For(ClientVersionBuild modern, ClientVersionBuild legacy)
+        => modern == ClientVersionBuild.V4_4_2_60895 && VersionChecker.GetExpansionVersion(legacy) >= 4
+            ? ModernMovementLayout.CataClassic
+            : For(modern);
 
     /// <summary>
     /// The one place a modern build is mapped to a movement layout, so a new client is one new
@@ -191,4 +204,13 @@ internal readonly struct WotLKClassicMovementLayout : IModernMovementLayout
     public static bool HasStandingOnGameObject => true;
     public static bool HasAdvFlying => true;
     public static bool WritesExtraFlagsAsZero => true;
+}
+
+internal readonly struct CataClassicMovementLayout : IModernMovementLayout
+{
+    public static bool FlagsAreWords => true;
+    public static bool HasInertia => true;
+    public static bool HasStandingOnGameObject => true;
+    public static bool HasAdvFlying => true;
+    public static bool WritesExtraFlagsAsZero => false;
 }

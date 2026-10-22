@@ -30,6 +30,18 @@ public partial class WorldClient
         quest.DescriptionText = packet.ReadCString();
         quest.LogDescription = packet.ReadCString();
 
+        // 4.3.4 (TrinityCore 4.3.4 QuestGiverQuestDetails): the portraits here, start-cheat,
+        // popup and required spell where 3.3.5a has one unknown byte, and the 4.x reward block.
+        if (IsCataLegacy)
+        {
+            quest.PortraitGiverText = packet.ReadCString();
+            quest.PortraitGiverName = packet.ReadCString();
+            quest.PortraitTurnInText = packet.ReadCString();
+            quest.PortraitTurnInName = packet.ReadCString();
+            quest.PortraitGiver = packet.ReadUInt32();
+            quest.PortraitTurnIn = packet.ReadUInt32();
+        }
+
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             quest.AutoLaunched = packet.ReadBool();
         else
@@ -41,7 +53,13 @@ public partial class WorldClient
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             quest.SuggestedPartyMembers = packet.ReadUInt32();
 
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        if (IsCataLegacy)
+        {
+            quest.StartCheat = packet.ReadBool();
+            quest.DisplayPopup = packet.ReadBool();
+            packet.ReadUInt32();                // RequiredSpellID
+        }
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             packet.ReadUInt8(); // Unknown
 
         if (LegacyVersion.InVersion(ClientVersionBuild.V3_1_0_9767, ClientVersionBuild.V3_3_3a_11723))
@@ -61,7 +79,10 @@ public partial class WorldClient
                 quest.Rewards.XP = packet.ReadUInt32(); // Hidden XP
         }
 
-        ReadExtraQuestInfo(packet, quest.Rewards, false);
+        if (IsCataLegacy)
+            ReadQuestRewardsCata(packet, quest.Rewards);
+        else
+            ReadExtraQuestInfo(packet, quest.Rewards, false);
 
         var emoteCount = packet.ReadUInt32();
         for (var i = 0; i < emoteCount; i++)
@@ -135,12 +156,77 @@ public partial class WorldClient
         }
     }
 
+    /// <summary>
+    /// The 4.3.4 reward block (TrinityCore 4.3.4 QuestRewards): every slot of each array is sent
+    /// whatever the count says, ids first, then quantities, then display ids, and it ends with
+    /// spells, currencies and the skill reward.
+    /// </summary>
+    static void ReadQuestRewardsCata(WorldPacket packet, QuestRewards rewards)
+    {
+        rewards.ChoiceItemCount = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardChoicesCount; i++)
+            rewards.ChoiceItems[i].Item.ItemID = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardChoicesCount; i++)
+            rewards.ChoiceItems[i].Quantity = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardChoicesCount; i++)
+            packet.ReadUInt32();                // DisplayID
+
+        rewards.ItemCount = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardItemCount; i++)
+            rewards.ItemID[i] = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardItemCount; i++)
+            rewards.ItemQty[i] = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardItemCount; i++)
+            packet.ReadUInt32();                // ItemDisplayID
+
+        rewards.Money = packet.ReadUInt32();
+        rewards.XP = packet.ReadUInt32();
+        rewards.Title = packet.ReadUInt32();
+        packet.ReadUInt32();
+        packet.ReadFloat();
+        packet.ReadUInt32();                    // NumBonusTalents
+        packet.ReadUInt32();
+        rewards.FactionFlags = packet.ReadUInt32();
+
+        for (int i = 0; i < QuestConst.QuestRewardReputationsCount; i++)
+            rewards.FactionID[i] = packet.ReadUInt32();
+        for (int i = 0; i < QuestConst.QuestRewardReputationsCount; i++)
+            rewards.FactionValue[i] = packet.ReadInt32();
+        for (int i = 0; i < QuestConst.QuestRewardReputationsCount; i++)
+            rewards.FactionOverride[i] = packet.ReadInt32();
+
+        rewards.SpellCompletionDisplayID[0] = packet.ReadInt32();
+        rewards.SpellCompletionID = packet.ReadUInt32();
+
+        // In the client's ids and, where it keeps a currency in hundredths, in hundredths, as the
+        // quest log's (QueryHandler).
+        for (int i = 0; i < QuestConst.QuestRewardCurrencyCount; i++)
+            rewards.CurrencyID[i] = ModernCurrencyId(packet.ReadUInt32());
+        for (int i = 0; i < QuestConst.QuestRewardCurrencyCount; i++)
+            rewards.CurrencyQty[i] = packet.ReadUInt32() * ModernCurrencyScale(rewards.CurrencyID[i]);
+
+        rewards.SkillLineID = packet.ReadUInt32();
+        rewards.NumSkillUps = packet.ReadUInt32();
+    }
+
+    // 4.3.4 sends the status as a uint32 with one bit per state, bit n standing for the 3.3.5a
+    // value n (TrinityCore 4.3.4 QuestGiverStatus: UNAVAILABLE 0x2 is 3.3.5a's 1, REWARD 0x400
+    // its 10). Bit 0 is an unknown state with no 3.3.5a value.
+    private static byte ReadLegacyQuestGiverStatus(WorldPacket packet)
+    {
+        if (!IsCataLegacy)
+            return packet.ReadUInt8();
+
+        uint status = packet.ReadUInt32();
+        return status > 1 ? (byte)BitOperations.Log2(status) : (byte)0;
+    }
+
     [HandlesSmsg(Opcode.SMSG_QUEST_GIVER_STATUS)]
     internal void HandleQuestGiverStatus(WorldPacket packet)
     {
         QuestGiverStatusPkt response = new QuestGiverStatusPkt();
         response.QuestGiver.Guid = packet.ReadGuid().To128(GetSession().GameState);
-        byte legacyStatus = packet.ReadUInt8();
+        byte legacyStatus = ReadLegacyQuestGiverStatus(packet);
         response.QuestGiver.Status = LegacyVersion.ConvertQuestGiverStatus(legacyStatus);
         Framework.Logging.Log.Print(Framework.Logging.LogType.Trace,
             $"[QuestStatusTrace] SMSG_QUEST_GIVER_STATUS recv: GUID={response.QuestGiver.Guid} entry={response.QuestGiver.Guid.GetEntry()} " +
@@ -159,7 +245,7 @@ public partial class WorldClient
         {
             QuestGiverInfo info = new();
             info.Guid = packet.ReadGuid().To128(GetSession().GameState);
-            byte legacyStatus = packet.ReadUInt8();
+            byte legacyStatus = ReadLegacyQuestGiverStatus(packet);
             info.Status = LegacyVersion.ConvertQuestGiverStatus(legacyStatus);
             Framework.Logging.Log.Print(Framework.Logging.LogType.Trace,
                 $"[QuestStatusTrace]   recv[{i}] GUID={info.Guid} entry={info.Guid.GetEntry()} " +
@@ -307,12 +393,30 @@ public partial class WorldClient
         if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             packet.ReadUInt32(); // unknown meaning, mangos sends always 2
 
+        // 4.3.4 adds the required currencies here and a fifth status word below
+        // (TrinityCore 4.3.4 QuestGiverRequestItems).
+        if (IsCataLegacy)
+        {
+            uint currencyCount = packet.ReadUInt32();
+            for (int i = 0; i < currencyCount; i++)
+            {
+                uint currencyId = ModernCurrencyId(packet.ReadUInt32());
+                quest.Currency.Add(new QuestCurrency
+                {
+                    CurrencyID = currencyId,
+                    Amount = (int)(packet.ReadUInt32() * ModernCurrencyScale(currencyId)),
+                });
+            }
+        }
+
         // flags
         uint statusFlags = packet.ReadUInt32();
         packet.ReadUInt32(); // Unk flags 2
         packet.ReadUInt32(); // Unk flags 3
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             packet.ReadUInt32(); // Unk flags 4
+        if (IsCataLegacy)
+            packet.ReadUInt32();
 
         bool itemsMet = RequestItemsObjectivesMet(quest);
         quest.StatusFlags = QuestGiverRequestItems.StatusForClient(statusFlags, itemsMet);
@@ -355,6 +459,17 @@ public partial class WorldClient
         quest.QuestTitle = packet.ReadCString();
         quest.RewardText = packet.ReadCString();
 
+        // 4.3.4 (TrinityCore 4.3.4 QuestGiverOfferRewardMessage): portraits here, 4.x reward block.
+        if (IsCataLegacy)
+        {
+            quest.PortraitGiverText = packet.ReadCString();
+            quest.PortraitGiverName = packet.ReadCString();
+            quest.PortraitTurnInText = packet.ReadCString();
+            quest.PortraitTurnInName = packet.ReadCString();
+            quest.PortraitGiver = packet.ReadUInt32();
+            quest.PortraitTurnIn = packet.ReadUInt32();
+        }
+
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             quest.QuestData.AutoLaunched = packet.ReadBool();
         else
@@ -374,7 +489,10 @@ public partial class WorldClient
             emote.Type = packet.ReadUInt32();
         }
 
-        ReadExtraQuestInfo(packet, quest.QuestData.Rewards, true);
+        if (IsCataLegacy)
+            ReadQuestRewardsCata(packet, quest.QuestData.Rewards);
+        else
+            ReadExtraQuestInfo(packet, quest.QuestData.Rewards, true);
 
         // Proactively query the quest template if it isn't cached. The proxy-side
         // CHOOSE_REWARD handler needs `QuestTemplate.UnfilteredChoiceItems` to map
@@ -399,22 +517,38 @@ public partial class WorldClient
     internal void HandleQuestGiverQuestComplete(WorldPacket packet)
     {
         QuestGiverQuestComplete quest = new QuestGiverQuestComplete();
-        quest.QuestID = packet.ReadUInt32();
-
-        GetSession().GameState.CurrentPlayerStorage.CompletedQuests.MarkQuestAsCompleted(quest.QuestID);
-        if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
-            packet.ReadUInt32(); // mangos sends always 3
-
-        quest.XPReward = packet.ReadUInt32();
-        quest.MoneyReward = packet.ReadInt32();
-
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_3_0_7561))
-            packet.ReadInt32(); // Honor
-
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        if (IsCataLegacy)
         {
-            packet.ReadInt32(); // Talents
-            packet.ReadInt32(); // Arena Points
+            // 4.3.4 reorders the fields and ends on two bits (TrinityCore 4.3.4 QuestGiverQuestComplete).
+            packet.ReadUInt32();                // TalentReward
+            quest.NumSkillUpsReward = packet.ReadUInt32();
+            quest.MoneyReward = packet.ReadUInt32();
+            quest.XPReward = packet.ReadUInt32();
+            quest.QuestID = packet.ReadUInt32();
+            quest.SkillLineIDReward = packet.ReadUInt32();
+            packet.HasBit();                    // LaunchGossip
+            packet.HasBit();                    // UseQuestReward
+            GetSession().GameState.CurrentPlayerStorage.CompletedQuests.MarkQuestAsCompleted(quest.QuestID);
+        }
+        else
+        {
+            quest.QuestID = packet.ReadUInt32();
+
+            GetSession().GameState.CurrentPlayerStorage.CompletedQuests.MarkQuestAsCompleted(quest.QuestID);
+            if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
+                packet.ReadUInt32(); // mangos sends always 3
+
+            quest.XPReward = packet.ReadUInt32();
+            quest.MoneyReward = packet.ReadInt32();
+
+            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_3_0_7561))
+                packet.ReadInt32(); // Honor
+
+            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+            {
+                packet.ReadInt32(); // Talents
+                packet.ReadInt32(); // Arena Points
+            }
         }
 
         uint itemId = 0;
@@ -611,7 +745,7 @@ public partial class WorldClient
         int questsCount = LegacyVersion.GetQuestLogSize();
         for (int i = 0; i < questsCount; i++)
         {
-            QuestLog? logEntry = ReadQuestLogEntry(i, null, updateFields);
+            QuestLog? logEntry = ReadQuestLogEntry(i, null, updateFields, isActivePlayer: true);
             if (logEntry?.QuestID == null)
                 continue;
             if (GameData.GetQuestTemplate((uint)logEntry.QuestID) != null)
@@ -782,5 +916,40 @@ public partial class WorldClient
         blob.ObjectiveIndex = match.StorageIndex;
         blob.QuestObjectiveID = (int)match.Id;
         blob.QuestObjectID = match.ObjectID;
+    }
+    // More quests than a quest log holds would be a misread count, not an answer.
+    private const int MaxQuestsInCompletionAnswer = 256;
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>HandleQuestNPCQuery</c>: 23 bits of quests, 24 bits of entries for each
+    /// of them, then for each quest its id and its entries.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_QUEST_COMPLETION_NPC_RESPONSE)]
+    internal void HandleQuestCompletionNPCResponse(WorldPacket packet)
+    {
+        int quests = packet.ReadBits<int>(23);
+        if (quests > MaxQuestsInCompletionAnswer)
+            return;
+
+        int[] entries = new int[quests];
+        for (int i = 0; i < quests; i++)
+            entries[i] = packet.ReadBits<int>(24);
+
+        QuestCompletionNPCResponse response = new();
+        for (int i = 0; i < quests; i++)
+        {
+            int questId = packet.ReadInt32();
+            List<uint> npcs = [];
+            for (int j = 0; j < entries[i]; j++)
+                npcs.Add(packet.ReadUInt32());
+            response.Quests.Add((questId, npcs));
+        }
+        SendPacketToClient(response);
+    }
+    [HandlesSmsg(Opcode.SMSG_QUEST_LOG_FULL)]
+    internal void HandleQuestLogFull(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            SendPacketToClient(new QuestLogFull());
     }
 }

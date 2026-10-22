@@ -74,6 +74,28 @@ internal static partial class WorldSocketLogMessages
         uint OpcodeId);
 
     [LoggerMessage(
+        EventId = 106,
+        Level = LogLevel.Warning,
+        Message = "CMSG_SAVE_CUF_PROFILES could not be read ({Length} bytes); the raid frame profiles were not passed on.")]
+    public static partial void CufProfilesUnreadable(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        int Length);
+
+    /// <summary>An opcode of <see cref="DeliberatelyUnhandledOpcodes.FromClient"/>.</summary>
+    [LoggerMessage(
+        EventId = 105,
+        Level = LogLevel.Debug,
+        Message = "Opcode {Opcode} ({OpcodeId}) left unanswered on purpose.")]
+    public static partial void LeftUnhandledOnPurpose(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        Opcode Opcode,
+        uint OpcodeId);
+
+    [LoggerMessage(
         EventId = 110,
         Level = LogLevel.Debug,
         Message = "Guild bank swap player->bank tab={Tab} slot={BankSlot} srcBag={SrcBag}->{LegacyBag} srcSlot={SrcSlot}->{LegacySlot}")]
@@ -145,6 +167,28 @@ internal static partial class WorldSocketLogMessages
         string NetDir,
         byte TeamSize,
         bool AsGroup);
+
+    [LoggerMessage(
+        EventId = 122,
+        Level = LogLevel.Information,
+        Message = "CMSG_BATTLEMASTER_JOIN_SKIRMISH teamSize={TeamSize} not sent: the server has no skirmishes")]
+    public static partial void SkirmishNotOnServer(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        byte TeamSize);
+
+    [LoggerMessage(
+        EventId = 123,
+        Level = LogLevel.Information,
+        Message = "CMSG_TRANSMOGRIFY_ITEMS not sent: appearance {Appearance} (item {ItemId}) for slot {Slot} is on no item the player carries")]
+    public static partial void TransmogrifySourceMissing(
+        ILogger logger,
+        string SourceFile,
+        string NetDir,
+        int Appearance,
+        int ItemId,
+        uint Slot);
 
     /// <summary>
     /// The modern client is told BadServer and dropped here, so this line is the only place the

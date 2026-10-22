@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 
@@ -26,6 +27,14 @@ public static class QueryGuildInfoCodec
         WowGuid128 playerGuid = r.ReadPackedGuid128();
         packet = new QueryGuildInfo(guildGuid, playerGuid);
     }
+}
+
+// The client's layout for both 3.4.3 and 4.4.2 is the guild's GUID and nothing else (docs/protocol).
+public static class GuildGetRanksCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GuildGetRanks packet)
+        => packet = new GuildGetRanks(r.ReadPackedGuid128());
 }
 
 // ---- guild text ----
@@ -72,6 +81,19 @@ public static class GuildDemoteMemberCodec
         => packet = new GuildDemoteMember(r.ReadPackedGuid128());
 }
 
+// The member and the rank order to give them (docs/protocol 4.4.2, TrinityCore cata_classic
+// GuildAssignMemberRank::Read).
+public static class GuildAssignMemberRankCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GuildAssignMemberRank packet)
+    {
+        WowGuid128 member = r.ReadPackedGuid128();
+        int rankOrder = r.ReadInt32();
+        packet = new GuildAssignMemberRank(member, rankOrder);
+    }
+}
+
 public static class GuildOfficerRemoveMemberCodec
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -107,6 +129,7 @@ public static class GuildSetGuildMasterCodec
 
 // ---- ranks ----
 
+[PacketCodec(typeof(GuildSetRankPermissions), RemovedIn = ClientVersionBuild.V4_4_2_60895)]
 public static class GuildSetRankPermissionsCodec
 {
     public static void Read(ref SpanPacketReader r, out GuildSetRankPermissions packet)
@@ -130,6 +153,34 @@ public static class GuildSetRankPermissionsCodec
         uint rankNameLen = r.ReadBits<uint>(7);
         string rankName = r.ReadString(rankNameLen);
 
+        packet = new GuildSetRankPermissions(
+            rankId, rankOrder, flags, withdrawGoldLimit, tabFlags, tabWithdrawItemLimit, oldFlags, rankName);
+    }
+}
+
+// 4.4.2 (TrinityCore cata_classic, and the client's writer): the rank id is a byte, there are
+// eight bank tabs, and the old flags come last, after the rank name. Read the 3.4.3 way, every field after the id was three
+// bytes off and the name length came from the old flags.
+[PacketCodec(typeof(GuildSetRankPermissions), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class GuildSetRankPermissionsCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out GuildSetRankPermissions packet)
+    {
+        uint rankId = r.ReadUInt8();
+        uint rankOrder = r.ReadUInt32();
+        uint flags = r.ReadUInt32();
+        int withdrawGoldLimit = r.ReadInt32();
+        GuildBankTabLimits tabFlags = default;
+        GuildBankTabLimits tabWithdrawItemLimit = default;
+        for (byte i = 0; i < GuildConst.MaxBankTabsCata; i++)
+        {
+            tabFlags[i] = r.ReadUInt32();
+            tabWithdrawItemLimit[i] = r.ReadUInt32();
+        }
+        r.ResetBitPos();
+        uint rankNameLen = r.ReadBits<uint>(7);
+        string rankName = r.ReadString(rankNameLen);
+        uint oldFlags = r.ReadUInt32();
         packet = new GuildSetRankPermissions(
             rankId, rankOrder, flags, withdrawGoldLimit, tabFlags, tabWithdrawItemLimit, oldFlags, rankName);
     }
@@ -356,5 +407,68 @@ public static class SplitGuildBankItemCodec
         byte bankSlot2 = r.ReadUInt8();
         uint stackCount = r.ReadUInt32();
         packet = new SplitGuildBankItem(bankGuid, bankTab1, bankSlot1, bankTab2, bankSlot2, stackCount);
+    }
+}
+
+// The guild's GUID and nothing else (docs/protocol 4.4.2).
+public static class RequestGuildPartyStateCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out RequestGuildPartyState packet)
+        => packet = new RequestGuildPartyState(r.ReadPackedGuid128());
+}
+
+public static class GuildSetAchievementTrackingCodec
+{
+    public static void Read(ref SpanPacketReader r, out GuildSetAchievementTracking packet)
+    {
+        // A count and that many achievement ids. The count is wire data: four bytes an id bounds
+        // what can follow, so the array is not sized from a number the packet cannot back.
+        int count = r.ReadInt32();
+        if (count < 0 || count > r.Remaining / sizeof(uint))
+            throw new System.ArgumentOutOfRangeException(nameof(count), count,
+                $"CMSG_GUILD_SET_ACHIEVEMENT_TRACKING claims {count} achievements but only {r.Remaining} bytes remain.");
+        uint[] achievementIds = new uint[count];
+        for (int i = 0; i < count; i++)
+            achievementIds[i] = r.ReadUInt32();
+        packet = new GuildSetAchievementTracking(achievementIds);
+    }
+}
+
+public static class RequestGuildRewardsListCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out RequestGuildRewardsList packet)
+    {
+        long currentVersion = r.ReadInt64();
+        packet = new RequestGuildRewardsList(currentVersion);
+    }
+}
+
+// The guild's GUID and nothing else (docs/protocol 4.4.2).
+public static class GuildQueryRecipesCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GuildQueryRecipes packet)
+        => packet = new GuildQueryRecipes(r.ReadPackedGuid128());
+}
+
+public static class GuildQueryNewsCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GuildQueryNews packet)
+        => packet = new GuildQueryNews(r.ReadPackedGuid128());
+}
+
+// The guild's GUID, the entry's id, then one bit (docs/protocol 4.4.2).
+public static class GuildNewsUpdateStickyCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GuildNewsUpdateSticky packet)
+    {
+        WowGuid128 guildGuid = r.ReadPackedGuid128();
+        int newsId = r.ReadInt32();
+        bool sticky = r.HasBit();
+        packet = new GuildNewsUpdateSticky(guildGuid, newsId, sticky);
     }
 }

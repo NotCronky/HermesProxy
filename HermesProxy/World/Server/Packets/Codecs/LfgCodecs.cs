@@ -47,6 +47,13 @@ public static class DFTeleportPktCodec
         => packet = new DFTeleportPkt(r.HasBit());
 }
 
+public static class DFBootPlayerVotePktCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out DFBootPlayerVotePkt packet)
+        => packet = new DFBootPlayerVotePkt(r.HasBit());
+}
+
 [PacketCodec(typeof(DFSetRolesPkt), AddedIn = ClientVersionBuild.V3_4_3_54261)]
 public static class DFSetRolesPktCodecWotLKClassic
 {

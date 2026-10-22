@@ -2,15 +2,32 @@
 using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
+using HermesProxy.World.Logging;
 using HermesProxy.World.Objects;
 using HermesProxy.World.Server;
 using HermesProxy.World.Server.Packets;
 using System;
+using System.Collections.Generic;
 
 namespace HermesProxy.World.Client;
 
 public partial class WorldClient
 {
+    /// <summary>
+    /// The graveyards of the zone, for the map of a dead player (TrinityCore 4.3.4
+    /// <c>RequestCemeteryListResponse::Write</c>): one bit and a 24-bit count, then the ids.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_REQUEST_CEMETERY_LIST_RESPONSE)]
+    internal void HandleRequestCemeteryListResponse(WorldPacket packet)
+    {
+        RequestCemeteryListResponse cemeteries = new();
+        cemeteries.IsGossipTriggered = packet.HasBit();
+        uint count = packet.ReadBits<uint>(24);
+        for (uint i = 0; i < count; i++)
+            cemeteries.CemeteryID.Add(packet.ReadUInt32());
+        SendPacketToClient(cemeteries);
+    }
+
     // Handlers for SMSG opcodes coming the legacy world server
     [HandlesSmsg(Opcode.SMSG_PONG)]
     internal void HandlePingResponse(WorldPacket packet)
@@ -222,6 +239,13 @@ public partial class WorldClient
         PlaySound sound = new();
         sound.SoundEntryID = packet.ReadUInt32();
         sound.SourceObjectGuid = GetSession().GameState.CurrentPlayerGuid;
+        if (IsCataLegacy)
+        {
+            // 4.3.4 PlaySound::Write names the source; earlier servers leave it out.
+            WowGuid64 source = packet.ReadGuid();
+            if (!source.IsEmpty())
+                sound.SourceObjectGuid = source.To128(GetSession().GameState);
+        }
         SendPacketToClient(sound);
     }
 
@@ -232,6 +256,9 @@ public partial class WorldClient
         sound.SoundEntryID = packet.ReadUInt32();
         sound.SourceObjectGUID = packet.ReadGuid().To128(GetSession().GameState);
         sound.TargetObjectGUID = sound.SourceObjectGUID;
+        // 4.3.4 PlayObjectSound::Write names the target as well: the one a creature whispers to.
+        if (IsCataLegacy)
+            sound.TargetObjectGUID = packet.ReadGuid().To128(GetSession().GameState);
         SendPacketToClient(sound);
     }
 
@@ -381,5 +408,62 @@ public partial class WorldClient
         SendPacketToClient(difficulty);
 
         RefreshGroupDifficulty(dungeon: null, raidLegacyMode: legacyRaidMode);
+    }
+    [HandlesSmsg(Opcode.SMSG_TITLE_EARNED)]
+    internal void HandleTitleEarned(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            HandleTitleEarnedCata(packet);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>Player::SetTitle</c>: the title's bit, then 1 for earned and 0 for lost.
+    /// The 4.4.2 client has a packet for each.
+    /// </summary>
+    internal void HandleTitleEarnedCata(WorldPacket packet)
+    {
+        uint index = packet.ReadUInt32();
+        bool earned = packet.ReadUInt32() != 0;
+        TitleEarned title = new(lost: !earned);
+        title.Index = index;
+        SendPacketToClient(title);
+    }
+
+    [HandlesSmsg(Opcode.SMSG_TRIGGER_MOVIE)]
+    internal void HandleTriggerMovie(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            HandleTriggerMovieCata(packet);
+    }
+
+    internal void HandleTriggerMovieCata(WorldPacket packet)
+    {
+        TriggerMovie movie = new();
+        movie.MovieID = packet.ReadUInt32();
+        SendPacketToClient(movie);
+    }
+    /// <summary>
+    /// The raid frame profiles a 4.3.4 server keeps for the character, sent at login and after
+    /// every change of map. The client is given them in its own shape; what they have that it
+    /// has no bit for is remembered, to go back with the next save.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_LOAD_CUF_PROFILES)]
+    internal void HandleLoadCUFProfiles(WorldPacket packet)
+    {
+        List<CufProfile> profiles = [];
+        if (!CufProfiles.TryReadLegacy(packet, profiles))
+        {
+            WorldClientLogMessages.CufProfilesUnreadable(_melLog, _sourceFile, _netDirRecv, (int)packet.GetSize());
+            return;
+        }
+
+        var legacyOnly = GetSession().GameState.CufOptionsKeptForServer;
+        legacyOnly.Clear();
+        foreach (CufProfile profile in profiles)
+            legacyOnly[profile.Name] = profile.LegacyOnly;
+
+        LoadCUFProfiles cuf = new();
+        cuf.Data = CufProfiles.WriteModern(profiles);
+        SendPacketToClient(cuf);
     }
 }

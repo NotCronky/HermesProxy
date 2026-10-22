@@ -103,6 +103,19 @@ public class LfgCodecEquivalenceTests
         Assert.Equal(teleportOut, a.TeleportOut);
     }
 
+    // No ClientPacket came before this codec, so there is no oracle: the 4.4.2 client writes the
+    // vote as one bit (its CMSG_DF_BOOT_PLAYER_VOTE writer).
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DFBootPlayerVote_ReadsOneBit(bool vote)
+    {
+        var (_, f) = Build(w => w.WriteBit(vote));
+        var r = ReaderOver(f); DFBootPlayerVotePktCodec.Read(ref r, out var a);
+        Assert.Equal(vote, a.Vote);
+        Assert.Equal(0, r.Remaining);
+    }
+
     [Theory]
     [InlineData((byte)0)]
     [InlineData((byte)0x02)]

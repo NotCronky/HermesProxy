@@ -2,6 +2,7 @@
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
@@ -323,10 +324,79 @@ public static class MiscSystem
         ctx.SendPacket(response);
     }
 
+    /// <summary>
+    /// Asked when the player dies and when the map opens on a dead player. Only a 4.x server knows
+    /// the request; the answer comes back as SMSG_REQUEST_CEMETERY_LIST_RESPONSE.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_REQUEST_CEMETERY_LIST)]
+    public static void HandleRequestCemeteryList(in EmptyClientPacket request, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_REQUEST_CEMETERY_LIST));
+    }
+
+    /// <summary>
+    /// The ghost's "Return to Graveyard" button. Only a 4.x server knows the request
+    /// (TrinityCore 4.3.4: CMSG_RETURN_TO_GRAVEYARD, empty); it moves the ghost itself.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_CLIENT_PORT_GRAVEYARD)]
+    public static void HandleClientPortGraveyard(in EmptyClientPacket request, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_CLIENT_PORT_GRAVEYARD));
+    }
+
     [HandlesCmsg(Opcode.CMSG_MOUNT_SPECIAL_ANIM)]
     public static void HandleMountSpecialAnim(in MountSpecial mount, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_MOUNT_SPECIAL_ANIM);
         ctx.SendPacketToServer(packet);
+    }
+    /// <summary>
+    /// How much blood the client is set to show, sent at every login. Only a 4.x server has the
+    /// request (TrinityCore 4.3.4 <c>HandleViolenceLevel</c>: one byte).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_VIOLENCE_LEVEL)]
+    public static void HandleViolenceLevel(in ViolenceLevel violence, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_VIOLENCE_LEVEL);
+        packet.WriteUInt8(violence.Level);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A currency shown on the backpack, or moved to "unused". A 4.3.4 server keeps the flags and
+    /// sends them back in its currency list (TrinityCore 4.3.4 <c>SetCurrencyFlags::Read</c>: the
+    /// flags first, then the currency).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_SET_CURRENCY_FLAGS)]
+    public static void HandleSetCurrencyFlags(in SetCurrencyFlags currency, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_SET_CURRENCY_FLAGS);
+        packet.WriteUInt32(currency.Flags);
+        packet.WriteUInt32(WorldClient.CataCurrencyId(currency.CurrencyID));
+        ctx.SendPacketToServer(packet);
+    }
+    /// <summary>
+    /// A movie has played to its end or was skipped. Empty on both sides; only a 4.3.4 server's
+    /// movies are started (SMSG_TRIGGER_MOVIE), so only it is told.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_COMPLETE_MOVIE)]
+    public static void HandleCompleteMovie(in EmptyClientPacket movie, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_COMPLETE_MOVIE));
     }
 }

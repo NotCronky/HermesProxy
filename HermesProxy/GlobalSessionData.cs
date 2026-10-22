@@ -36,6 +36,7 @@ public sealed class OwnCharacterInfo : PlayerCache
     public WowGuid128 CharacterGuid;
     public Realm Realm = null!;
     public ulong LastLoginUnixSec;
+    public uint MapId;
 }
 
 public sealed class TradeSession
@@ -144,6 +145,22 @@ public sealed class GameSessionData
     // Stable master currently being talked to. Needed because a slot purchase has to
     // re-request the stable list to learn the new count (#224).
     public WowGuid128? LastStableMaster;
+    // The PetStable last sent to a 4.4.2 client. Once it has one, every update of its group says
+    // it is still there (or the client drops it), and a create of the player carries it again.
+    internal PetStableData? PetStable;
+    // A 4.3.4 server's pet bar as it last sent it and as the proxy's moves changed it, in its own
+    // encoding (action in the low 24 bits, state in the high byte). A command or stance moves on
+    // that server only as one two-slot packet, which the proxy builds from it.
+    public uint[]? PetActionBarLegacy;
+    // The slot a command or stance was picked up from, held back until it is dropped.
+    public int PetActionPickup = -1;
+    // The pet of the last rename the client asked for: a legacy server's refusal names only the
+    // reason and the name, the modern client's names the pet as well.
+    public WowGuid128 LastPetRenameGuid;
+    public int LastPetRenameNumber;
+    // The stable master whose window the proxy opened, until the client closes it: the list that
+    // answers the open window's own request must not open it a second time.
+    public WowGuid128 OpenStableMaster;
     public uint? CurrentMapId;
     public uint CurrentZoneId;
     public uint CurrentTaxiNode;
@@ -192,6 +209,17 @@ public sealed class GameSessionData
     public uint CurrentGuildCreateTime;
     public uint CurrentGuildNumAccounts;
     public WowGuid128 CurrentInteractedWithNPC;
+
+    private World.Server.Systems.RetailAuctionHouse? _retailAuctions;
+
+    /// <summary>The 4.4.2 client's auction house searches. Created on its first request.</summary>
+    internal World.Server.Systems.RetailAuctionHouse RetailAuctions
+        => _retailAuctions ??= new(new World.Server.Systems.SessionRetailAuctionWire(GlobalSession));
+
+    private World.GuildClub? _guildClub;
+
+    /// <summary>The player's guild as the 4.4.2 client knows it, a Battle.net club.</summary>
+    internal World.GuildClub GuildClub => _guildClub ??= new(this);
     public readonly Dictionary<uint, int> GossipQuestTypesById = new();
     public uint AwaitingQuestRewardId;
     public WowGuid128 AwaitingQuestGiver = WowGuid128.Empty;
@@ -333,6 +361,7 @@ public sealed class GameSessionData
     }
     public uint LastWhoRequestId;
     public WowGuid128 CurrentPetGuid;
+    public WowGuid64[] TotemGuids = new WowGuid64[4];   // by SMSG_TOTEM_CREATED slot
     public WowGuid64 CurrentAttackTarget;        // active CMSG_ATTACK_SWING victim; see MeleeAttackOrder
     public uint[] CurrentArenaTeamIds = new uint[3];
     // Personal rated standing per arena bracket, mirrored from the legacy arena-team player
@@ -345,7 +374,8 @@ public sealed class GameSessionData
     public ClientCastRequest? CurrentClientAutoRepeatCast; // auto repeat spells (Auto Shot, Shoot, etc.)
     // SPELL_GO dequeues the pending cast. AC EffectDuel (and other hit-time
     // checks) then send SMSG_CAST_FAILED. Keep the last completed one so that
-    // fail can still be forwarded instead of disappearing.
+    // fail can still be forwarded instead of disappearing. On 4.3.4 a cast that
+    // SMSG_CAST_FAILED refused is kept here too, for the failures sent after it.
     public ClientCastRequest? LastCompletedNormalCast;
     // Set when the player's create goes to the client, cleared by the first movement packet the
     // client sends without Falling. See MovementHandler.SendOwnCanFlyChange.
@@ -363,7 +393,11 @@ public sealed class GameSessionData
     // slot byte for every drained item rather than the real per-item slot.
     public bool ExpectingLootReleaseResponse;
     public List<byte> RemainingLootSlots = new();
+    // 4.3.4 only: the currency slots of the open loot. They count from the same list as the
+    // items, and a 4.3.4 server hands one out only on CMSG_LOOT_CURRENCY.
+    public List<byte> RemainingLootCurrencySlots = new();
     public uint RemainingLootCoins;
+    public bool LootDrained => RemainingLootSlots.Count == 0 && RemainingLootCurrencySlots.Count == 0 && RemainingLootCoins == 0;
     // V3_4_3 only: set when HandleLootItem pre-claims coins via an injected CMSG_LOOT_MONEY
     // (TC 3.3.5 master closes the loot session after auto-looting items, orphaning any
     // un-claimed coins). The next CMSG_LOOT_MONEY from the modern client is the redundant
@@ -371,12 +405,24 @@ public sealed class GameSessionData
     // feedback when the legacy session is already drained.
     public bool LootMoneyPreClaimed;
     public List<int> ActionButtons = [];
-    public ushort[] ActiveGlyphs = new ushort[PlayerConst.MaxGlyphSlots];
+    public ushort[] ActiveGlyphs = new ushort[LegacyVersion.ExpansionVersion >= 4 ? PlayerConst.MaxGlyphSlotsCata : PlayerConst.MaxGlyphSlots];
     // Per-class GlyphSlot.dbc record IDs, read from legacy PLAYER_FIELD_GLYPH_SLOTS_1..6.
     // Default {21..26} preserves prior hardcoded behavior until the legacy server's first
     // Values update arrives. The V3_4_3 client renders UI position + Major/Minor from these.
-    public uint[] ActiveGlyphSlotIds = [21, 22, 23, 24, 25, 26];
-    public byte GlyphsEnabled;
+    // A 4.x server has three more, the prime slots.
+    public uint[] ActiveGlyphSlotIds = LegacyVersion.ExpansionVersion >= 4 ? [21, 22, 23, 24, 25, 26, 41, 42, 43] : [21, 22, 23, 24, 25, 26];
+    // One bit per slot: nine of them on a 4.x server.
+    public ushort GlyphsEnabled;
+    // A 4.3.4 player's archaeology, two uint16 per field in eight fields each: the project of
+    // every race (PLAYER_FIELD_RESEARCHING_1) and the dig sites (PLAYER_FIELD_RESERACH_SITE_1),
+    // 0 for none. Dirty sends them again in the next player Values update.
+    public ushort[] ResearchProjects = new ushort[16];
+    public ushort[] ResearchSites = new ushort[16];
+    public bool ResearchDirty;
+    // A 4.3.4 player's completed archaeology projects (SMSG_SETUP_RESEARCH_HISTORY at login, then
+    // SMSG_RESEARCH_COMPLETE per solve): the 4.4.2 client keeps them in ActivePlayerData.
+    public List<(uint ProjectId, long FirstCompleted, uint Count)> ResearchHistory = [];
+    public bool ResearchHistoryDirty;
     // Set true when ActiveGlyphs[6] changes (talent push, spec switch, glyph apply/remove
     // via legacy PLAYER_FIELD_GLYPHS_1..6). Consumed by V3_4_3 ObjectUpdateBuilder, which
     // writes the new GlyphSlots in the next player Values update. Without this re-emit,
@@ -449,6 +495,9 @@ public sealed class GameSessionData
     public Dictionary<WowGuid128, ObjectType> OriginalObjectTypes = [];
     public Dictionary<WowGuid128, uint[]> ItemGems = [];
     public Dictionary<WowGuid128, Class> CreatureClasses = [];
+    // 4.4.2: the creatures created with the FVendor_C fragment, and its flags. Their values
+    // updates have to keep the fragment active. Written and read by the update builder only.
+    public Dictionary<WowGuid128, int> VendorFragmentFlags = [];
 
     public Dictionary<string, int> ChannelIds = [];
     public Dictionary<int, string> ChannelNamesById = [];
@@ -464,6 +513,19 @@ public sealed class GameSessionData
     public Dictionary<uint, byte> BattleFieldQueueArenaTypes = [];
     public Dictionary<uint, byte> BattleFieldQueueBracketIds = [];
     public Dictionary<uint, long> BattleFieldQueueTimes = [];
+    public Dictionary<uint, uint> BattleFieldQueueJoinTimes = [];
+    // A 4.3.4 battlefield's GUID, by battle: its client answers with it (TrinityCore 4.3.4 leaves it empty).
+    public Dictionary<uint, ulong> BattlefieldMgrGuids = [];
+    // The roles the last battleground join was sent with: a 4.3.4 invitation does not say them back.
+    public byte BattlefieldJoinRoles;
+    // A 4.3.4 battleground's clock: when it runs out by the server's time, and on which map.
+    public long BattlegroundClockEnd;
+    public uint? BattlegroundClockMap;
+    // What a random battleground pays now, from a 4.3.4 battlefield list (whole points): a 4.3.4
+    // server says it there and not in its answer to CMSG_REQUEST_PVP_REWARDS.
+    public (int WinHonor, int WinConquest, int LossHonor)? CataRandomBattlegroundRewards;
+    // The legacy server's unix time minus this machine's, from the last time query that went by.
+    public long LegacyServerClockOffset;
     public Dictionary<uint, uint> DailyQuestsDone = [];
     public HashSet<WowGuid128> FlagCarrierGuids = [];
     public Dictionary<WowGuid64, ushort> ObjectSpawnCount = [];
@@ -511,6 +573,9 @@ public sealed class GameSessionData
     public readonly ConcurrentDictionary<uint, byte> GoLockTemplateRequested = new();
     public HashSet<WowGuid64> DespawnedGameObjects = [];
     public HashSet<WowGuid128> HunterPetGuids = [];
+    // NPCs whose window a 4.3.4 client opened from an NPC flag alone and the 4.4.2 client opens
+    // when told to after a gossip hello (NpcSystem): the reforger and the transmogrifier.
+    public Dictionary<WowGuid128, PlayerInteractionType> GossipInteractions = [];
 
     // Pet GUID translation tables for cMaNGOS-style backends. MaNGOS-era TBC/WotLK
     // encodes Pet GUIDs with pet_number (a per-character spawn counter) in the entry
@@ -622,6 +687,14 @@ public sealed class GameSessionData
     // Interval is configurable: ThrottlingOptions.PartyMemberStateMinIntervalMs.
     public readonly Dictionary<WowGuid128, long> LastPartyMemberStateTickMs = new();
 
+    // The options of each raid frame profile that only a 4.3.4 client has, by profile name, as the
+    // server last sent them: handed back to it when the 4.4.2 client saves the profile.
+    internal readonly Dictionary<string, CufLegacyOnlyOptions> CufOptionsKeptForServer = [];
+
+    // The forced reactions of the session's player, by slot, as a client that keeps them in its
+    // player object has them (see ForcedReactionSlots). Null until a server has sent one.
+    internal ForcedReaction[]? ForcedReactionSlots;
+
     public byte LfgRequestedRoles;
     public readonly HashSet<uint> LfgKnownDungeonIds = new();
     // The slots the client was last told it is queued for (SMSG_LFG_UPDATE_STATUS).
@@ -674,6 +747,25 @@ public sealed class GameSessionData
 
     /// <summary>Forgets the ticket so the next queue gets a fresh one.</summary>
     public void ResetLfgTicket() => _lfgTicket = null;
+
+    private RideTicket? _lfgServerTicket;
+
+    /// <summary>
+    /// A 4.3.4 server's world markers: the mask it last sent, and where each marker is, as its
+    /// dynamic object showed it (the server sends no places, the 4.4.2 client needs them).
+    /// </summary>
+    public uint RaidMarkerMask;
+    public readonly System.Numerics.Vector3?[] RaidMarkerPlaces = new System.Numerics.Vector3?[8];
+    public readonly uint[] RaidMarkerMaps = new uint[8];
+
+    /// <summary>
+    /// A 4.3.4 server issues the queue's ticket itself and sends it with each queue packet; it is
+    /// kept so the requests that name the queue (leaving it) can carry it back. The client is
+    /// given the session's own ticket instead.
+    /// </summary>
+    public void SetLfgServerTicket(RideTicket ticket) => _lfgServerTicket = ticket;
+
+    public RideTicket? LfgServerTicket => _lfgServerTicket;
 
     /// <summary>
     /// Records the type byte carried by a full LFG slot so bare dungeon IDs can be widened later.
@@ -1244,6 +1336,67 @@ public sealed class GameSessionData
         usable.Sort();
         return usable.ToArray();
     }
+    /// <summary>
+    /// The items the player wears and carries in the backpack and bags: GUID, entry, and the
+    /// equipment slot (-1 for one in a bag). What a 4.3.4 server transmogrifies from, and so the
+    /// appearances the 4.4.2 wardrobe offers.
+    /// </summary>
+    public List<(WowGuid64 Guid, uint Entry, int EquipSlot)> GetCarriedItems()
+    {
+        var items = new List<(WowGuid64, uint, int)>();
+        if (CurrentPlayerGuid.IsEmpty() || ObjectCacheLock == null)
+            return items;
+
+        void Add(WowGuid64 guid64, int equipSlot)
+        {
+            if (guid64 == WowGuid64.Empty)
+                return;
+            uint itemId = GetItemId(guid64.To128(this));
+            if (itemId != 0)
+                items.Add((guid64, itemId, equipSlot));
+        }
+
+        for (int i = EquipmentSlot.Start; i < EquipmentSlot.End; i++)
+            Add(GetInventorySlotItem(i), i);
+        for (int i = World.Enums.Vanilla.InventorySlots.ItemStart; i < World.Enums.Vanilla.InventorySlots.ItemEnd; i++)
+            Add(GetInventorySlotItem(i), -1);
+
+        int containerSlotField = LegacyVersion.GetUpdateField(ContainerField.CONTAINER_FIELD_SLOT_1);
+        int numSlotsField = LegacyVersion.GetUpdateField(ContainerField.CONTAINER_FIELD_NUM_SLOTS);
+        if (containerSlotField < 0 || numSlotsField < 0)
+            return items;
+
+        for (int bagIdx = World.Enums.Vanilla.InventorySlots.BagStart; bagIdx < World.Enums.Vanilla.InventorySlots.BagEnd; bagIdx++)
+        {
+            var bagGuid64 = GetInventorySlotItem(bagIdx);
+            if (bagGuid64 == WowGuid64.Empty)
+                continue;
+            var bagFields = GetCachedObjectFieldsLegacy(bagGuid64.To128(this));
+            if (bagFields == null || !bagFields.TryGetValue(numSlotsField, out var numSlotsValue))
+                continue;
+            int numSlots = (int)numSlotsValue.UInt32Value;
+            for (int slot = 0; slot < numSlots; slot++)
+                Add(bagFields.GetGuidValue(containerSlotField + slot * 2), -1);
+        }
+        return items;
+    }
+
+    /// <summary>
+    /// The appearances of the items the player carries (ItemModifiedAppearance ids, each once), for
+    /// the 4.4.2 wardrobe's ConditionalTransmog list.
+    /// </summary>
+    public List<uint> GetCarriedItemAppearances()
+    {
+        var appearances = new List<uint>();
+        foreach (var (_, entry, _) in GetCarriedItems())
+        {
+            if (GameData.GetItemModifiedAppearanceByItemId(entry) is { } appearance
+                && !appearances.Contains((uint)appearance.Id))
+                appearances.Add((uint)appearance.Id);
+        }
+        return appearances;
+    }
+
     void CollectInventoryToyIds(List<uint> dest)
     {
         void Consider(WowGuid64 guid64)
@@ -1437,12 +1590,23 @@ public sealed class GameSessionData
     {
         return BattleFieldQueueBracketIds.TryGetValue(queueSlot, out var value) ? value : (byte)0;
     }
+    // A 4.3.4 server names the moment a slot was queued in every status packet, and its client
+    // sends that back in CMSG_BATTLEFIELD_PORT.
+    public void StoreBattleFieldQueueJoinTime(uint queueSlot, uint joinTime)
+    {
+        BattleFieldQueueJoinTimes[queueSlot] = joinTime;
+    }
+    public uint GetBattleFieldQueueJoinTime(uint queueSlot)
+    {
+        return BattleFieldQueueJoinTimes.TryGetValue(queueSlot, out var value) ? value : 0u;
+    }
     public void RemoveBattleFieldQueue(uint queueSlot)
     {
         BattleFieldQueueTypes.Remove(queueSlot);
         BattleFieldQueueArenaTypes.Remove(queueSlot);
         BattleFieldQueueBracketIds.Remove(queueSlot);
         BattleFieldQueueTimes.Remove(queueSlot);
+        BattleFieldQueueJoinTimes.Remove(queueSlot);
     }
     public void StoreAuraDurationLeft(WowGuid128 guid, byte slot, int duration, int currentTime)
     {
@@ -1579,7 +1743,27 @@ public sealed class GameSessionData
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool CastMatchesSpellId(ClientCastRequest cast, uint spellId)
     {
-        return cast.SpellId == spellId || (cast.LegacySpellId != 0 && cast.LegacySpellId == spellId);
+        return cast.SpellId == spellId || (cast.LegacySpellId != 0 && cast.LegacySpellId == spellId)
+            || (cast.OverrideSpellId != 0 && cast.OverrideSpellId == spellId);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 casts the spell an aura overrides the requested one with (Trap Launcher
+    /// turns Ice Trap 13809 into the thrown 82941), so no pending cast carries the id it starts.
+    /// Gives that id to the oldest pending cast not yet started, the one the server took up.
+    /// </summary>
+    public bool TryClaimOverriddenNormalCast(uint serverSpellId)
+    {
+        foreach (var item in PendingNormalCasts)
+        {
+            if (!item.HasStarted)
+            {
+                item.OverrideSpellId = serverSpellId;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1785,6 +1969,25 @@ public sealed class GameSessionData
     public uint GetPlayerGuildId(WowGuid128 guid)
     {
         return PlayerGuildIds.TryGetValue(guid, out var value) ? value : 0u;
+    }
+
+    /// <summary>
+    /// A player known to be in that guild: the session's own character first, else anyone seen
+    /// wearing it. Empty when nobody is. A guild query is rare (the client keeps the answer), so
+    /// the scan is not on a hot path.
+    /// </summary>
+    public WowGuid128 GetKnownGuildMember(uint guildId)
+    {
+        if (guildId == 0)
+            return WowGuid128.Empty;
+        if (GetPlayerGuildId(CurrentPlayerGuid) == guildId)
+            return CurrentPlayerGuid;
+        foreach (var pair in PlayerGuildIds)
+        {
+            if (pair.Value == guildId)
+                return pair.Key;
+        }
+        return WowGuid128.Empty;
     }
     public uint[]? GetGemsForItem(WowGuid128 guid)
     {
@@ -2047,6 +2250,7 @@ public class ClientCastRequest
     public bool PrepareSent;
     public uint SpellId;
     public uint LegacySpellId; // 0 = same as SpellId; non-zero when modern client used a renumbered spell (e.g. SoM 1.14.1+ items)
+    public uint OverrideSpellId; // 0 = none; the spell a 4.3.4 server cast in its place (Trap Launcher's thrown traps)
     public uint SpellXSpellVisualId;
     public long Timestamp;
     public WowGuid128 ClientGUID;

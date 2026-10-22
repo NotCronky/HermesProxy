@@ -226,6 +226,11 @@ public static class CharacterSystem
         ctx.GetSession().GameState.IsFirstEnterWorld = true;
         ctx.GetSession().GameState.CurrentPlayerGuid = playerLogin.Guid;
         ctx.GetSession().GameState.CurrentPlayerInfo = ownCharacter;
+        // TrinityCore 4.3.4 sends the first SMSG_UPDATE_OBJECT before SMSG_LOGIN_VERIFY_WORLD, and
+        // the loading-screen notify cannot stand in for it on map 0 (HandleLoadScreen drops that
+        // value). Without a map the player's own create threw and the client sat on the loading
+        // screen. The character list knows where the character is.
+        ctx.GetSession().GameState.CurrentMapId = ownCharacter.MapId;
         ctx.GetSession().GameState.CurrentPlayerStorage.LoadCurrentPlayer();
 
         // V3_4_3-only: DKs need rune state in ActivePlayerData CREATE. Without it
@@ -245,7 +250,11 @@ public static class CharacterSystem
         ctx.ToClient.BeginInstanceConnect();
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_PLAYER_LOGIN);
-        packet.WriteGuid(playerLogin.Guid.To64());
+        // 4.3.4 masks the GUID (TrinityCore 4.3.4 PlayerLogin::Read).
+        if (LegacyVersion.ExpansionVersion >= 4)
+            MaskedGuid.Write(packet, playerLogin.Guid.To64().Low, [2, 3, 0, 6, 4, 5, 1, 7], [2, 7, 0, 3, 5, 6, 1, 4]);
+        else
+            packet.WriteGuid(playerLogin.Guid.To64());
         ctx.SendPacketToServer(packet);
     }
 
@@ -423,6 +432,16 @@ public static class CharacterSystem
     [HandlesCmsg(Opcode.CMSG_REQUEST_HONOR_STATS)]
     public static void HandleInspectHonorStats(in Inspect inspect, in SessionContext ctx)
     {
+        // 4.3.4 has a request of its own, the GUID masked (TrinityCore 4.3.4 RequestHonorStats::Read);
+        // MSG_INSPECT_HONOR_STATS is not in its table.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_REQUEST_HONOR_STATS);
+            MaskedGuid.Write(cata, inspect.Target.To64().Low, [1, 5, 7, 3, 2, 4, 0, 6], [4, 7, 0, 5, 1, 6, 2, 3]);
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(Opcode.MSG_INSPECT_HONOR_STATS);
         packet.WriteGuid(inspect.Target.To64());
         ctx.SendPacketToServer(packet);
@@ -433,6 +452,17 @@ public static class CharacterSystem
     {
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
         {
+            // The 4.4.2 client counts the inspect window's honor numbers as there only once this
+            // request is answered too (HasInspectHonorData() stays false until then). A 4.3.4
+            // server answers it once for each arena team the player is in, and not at all for a
+            // player in none. So an answer without teams goes first; the server's own, if any,
+            // come after it.
+            if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            {
+                InspectPvP empty = new InspectPvP();
+                empty.PlayerGUID = inspect.Target;
+                ctx.SendPacket(empty);
+            }
             WorldPacket packet = new WorldPacket(Opcode.MSG_INSPECT_ARENA_TEAMS);
             packet.WriteGuid(inspect.Target.To64());
             ctx.SendPacketToServer(packet);

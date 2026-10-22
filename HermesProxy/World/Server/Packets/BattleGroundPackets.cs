@@ -301,6 +301,27 @@ public class BattlefieldStatusFailed : ServerPacket, ISpanWritable
     public int Reason;
 }
 
+/// <summary>
+/// A queue entry taken off the client's list without an error (the modern SMSG_BATTLEFIELD_STATUS_NONE,
+/// 0x410003 on 4.4.2): the ride ticket alone, with the trailing flag of the 3.4.3 and later ticket.
+/// </summary>
+public sealed class BattlefieldStatusNone : ServerPacket
+{
+    public BattlefieldStatusNone() : base(Opcode.SMSG_BATTLEFIELD_STATUS) { }
+
+    public override void Write()
+    {
+        Ticket.Write(_worldPacket);
+        if (BattlefieldStatusFailed.HasTicketFlag)
+        {
+            _worldPacket.WriteBit(false);
+            _worldPacket.FlushBits();
+        }
+    }
+
+    public RideTicket Ticket = new();
+}
+
 public class BattlefieldStatusHeader
 {
     public void Write(WorldPacket data)
@@ -491,6 +512,42 @@ public class BattlegroundInit : ServerPacket, ISpanWritable
 
     public uint Milliseconds;
     public ushort BattlegroundPoints;
+}
+
+/// <summary>
+/// The countdown to a battle's start, shown as a bar at the top of the screen. Only a 4.3.4 server
+/// sends one, so the layout is the 4.4.2 client's: seconds as 64 bits around the type, then a
+/// player the server may name.
+/// </summary>
+public sealed class StartTimer : ServerPacket, ISpanWritable
+{
+    public StartTimer() : base(Opcode.SMSG_START_TIMER) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteInt64(TotalTime);
+        _worldPacket.WriteUInt32(Type);
+        _worldPacket.WriteInt64(TimeLeft);
+        _worldPacket.WriteBit(false); // has a player
+        _worldPacket.FlushBits();
+    }
+
+    public int MaxSize => 21; // 2 longs + uint + 1 byte for the bit
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteInt64(TotalTime);
+        writer.WriteUInt32(Type);
+        writer.WriteInt64(TimeLeft);
+        writer.WriteBit(false);
+        writer.FlushBits();
+        return writer.Position;
+    }
+
+    public long TotalTime;
+    public uint Type;
+    public long TimeLeft;
 }
 
 public readonly record struct RequestBattlefieldStatus;
@@ -812,4 +869,64 @@ class PlayerSkinned : ServerPacket, ISpanWritable
     }
 
     public bool FreeRepop;
+}
+
+/// <summary>
+/// Which kinds of PvP the server offers; the PvP window asks when it opens. 4.4.2 has ten bits,
+/// five of them for modes no 4.3.4 server has. 4.4.2 only.
+/// </summary>
+public sealed class PVPOptionsEnabled : ServerPacket
+{
+    public PVPOptionsEnabled() : base(Opcode.SMSG_PVP_OPTIONS_ENABLED) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteBit(RatedBattlegrounds);
+        _worldPacket.WriteBit(PugBattlegrounds);
+        _worldPacket.WriteBit(WargameBattlegrounds);
+        _worldPacket.WriteBit(WargameArenas);
+        _worldPacket.WriteBit(RatedArenas);
+        _worldPacket.WriteBit(false); // ArenaSkirmish
+        _worldPacket.WriteBit(false); // SoloShuffle
+        _worldPacket.WriteBit(false); // RatedSoloShuffle
+        _worldPacket.WriteBit(false); // BattlegroundBlitz
+        _worldPacket.WriteBit(false); // RatedBattlegroundBlitz
+        _worldPacket.FlushBits();
+    }
+
+    public bool RatedBattlegrounds;
+    public bool PugBattlegrounds;
+    public bool WargameBattlegrounds;
+    public bool WargameArenas;
+    public bool RatedArenas;
+}
+
+/// <summary>
+/// What a battleground or an arena pays, for the 4.4.2 PvP window (TrinityCore cata_classic
+/// RequestPvPRewardsResponse): eight rewards in this order, honor and conquest (390) in hundredths.
+/// </summary>
+public sealed class RequestPvpRewardsResponse : ServerPacket
+{
+    public RequestPvpRewardsResponse() : base(Opcode.SMSG_REQUEST_PVP_REWARDS_RESPONSE) { }
+
+    public override void Write()
+    {
+        FirstRandomBGWinReward.Write(_worldPacket);
+        FirstRandomBGLossReward.Write(_worldPacket);
+        NthRandomBGWinReward.Write(_worldPacket);
+        NthRandomBGLossReward.Write(_worldPacket);
+        RatedBGRewards.Write(_worldPacket);
+        Arena2v2Rewards.Write(_worldPacket);
+        Arena3v3Rewards.Write(_worldPacket);
+        Arena5v5Rewards.Write(_worldPacket);
+    }
+
+    public LFGPlayerQuestReward FirstRandomBGWinReward;
+    public LFGPlayerQuestReward FirstRandomBGLossReward;
+    public LFGPlayerQuestReward NthRandomBGWinReward;
+    public LFGPlayerQuestReward NthRandomBGLossReward;
+    public LFGPlayerQuestReward RatedBGRewards;
+    public LFGPlayerQuestReward Arena2v2Rewards;
+    public LFGPlayerQuestReward Arena3v3Rewards;
+    public LFGPlayerQuestReward Arena5v5Rewards;
 }

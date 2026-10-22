@@ -20,6 +20,7 @@ using Framework.Constants;
 using Framework.GameMath;
 using Framework.IO;
 using Framework.Logging;
+using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using System;
@@ -58,8 +59,26 @@ public class MoveUpdate : ServerPacket, ISpanWritable
     public MovementInfo MoveInfo;
 }
 
-public class MonsterMove : ServerPacket, ISpanWritable
+public sealed class MonsterMove : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<MonsterMove>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new SplineLayout(destination: true)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new SplineLayout(destination: false)));
+
+    private static readonly ServerPacketLayout<MonsterMove> Layout = Layouts.ForRunningClient();
+
+    /// <summary>
+    /// 4.4.2 (TrinityCore cata_classic, and the client's reader) dropped the Destination vector that
+    /// followed the spline id. Sent anyway, the client reads it as the spline flags, elapsed time and
+    /// move time, and every creature runs its path at the wrong speed.
+    /// </summary>
+    internal sealed class SplineLayout(bool destination) : ServerPacketLayout<MonsterMove>
+    {
+        public override void Write(MonsterMove packet, WorldPacket data) => packet.Write(data, destination);
+
+        public override int WriteToSpan(MonsterMove packet, Span<byte> buffer) => packet.WriteToSpan(buffer, destination);
+    }
+
     // Practical cap for spline points - covers real-world movement patterns
     // Corruption guard, not a sizing cap. SplineCount is read straight off the legacy wire
     // (MovementHandler.cs:563) and is unbounded, so a garbage count must not turn into a
@@ -128,32 +147,35 @@ public class MonsterMove : ServerPacket, ISpanWritable
     public Vector3 PackedDelta(int index) =>
         (MoveSpline.StartPosition + MoveSpline.EndPosition) / 2.0f - MoveSpline.SplinePoints[index];
 
-    public override void Write()
+    public override void Write() => Layout.Write(this, _worldPacket);
+
+    private void Write(WorldPacket data, bool destination)
     {
-        _worldPacket.WritePackedGuid128(MoverGUID);
-        _worldPacket.WriteVector3(MoveSpline.StartPosition);
+        data.WritePackedGuid128(MoverGUID);
+        data.WriteVector3(MoveSpline.StartPosition);
 
-        _worldPacket.WriteUInt32(MoveSpline.SplineId);
-        _worldPacket.WriteVector3(Vector3.Zero); // Destination
-        _worldPacket.WriteBit(false); // CrzTeleport
-        _worldPacket.WriteBits(PointCount == 0 ? 2 : 0, 3); // StopDistanceTolerance
+        data.WriteUInt32(MoveSpline.SplineId);
+        if (destination)
+            data.WriteVector3(Vector3.Zero); // Destination
+        data.WriteBit(false); // CrzTeleport
+        data.WriteBits(PointCount == 0 ? 2 : 0, 3); // StopDistanceTolerance
 
-        _worldPacket.WriteUInt32((uint)MoveSpline.SplineFlags);
-        _worldPacket.WriteInt32(0); // Elapsed
-        _worldPacket.WriteUInt32(MoveSpline.SplineTimeFull);
-        _worldPacket.WriteUInt32(0); // FadeObjectTime
-        _worldPacket.WriteUInt8(MoveSpline.SplineMode);
-        _worldPacket.WritePackedGuid128(MoveSpline.TransportGuid); // != default ? MoveSpline.TransportGuid : WowGuid128.Empty
-        _worldPacket.WriteInt8(MoveSpline.TransportSeat);
-        _worldPacket.WriteBits((byte)MoveSpline.SplineType, 2);
-        _worldPacket.WriteBits(PointCount, 16);
-        _worldPacket.WriteBit(false); // VehicleExitVoluntary ;
-        _worldPacket.WriteBit(false); // Interpolate
-        _worldPacket.WriteBits(PackedDeltaCount, 16);
-        _worldPacket.WriteBit(false); // SplineFilter.HasValue
-        _worldPacket.WriteBit(false); // SpellEffectExtraData.HasValue
-        _worldPacket.WriteBit(false); // JumpExtraData.HasValue
-        _worldPacket.FlushBits();
+        data.WriteUInt32((uint)MoveSpline.SplineFlags);
+        data.WriteInt32(0); // Elapsed
+        data.WriteUInt32(MoveSpline.SplineTimeFull);
+        data.WriteUInt32(0); // FadeObjectTime
+        data.WriteUInt8(MoveSpline.SplineMode);
+        data.WritePackedGuid128(MoveSpline.TransportGuid); // != default ? MoveSpline.TransportGuid : WowGuid128.Empty
+        data.WriteInt8(MoveSpline.TransportSeat);
+        data.WriteBits((byte)MoveSpline.SplineType, 2);
+        data.WriteBits(PointCount, 16);
+        data.WriteBit(false); // VehicleExitVoluntary ;
+        data.WriteBit(false); // Interpolate
+        data.WriteBits(PackedDeltaCount, 16);
+        data.WriteBit(false); // SplineFilter.HasValue
+        data.WriteBit(false); // SpellEffectExtraData.HasValue
+        data.WriteBit(MoveSpline.JumpGravity.HasValue); // JumpExtraData.HasValue
+        data.FlushBits();
 
         //if (SplineFilter.HasValue)
         //    SplineFilter.Value.Write(data);
@@ -161,7 +183,7 @@ public class MonsterMove : ServerPacket, ISpanWritable
         switch (MoveSpline.SplineType)
         {
             case SplineTypeModern.FacingSpot:
-                _worldPacket.WriteVector3(MoveSpline.FinalFacingSpot);
+                data.WriteVector3(MoveSpline.FinalFacingSpot);
                 break;
             case SplineTypeModern.FacingTarget:
                 // Universal modern Classic wire: float FaceDirection + PackedGuid128 FaceGUID.
@@ -170,27 +192,26 @@ public class MonsterMove : ServerPacket, ISpanWritable
                 // V2_5, V3_4_3 — dropping the float corrupts FaceGUID + every subsequent point by
                 // 4 bytes on the client side (issue #74 reopen, modern_*_parsed.txt confirms WPP
                 // ArgumentOutOfRangeException on FacingGUID high-byte after FaceDirection read).
-                _worldPacket.WriteFloat(MoveSpline.FinalOrientation);
-                _worldPacket.WritePackedGuid128(MoveSpline.FinalFacingGuid);
+                data.WriteFloat(MoveSpline.FinalOrientation);
+                data.WritePackedGuid128(MoveSpline.FinalFacingGuid);
                 break;
             case SplineTypeModern.FacingAngle:
-                _worldPacket.WriteFloat(MoveSpline.FinalOrientation);
+                data.WriteFloat(MoveSpline.FinalOrientation);
                 break;
         }
 
         for (int i = 0; i < PointCount; i++)
-            _worldPacket.WriteVector3(Point(i));
+            data.WriteVector3(Point(i));
 
         for (int i = 0; i < PackedDeltaCount; i++)
-            _worldPacket.WritePackXYZ(PackedDelta(i));
+            data.WritePackXYZ(PackedDelta(i));
 
-        /*
-        if (SpellEffectExtraData.HasValue)
-            SpellEffectExtraData.Value.Write(data);
-
-        if (JumpExtraData.HasValue)
-            JumpExtraData.Value.Write(data);
-        */
+        if (MoveSpline.JumpGravity is { } gravity)
+        {
+            data.WriteFloat(gravity);
+            data.WriteUInt32(MoveSpline.JumpStartTime);
+            data.WriteUInt32(0); // Duration
+        }
 
         // Opt-in wire trace. Enable with HERMES_TRACE_MOVEMENT=1 for cross-OS / cross-version
         // packet comparison (issue #74 reopen, macOS vs Windows V1_14_x divergence).
@@ -200,12 +221,13 @@ public class MonsterMove : ServerPacket, ISpanWritable
                 $"face={MoveSpline.SplineType} flags=0x{(uint)MoveSpline.SplineFlags:X8} mode={MoveSpline.SplineMode} " +
                 $"pts={PointCount} deltas={PackedDeltaCount} " +
                 $"orient={MoveSpline.FinalOrientation:F3} faceGuid=0x{MoveSpline.FinalFacingGuid.Low:X} " +
-                $"wire={_worldPacket.GetSize()}B");
+                $"wire={data.GetSize()}B");
     }
 
     // Fixed: GUID(18) + StartPos(12) + SplineId(4) + Dest(12) + flags/times(36) + bits(6) = 88
     // SplineType FacingTarget (worst case, V2_5+): float(4) + GUID(18) = 22
-    private const int FixedSize = 88 + 22; // 110 bytes
+    // JumpExtraData: gravity, start time, duration = 12
+    private const int FixedSize = 88 + 22 + 12; // 122 bytes
 
     // Sized from this packet's own spline: points write as Vector3 (12 B), packed deltas as
     // PackXYZ (4 B) -- see WriteToSpan. Both counts are known from the spline before
@@ -213,7 +235,9 @@ public class MonsterMove : ServerPacket, ISpanWritable
     // exact sizing costs nothing versus a constant and never under-provisions.
     public int MaxSize => FixedSize + PointCount * 12 + PackedDeltaCount * 4;
 
-    public int WriteToSpan(Span<byte> buffer)
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    private int WriteToSpan(Span<byte> buffer, bool destination)
     {
         // Only a corrupt or hostile SplineCount should land here; MaxSize already sized the
         // buffer for this spline's real length.
@@ -226,7 +250,8 @@ public class MonsterMove : ServerPacket, ISpanWritable
         writer.WriteVector3(MoveSpline.StartPosition);
 
         writer.WriteUInt32(MoveSpline.SplineId);
-        writer.WriteVector3(Vector3.Zero); // Destination
+        if (destination)
+            writer.WriteVector3(Vector3.Zero); // Destination
         writer.WriteBit(false); // CrzTeleport
         writer.WriteBits((uint)(PointCount == 0 ? 2 : 0), 3); // StopDistanceTolerance
 
@@ -244,7 +269,7 @@ public class MonsterMove : ServerPacket, ISpanWritable
         writer.WriteBits((uint)PackedDeltaCount, 16);
         writer.WriteBit(false); // SplineFilter.HasValue
         writer.WriteBit(false); // SpellEffectExtraData.HasValue
-        writer.WriteBit(false); // JumpExtraData.HasValue
+        writer.WriteBit(MoveSpline.JumpGravity.HasValue); // JumpExtraData.HasValue
         writer.FlushBits();
 
         switch (MoveSpline.SplineType)
@@ -267,6 +292,13 @@ public class MonsterMove : ServerPacket, ISpanWritable
 
         for (int i = 0; i < PackedDeltaCount; i++)
             writer.WritePackXYZ(PackedDelta(i));
+
+        if (MoveSpline.JumpGravity is { } gravity)
+        {
+            writer.WriteFloat(gravity);
+            writer.WriteUInt32(MoveSpline.JumpStartTime);
+            writer.WriteUInt32(0); // Duration
+        }
 
         // Opt-in wire trace — see Write() above.
         if (MovementTrace.Enabled)
@@ -635,6 +667,30 @@ public sealed class OnCancelExpectedRideVehicleAura : ServerPacket, ISpanWritabl
     public int WriteToSpan(Span<byte> buffer) => 0;
 }
 
+public sealed class FlightSplineSync : ServerPacket, ISpanWritable
+{
+    public FlightSplineSync() : base(Opcode.SMSG_FLIGHT_SPLINE_SYNC, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Guid);
+        _worldPacket.WriteFloat(SplineDist);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 4;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Guid.Low, Guid.High);
+        writer.WriteFloat(SplineDist);
+        return writer.Position;
+    }
+
+    public WowGuid128 Guid;
+    public float SplineDist;
+}
+
 public sealed class SetVehicleRecID : ServerPacket
 {
     public SetVehicleRecID() : base(Opcode.SMSG_SET_VEHICLE_REC_ID, ConnectionType.Instance) { }
@@ -667,7 +723,7 @@ public sealed class MoveSetVehicleRecID : ServerPacket
 
 public readonly record struct MoveSetVehicleRecIDAck(WowGuid128 MoverGUID, MovementAck Ack, uint VehicleRecID);
 
-public readonly record struct MoveSetCollisionHeightAck(WowGuid128 MoverGUID, float Height, uint MountDisplayID, byte Reason);
+public readonly record struct MoveSetCollisionHeightAck(WowGuid128 MoverGUID, MovementAck Ack, float Height, uint MountDisplayID, byte Reason);
 
 class MoveSetCollisionHeight : ServerPacket, ISpanWritable
 {
@@ -889,30 +945,71 @@ public class MoveSetActiveMover : ServerPacket
     public WowGuid128 MoverGUID;
 }
 
-public class PhaseShiftChange : ServerPacket
+public sealed class PhaseShiftChange : ServerPacket
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<PhaseShiftChange>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new ShortFlagsLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new IntFlagsLayout()));
+
+    private static readonly ServerPacketLayout<PhaseShiftChange> Layout = Layouts.ForRunningClient();
+
     public PhaseShiftChange() : base(Opcode.SMSG_PHASE_SHIFT_CHANGE, ConnectionType.Instance) { }
 
-    public override void Write()
+    public override void Write() => Layout.Write(this, _worldPacket);
+
+    private static void WriteHeader(PhaseShiftChange packet, WorldPacket data)
     {
-        _worldPacket.WritePackedGuid128(Client);
-        _worldPacket.WriteUInt32(PhaseShiftFlags);
-        _worldPacket.WriteUInt32((uint)Phases.Count);
-        _worldPacket.WritePackedGuid128(PersonalGUID);
-        foreach (var phase in Phases)
+        data.WritePackedGuid128(packet.Client);
+        data.WriteUInt32(packet.PhaseShiftFlags);
+        data.WriteUInt32((uint)packet.Phases.Count);
+        data.WritePackedGuid128(packet.PersonalGUID);
+    }
+
+    private static void WriteMapLists(PhaseShiftChange packet, WorldPacket data)
+    {
+        data.WriteUInt32((uint)packet.VisibleMapIDs.Count);
+        foreach (var mapId in packet.VisibleMapIDs)
+            data.WriteUInt16(mapId);
+        data.WriteUInt32((uint)packet.PreloadMapIDs.Count);
+        foreach (var mapId in packet.PreloadMapIDs)
+            data.WriteUInt16(mapId);
+        data.WriteUInt32((uint)packet.UiMapPhaseIDs.Count);
+        foreach (var uiMapPhase in packet.UiMapPhaseIDs)
+            data.WriteUInt16(uiMapPhase);
+    }
+
+    /// <summary>Up to 3.4.3: each phase is (u16 Flags, u16 Id).</summary>
+    internal sealed class ShortFlagsLayout : ServerPacketLayout<PhaseShiftChange>
+    {
+        public override void Write(PhaseShiftChange packet, WorldPacket data)
         {
-            _worldPacket.WriteUInt16(phase.Flags);
-            _worldPacket.WriteUInt16(phase.Id);
+            WriteHeader(packet, data);
+            foreach (var phase in packet.Phases)
+            {
+                data.WriteUInt16(phase.Flags);
+                data.WriteUInt16(phase.Id);
+            }
+            WriteMapLists(packet, data);
         }
-        _worldPacket.WriteUInt32((uint)VisibleMapIDs.Count);
-        foreach (var mapId in VisibleMapIDs)
-            _worldPacket.WriteUInt16(mapId);
-        _worldPacket.WriteUInt32((uint)PreloadMapIDs.Count);
-        foreach (var mapId in PreloadMapIDs)
-            _worldPacket.WriteUInt16(mapId);
-        _worldPacket.WriteUInt32((uint)UiMapPhaseIDs.Count);
-        foreach (var uiMapPhase in UiMapPhaseIDs)
-            _worldPacket.WriteUInt16(uiMapPhase);
+    }
+
+    /// <summary>
+    /// 4.4.2 (TrinityCore cata_classic, and the client's reader): each phase is (u32 Flags,
+    /// u16 Id). Written the 3.4.3 way every phase after the first came out shifted, which matters
+    /// as soon as a 4.3.4 server puts the player in one.
+    /// </summary>
+    internal sealed class IntFlagsLayout : ServerPacketLayout<PhaseShiftChange>
+    {
+        public override void Write(PhaseShiftChange packet, WorldPacket data)
+        {
+            WriteHeader(packet, data);
+            foreach (var phase in packet.Phases)
+            {
+                data.WriteUInt32(phase.Flags);
+                data.WriteUInt16(phase.Id);
+            }
+            WriteMapLists(packet, data);
+        }
     }
 
     public WowGuid128 Client;
@@ -927,4 +1024,58 @@ public class PhaseShiftChange : ServerPacket
 public readonly record struct InitActiveMoverComplete(uint Ticks);
 
 public readonly record struct MoveSplineDone(WowGuid128 Guid, MovementInfo MoveInfo, int SplineID);
+
 public readonly record struct MoveTimeSkipped(WowGuid128 MoverGUID, uint TimeSkipped);
+
+/// <summary>
+/// Another player's client skipped this much time (a loading screen, a stall): its movement
+/// timestamps jump by it. 4.4.2 only.
+/// </summary>
+public sealed class MoveSkipTime : ServerPacket
+{
+    public MoveSkipTime() : base(Opcode.SMSG_MOVE_SKIP_TIME, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(MoverGUID);
+        _worldPacket.WriteUInt32(TimeSkipped);
+    }
+
+    public WowGuid128 MoverGUID;
+    public uint TimeSkipped;
+}
+
+/// <summary>
+/// A unit's hover animation on or off, as a hover aura comes and goes. Only a 4.x server sends
+/// one to pass on.
+/// </summary>
+public sealed class SetPlayHoverAnim : ServerPacket
+{
+    public SetPlayHoverAnim() : base(Opcode.SMSG_SET_PLAY_HOVER_ANIM, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(UnitGUID);
+        _worldPacket.WriteBit(PlayHoverAnim);
+        _worldPacket.FlushBits();
+    }
+
+    public WowGuid128 UnitGUID;
+    public bool PlayHoverAnim;
+}
+
+// A unit's animation tier (ground, swim, hover, fly, submerged), three bits.
+public sealed class SetAnimTier : ServerPacket
+{
+    public SetAnimTier() : base(Opcode.SMSG_SET_ANIM_TIER, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Unit);
+        _worldPacket.WriteBits(Tier, 3);
+        _worldPacket.FlushBits();
+    }
+
+    public WowGuid128 Unit;
+    public uint Tier;
+}

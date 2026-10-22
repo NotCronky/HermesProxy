@@ -20,6 +20,13 @@ namespace HermesProxy.World.Client;
 
 public partial class WorldClient
 {
+    // TrinityCore 4.3.4 UNIT_NPC_FLAG_REFORGER and UNIT_NPC_FLAG_TRANSMOGRIFIER.
+    private const uint CataNpcFlagReforger = 0x08000000;
+    private const uint CataNpcFlagTransmogrifier = 0x10000000;
+
+    // TrinityCore 4.3.4 PLAYER_EXPLORED_ZONES_1: 156 fields.
+    private const int CataExploredZoneFields = 156;
+
     private static readonly Microsoft.Extensions.Logging.ILogger _melObjLifeClient =
         Log.CreateMelLogger(Log.CategoryServer);
 
@@ -416,9 +423,68 @@ public partial class WorldClient
         return reused;
     }
 
+    // A 4.3.4 power field is the class's slot, not the power type; see LegacyPowerSlotsCata.
+    PowerType LegacyPowerTypeAt(WowGuid128 guid, ObjectUpdate updateData, int slot)
+    {
+        var state = GetSession().GameState;
+        if (state.HunterPetGuids.Contains(guid))
+            return LegacyPowerSlotsCata.PetTypeAt(slot);
+
+        Class classId = updateData.UnitData.ClassId != null
+            ? (Class)updateData.UnitData.ClassId
+            : state.GetUnitClass(guid);
+        return LegacyPowerSlotsCata.TypeAt(classId, slot);
+    }
+
+    // 4.3.4 sends what a power's regeneration adds to its power type's base, in the class's power
+    // slot, and the 4.4.2 client adds the same bases from its PowerType table, so the modifiers go
+    // over as they are. Without them the client counted a hunter's focus back at the bare 5 a
+    // second while the server gave 4, and let shots go out that the server refused for want of focus.
+    void CopyPowerRegenModifiersCata(WowGuid128 guid, ObjectUpdate updateData, BitArray updateMaskArray, Dictionary<int, UpdateField> updates)
+    {
+        int flat = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER);
+        int interrupted = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER);
+        if (flat < 0 || interrupted < 0)
+            return;
+
+        var state = GetSession().GameState;
+        for (int i = 0; i < LegacyVersion.GetPowersCount(); i++)
+        {
+            bool hasFlat = updateMaskArray[flat + i];
+            bool hasInterrupted = updateMaskArray[interrupted + i];
+            if (!hasFlat && !hasInterrupted)
+                continue;
+
+            PowerType power = LegacyPowerTypeAt(guid, updateData, i);
+            if (power == PowerType.Invalid)
+                continue;
+
+            sbyte slot;
+            if (state.HunterPetGuids.Contains(guid))
+                slot = ClassPowerTypes.GetPowerSlotForPet(power);
+            else
+            {
+                Class classId = updateData.UnitData.ClassId != null
+                    ? (Class)updateData.UnitData.ClassId
+                    : state.GetUnitClass(guid);
+                slot = ClassPowerTypes.GetPowerSlotForClass(classId, power);
+            }
+            if (slot < 0)
+                continue;
+
+            if (hasFlat)
+                updateData.UnitData.EnsurePowerRegenFlatModifier()[slot] = updates[flat + i].FloatValue;
+            if (hasInterrupted)
+                updateData.UnitData.EnsurePowerRegenInterruptedFlatModifier()[slot] = updates[interrupted + i].FloatValue;
+        }
+    }
+
     [HandlesSmsg(Opcode.SMSG_UPDATE_OBJECT)]
     internal void HandleUpdateObject(WorldPacket packet)
     {
+        // 4.3.4 leads with the map id (TrinityCore 4.3.4 UpdateData::BuildPacket).
+        if (IsCataLegacy)
+            packet.ReadUInt16();
         var count = packet.ReadUInt32();
         PrintString($"Updates Count = {count}");
 
@@ -432,7 +498,7 @@ public partial class WorldClient
 
         for (var i = 0; i < count; i++)
         {
-            UpdateTypeLegacy type = (UpdateTypeLegacy)packet.ReadUInt8();
+            UpdateTypeLegacy type = IsCataLegacy ? ReadUpdateTypeCata(packet) : (UpdateTypeLegacy)packet.ReadUInt8();
             PrintString($"Update Type = {type}", i);
 
             switch (type)
@@ -584,7 +650,7 @@ public partial class WorldClient
                         // re-read once the object it names actually exists.
                         GetSession().GameState.InventoryChangedSinceQuestResync = true;
 
-                        if (updateData.ObjectData.EntryID != null &&
+                        if (LegacyHasItemQuery && updateData.ObjectData.EntryID != null &&
                             !GameData.ItemTemplates.ContainsKey((uint)updateData.ObjectData.EntryID))
                         {
                             (missingItemTemplates ??= []).Add((uint)updateData.ObjectData.EntryID);
@@ -678,7 +744,7 @@ public partial class WorldClient
                         // re-read once the object it names actually exists.
                         GetSession().GameState.InventoryChangedSinceQuestResync = true;
 
-                        if (updateData.ObjectData.EntryID != null &&
+                        if (LegacyHasItemQuery && updateData.ObjectData.EntryID != null &&
                             !GameData.ItemTemplates.ContainsKey((uint)updateData.ObjectData.EntryID))
                         {
                             (missingItemTemplates ??= []).Add((uint)updateData.ObjectData.EntryID);
@@ -881,7 +947,7 @@ public partial class WorldClient
             }
 
             var playerUpdate = updateObject.ObjectUpdates[activePlayerUpdateIndex];
-            if (playerUpdate.PlayerData != null)
+            if (LegacyHasItemQuery && playerUpdate.PlayerData != null)
             {
                 foreach (var visible in playerUpdate.PlayerData.VisibleItems)
                 {
@@ -1823,6 +1889,12 @@ public partial class WorldClient
 
     void ReadMovementUpdateBlock(WorldPacket packet, WowGuid128 guid, ObjectUpdate? updateData, int index)
     {
+        if (IsCataLegacy)
+        {
+            ReadMovementUpdateBlockCata(packet, guid, updateData);
+            return;
+        }
+
         MovementInfo? moveInfo = null;
         MovementSpeeds speeds = default;
         bool playHoverAnim = false;
@@ -2173,7 +2245,42 @@ public partial class WorldClient
         return GetGuidValue64(updates, field).To128(GetSession().GameState);
     }
 
-    public QuestLog? ReadQuestLogEntry(int i, BitArray? updateMaskArray, Dictionary<int, UpdateField> updates)
+    private const int EquipmentSlots = 19;
+
+    private static bool AnyEquipmentSlotChanged(BitArray updateMaskArray, int invSlotHead)
+    {
+        for (int slot = 0; slot < EquipmentSlots; slot++)
+            if (updateMaskArray[invSlotHead + slot * 2])
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// The average level of what the player wears, the way the server's dungeon finder works it
+    /// out (<see cref="AverageItemLevel"/>). No legacy server sends one, so the character sheet
+    /// read 0 / 0. The overall average would count better items in the bags too, which needs to
+    /// know what the player can wear; it is given the equipped one.
+    /// </summary>
+    private void SetAverageItemLevel(WowGuid128 guid, Dictionary<int, UpdateField> updates, int invSlotHead, ObjectUpdate updateData)
+    {
+        GameSessionData state = GetSession().GameState;
+        Span<(InventoryType Type, uint Level)> worn = stackalloc (InventoryType, uint)[EquipmentSlots];
+        int count = 0;
+        for (int slot = 0; slot < EquipmentSlots; slot++)
+        {
+            WowGuid128 item = GetSlotGuidValue(updates, invSlotHead + slot * 2);
+            if (!item.IsEmpty() && GameData.TryGetItemLevel(state.GetItemId(item), out var type, out uint level))
+                worn[count++] = (type, level);
+        }
+
+        float average = AverageItemLevel.OfEquipped(state.GetUnitClass(guid), worn[..count]);
+        float?[] slots = updateData.EnsurePlayerData().AvgItemLevel;
+        slots[0] = average;
+        slots[1] = average;
+        slots[2] = average;
+    }
+
+    public QuestLog? ReadQuestLogEntry(int i, BitArray? updateMaskArray, Dictionary<int, UpdateField> updates, bool isActivePlayer)
     {
         int PLAYER_QUEST_LOG_1_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_QUEST_LOG_1_1);
         // Quest log slot stride is backend-version dependent (verified against the
@@ -2196,6 +2303,24 @@ public partial class WorldClient
         QuestLog? questLog = null;
 
         int index = PLAYER_QUEST_LOG_1_1 + i * sizePerEntry;
+        // Everything the session keeps per slot below (the QuestID cache, the remembered
+        // counters, the bag recount) is the active player's. A party member's quest log reaches
+        // us too, all 25 slots of it when they join, and writing it into those caches put their
+        // quest into our own slot at the next update that left the id out. Another player's slot
+        // is read whole from that player's own field cache instead, which holds every field the
+        // server has sent for it.
+        if (!isActivePlayer)
+        {
+            if (updateMaskArray != null)
+            {
+                bool touched = false;
+                for (int field = index; field < index + sizePerEntry && !touched; field++)
+                    touched = updateMaskArray[field];
+                if (!touched)
+                    return null;
+            }
+            updateMaskArray = null;
+        }
         if ((updateMaskArray != null && updateMaskArray[index]) ||
             (updateMaskArray == null && updates.ContainsKey(index)))
         {
@@ -2212,7 +2337,7 @@ public partial class WorldClient
             // quest moved in", drops the cached counters the very next update needs and
             // the client is told every objective is 0.
             int previousId = GetSession().GameState.QuestLogQuestIDs[i];
-            if (questLog.QuestID.Value != 0)
+            if (isActivePlayer && questLog.QuestID.Value != 0)
             {
                 GetSession().GameState.QuestLogQuestIDs[i] = questLog.QuestID.Value;
                 if (previousId != questLog.QuestID.Value)
@@ -2285,6 +2410,9 @@ public partial class WorldClient
 
             questLog.EndTime = updates[index + timerOffset].UInt32Value;
         }
+
+        if (!isActivePlayer)
+            return questLog;
 
         // Cache fallback: if this update touched the slot but QuestID wasn't
         // marked dirty (TC commonly sends state/progress-only updates), populate
@@ -2556,7 +2684,9 @@ public partial class WorldClient
 
     private void AfterStoreObjectUpdateHook(WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate? powerUpdate, bool isCreate, ObjectUpdate updateData, BitArray changedValuesMask)
     {
-        if (objectType == ObjectType.Player || objectType == ObjectType.ActivePlayer)
+        // A 4.3.4 server sends the collision height itself (SMSG_MOVE_SET_COLLISION_HEIGHT, and
+        // SMSG_MOVE_UPDATE_COLLISION_HEIGHT once the client acks); one made here would come twice.
+        if ((objectType == ObjectType.Player || objectType == ObjectType.ActivePlayer) && !IsCataLegacy)
         {
             int UNIT_FIELD_NATIVEDISPLAYID = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_NATIVEDISPLAYID);
             int UNIT_FIELD_MOUNTDISPLAYID = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_MOUNTDISPLAYID);
@@ -2638,6 +2768,12 @@ public partial class WorldClient
     {
         var gameState = GetSession().GameState;
         if (ModernVersion.ExpansionVersion <= 1 || gameState.CurrentPlayerGuid.IsEmpty())
+            return;
+
+        // A 4.3.4 server sends its currencies itself (HandleSetupCurrency). The list built here,
+        // from fields and items that server does not have, comes out empty, and an empty list sent
+        // after the server's clears the client's currency tab.
+        if (IsCataLegacy)
             return;
 
         var snapshot = new Dictionary<uint, uint>();
@@ -2731,6 +2867,17 @@ public partial class WorldClient
 
     private void StoreObjectUpdateInternal(ref WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate? powerUpdate, bool isCreate, ObjectUpdate updateData)
     {
+        // The create goes out now, with whatever name is known; an unknown one is asked for here
+        // and follows as a change (HandleQueryPlayerNameResponse).
+        if (isCreate && ModernVersion.PlayerObjectCarriesName && objectType == ObjectType.Player
+            && guid != GetSession().GameState.CurrentPlayerGuid
+            && GetSession().GameState.GetPlayerName(guid).Length == 0)
+        {
+            WorldPacket nameQuery = new WorldPacket(Opcode.CMSG_NAME_QUERY);
+            nameQuery.WriteGuid(guid.To64());
+            SendPacketToServer(nameQuery);
+        }
+
         // Object Fields
         int OBJECT_FIELD_GUID = LegacyVersion.GetUpdateField(ObjectField.OBJECT_FIELD_GUID);
         if (OBJECT_FIELD_GUID >= 0 && updateMaskArray[OBJECT_FIELD_GUID])
@@ -2918,6 +3065,30 @@ public partial class WorldClient
                     updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop4] = ReadEnchantData(Enums.TBC.EnchantmentSlot.Prop4);
 
                 }
+                else if (IsCataLegacy)
+                {
+                    // Read the WotLK way, a 4.3.4 item's engineering, reforge and transmogrification
+                    // landed in the random-property slots and its random properties after them.
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Perm] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Perm);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Temp] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Temp);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Sock1] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Sock1);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Sock2] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Sock2);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Sock3] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Sock3);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Bonus] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Bonus);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prismatic] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prismatic);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Use] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Engineering);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop0] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop0);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop1] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop1);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop2] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop2);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop3] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop3);
+                    updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Prop4] = ReadEnchantData(Enums.Cata.EnchantmentSlot.Prop4);
+                    // The reforge and the transmogrification are no enchantments on the 4.4.2 client
+                    // but item modifiers.
+                    if (ReadEnchantData(Enums.Cata.EnchantmentSlot.Reforge) is { ID: int reforge })
+                        updateData.ItemData.Reforge = (uint)reforge;
+                    if (ReadEnchantData(Enums.Cata.EnchantmentSlot.Transmogrify) is { ID: int transmog })
+                        updateData.ItemData.TransmogEntry = (uint)transmog;
+                }
                 else
                 {
                     updateData.ItemData.Enchantment[Enums.Classic.EnchantmentSlot.Perm] = ReadEnchantData(Enums.WotLK.EnchantmentSlot.Perm);
@@ -2974,6 +3145,12 @@ public partial class WorldClient
             if (ITEM_FIELD_MAXDURABILITY >= 0 && updateMaskArray[ITEM_FIELD_MAXDURABILITY])
             {
                 updateData.ItemData.MaxDurability = updates[ITEM_FIELD_MAXDURABILITY].UInt32Value;
+            }
+            // the character's played time when the item was made: what a refund's two hours are counted from
+            int ITEM_FIELD_CREATE_PLAYED_TIME = LegacyVersion.GetUpdateField(ItemField.ITEM_FIELD_CREATE_PLAYED_TIME);
+            if (ITEM_FIELD_CREATE_PLAYED_TIME >= 0 && updateMaskArray[ITEM_FIELD_CREATE_PLAYED_TIME])
+            {
+                updateData.ItemData.CreatePlayedTime = updates[ITEM_FIELD_CREATE_PLAYED_TIME].UInt32Value;
             }
         }
 
@@ -3121,13 +3298,17 @@ public partial class WorldClient
                 {
                     if (updateMaskArray[UNIT_FIELD_POWER1 + i])
                     {
+                        PowerType power = IsCataLegacy ? LegacyPowerTypeAt(guid, updateData, i) : (PowerType)i;
+                        if (power == PowerType.Invalid)
+                            continue;
+
                         if (powerUpdate != null &&
                            (guid == GetSession().GameState.CurrentPlayerGuid || guid == GetSession().GameState.CurrentPetGuid))
-                            powerUpdate.Powers.Add(new PowerUpdatePower(updates[UNIT_FIELD_POWER1 + i].Int32Value, (byte)i));
+                            powerUpdate.Powers.Add(new PowerUpdatePower(updates[UNIT_FIELD_POWER1 + i].Int32Value, (byte)ClassPowerTypes.ToModernPowerType(power)));
 
                         sbyte powerSlot;
                         if (GetSession().GameState.HunterPetGuids.Contains(guid))
-                            powerSlot = ClassPowerTypes.GetPowerSlotForPet((PowerType)i);
+                            powerSlot = ClassPowerTypes.GetPowerSlotForPet(power);
                         else
                         {
                             Class classId;
@@ -3135,7 +3316,7 @@ public partial class WorldClient
                                 classId = (Class)updateData.UnitData.ClassId;
                             else
                                 classId = GetSession().GameState.GetUnitClass(guid.To128(GetSession().GameState));
-                            powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, (PowerType)i);
+                            powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, power);
                         }
                             
                         if (powerSlot >= 0)
@@ -3150,6 +3331,10 @@ public partial class WorldClient
                 {
                     if (updateMaskArray[UNIT_FIELD_MAXPOWER1 + i])
                     {
+                        PowerType power = IsCataLegacy ? LegacyPowerTypeAt(guid, updateData, i) : (PowerType)i;
+                        if (power == PowerType.Invalid)
+                            continue;
+
                         Class classId;
                         if (updateData.UnitData.ClassId != null)
                             classId = (Class)updateData.UnitData.ClassId;
@@ -3158,14 +3343,14 @@ public partial class WorldClient
 
                         sbyte powerSlot;
                         if (GetSession().GameState.HunterPetGuids.Contains(guid))
-                            powerSlot = ClassPowerTypes.GetPowerSlotForPet((PowerType)i);
+                            powerSlot = ClassPowerTypes.GetPowerSlotForPet(power);
                         else
-                            powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, (PowerType)i);
+                            powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, power);
 
                         if (powerSlot >= 0)
                             updateData.UnitData.EnsureMaxPower()[powerSlot] = updates[UNIT_FIELD_MAXPOWER1 + i].Int32Value;
 
-                        if (i == (byte)PowerType.Energy)
+                        if (power == PowerType.Energy)
                         {
                             powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, PowerType.ComboPoints);
                             if (powerSlot >= 0)
@@ -3174,6 +3359,8 @@ public partial class WorldClient
                     }
                 }
             }
+            if (IsCataLegacy)
+                CopyPowerRegenModifiersCata(guid, updateData, updateMaskArray, updates);
             int UNIT_VIRTUAL_ITEM_SLOT_DISPLAY = LegacyVersion.GetUpdateField(UnitField.UNIT_VIRTUAL_ITEM_SLOT_DISPLAY);
             if (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY >= 0)
             {
@@ -3403,6 +3590,12 @@ public partial class WorldClient
             {
                 updateData.UnitData.ModCastSpeed = updates[UNIT_MOD_CAST_SPEED].FloatValue;
             }
+            // 4.3.4's spell haste multiplier; the 4.4.2 client's spell haste percentage comes from it.
+            int UNIT_MOD_CAST_HASTE = IsCataLegacy ? LegacyVersion.GetUpdateField(UnitField.UNIT_MOD_CAST_HASTE) : -1;
+            if (UNIT_MOD_CAST_HASTE >= 0 && updateMaskArray[UNIT_MOD_CAST_HASTE])
+            {
+                updateData.UnitData.ModCastHaste = updates[UNIT_MOD_CAST_HASTE].FloatValue;
+            }
             int UNIT_CREATED_BY_SPELL = LegacyVersion.GetUpdateField(UnitField.UNIT_CREATED_BY_SPELL);
             if (UNIT_CREATED_BY_SPELL >= 0 && updateMaskArray[UNIT_CREATED_BY_SPELL])
             {
@@ -3434,7 +3627,22 @@ public partial class WorldClient
                 }
                 else
                 {
-                    updateData.UnitData.EnsureNpcFlags()[0] = updates[UNIT_NPC_FLAGS].UInt32Value;
+                    uint npcFlags = updates[UNIT_NPC_FLAGS].UInt32Value;
+                    // TrinityCore 4.3.4 UNIT_NPC_FLAG_REFORGER. The 4.4.2 client reads the bit as another
+                    // flag and opens the forge only when told to, after a gossip hello (NpcSystem).
+                    if (IsCataLegacy && (npcFlags & CataNpcFlagReforger) != 0)
+                    {
+                        npcFlags = (npcFlags & ~CataNpcFlagReforger) | (uint)NPCFlags.Gossip;
+                        GetSession().GameState.GossipInteractions[guid] = PlayerInteractionType.ForgeMaster;
+                    }
+                    // The transmogrifier's bit means the same to both, but the 4.4.2 client opens its
+                    // wardrobe the same way, from a gossip hello answered with the window.
+                    else if (IsCataLegacy && (npcFlags & CataNpcFlagTransmogrifier) != 0)
+                    {
+                        npcFlags |= (uint)NPCFlags.Gossip;
+                        GetSession().GameState.GossipInteractions[guid] = PlayerInteractionType.Transmogrifier;
+                    }
+                    updateData.UnitData.EnsureNpcFlags()[0] = npcFlags;
                 }
             }
             int UNIT_NPC_EMOTESTATE = LegacyVersion.GetUpdateField(UnitField.UNIT_NPC_EMOTESTATE);
@@ -3568,6 +3776,27 @@ public partial class WorldClient
                 updateData.UnitData.RangedAttackPowerModPos = (short)rapMods;
                 updateData.UnitData.RangedAttackPowerModNeg = (short)(rapMods >> 16);
             }
+            if (IsCataLegacy)
+            {
+                // 4.3.4 has a field each for what buffs add and debuffs take, the latter as a
+                // positive amount (TrinityCore 4.3.4 UpdateAttackPowerAndDamage). The 4.4.2 client
+                // adds both mods to the base, so that one goes in negative.
+                int AP_MOD_POS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_ATTACK_POWER_MOD_POS);
+                if (AP_MOD_POS >= 0 && updateMaskArray[AP_MOD_POS])
+                    updateData.UnitData.AttackPowerModPos = updates[AP_MOD_POS].Int32Value;
+                int AP_MOD_NEG = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_ATTACK_POWER_MOD_NEG);
+                if (AP_MOD_NEG >= 0 && updateMaskArray[AP_MOD_NEG])
+                    updateData.UnitData.AttackPowerModNeg = -updates[AP_MOD_NEG].Int32Value;
+                int AP_MULTIPLIER = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_ATTACK_POWER_MULTIPLIER);
+                if (AP_MULTIPLIER >= 0 && updateMaskArray[AP_MULTIPLIER])
+                    updateData.UnitData.AttackPowerMultiplier = updates[AP_MULTIPLIER].FloatValue;
+                int RAP_MOD_POS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_RANGED_ATTACK_POWER_MOD_POS);
+                if (RAP_MOD_POS >= 0 && updateMaskArray[RAP_MOD_POS])
+                    updateData.UnitData.RangedAttackPowerModPos = updates[RAP_MOD_POS].Int32Value;
+                int RAP_MOD_NEG = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_RANGED_ATTACK_POWER_MOD_NEG);
+                if (RAP_MOD_NEG >= 0 && updateMaskArray[RAP_MOD_NEG])
+                    updateData.UnitData.RangedAttackPowerModNeg = -updates[RAP_MOD_NEG].Int32Value;
+            }
             int UNIT_FIELD_RANGED_ATTACK_POWER_MULTIPLIER = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_RANGED_ATTACK_POWER_MULTIPLIER);
             if (UNIT_FIELD_RANGED_ATTACK_POWER_MULTIPLIER >= 0 && updateMaskArray[UNIT_FIELD_RANGED_ATTACK_POWER_MULTIPLIER])
             {
@@ -3685,17 +3914,43 @@ public partial class WorldClient
             if (updateData.Guid == GetSession().GameState.CurrentPlayerGuid)
                 HermesProxy.World.Server.CollectionSync.StampSummonedBattlePet(updateData, GetSession().GameState);
 
+            bool guildSent = false;
             int PLAYER_GUILDID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILDID);
             if (PLAYER_GUILDID >= 0 && updateMaskArray[PLAYER_GUILDID])
             {
                 GetSession().GameState.StorePlayerGuildId(guid, updates[PLAYER_GUILDID].UInt32Value);
                 updateData.UnitData.GuildGUID = WowGuid128.CreateGuildOrEmpty(updates[PLAYER_GUILDID].UInt32Value);
+                guildSent = true;
             }
+            // 4.3.4 has no PLAYER_GUILDID. A player's guild is the object's DATA field, a whole
+            // guild GUID whose low half is the guild id (TrinityCore 4.3.4 Player::SetInGuild),
+            // and the guild's level is a field of its own.
+            if (IsCataLegacy)
+            {
+                int OBJECT_FIELD_DATA = LegacyVersion.GetUpdateField(ObjectField.OBJECT_FIELD_DATA);
+                if (OBJECT_FIELD_DATA >= 0 && updateMaskArray[OBJECT_FIELD_DATA])
+                {
+                    uint guildId = updates[OBJECT_FIELD_DATA].UInt32Value;
+                    GetSession().GameState.StorePlayerGuildId(guid, guildId);
+                    updateData.UnitData.GuildGUID = WowGuid128.CreateGuildOrEmpty(guildId);
+                    guildSent = true;
+                }
+                int PLAYER_GUILDLEVEL = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILDLEVEL);
+                if (PLAYER_GUILDLEVEL >= 0 && updateMaskArray[PLAYER_GUILDLEVEL])
+                    updateData.EnsurePlayerData().GuildLevel = updates[PLAYER_GUILDLEVEL].Int32Value;
+            }
+            // Joining, leaving or a guild being disbanded reaches the player's guild club here.
+            if (guildSent && guid == GetSession().GameState.CurrentPlayerGuid)
+                GetSession().GameState.GuildClub.Sync();
             int PLAYER_GUILDRANK = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILDRANK);
             if (PLAYER_GUILDRANK >= 0 && updateMaskArray[PLAYER_GUILDRANK])
             {
-                updateData.EnsurePlayerData().GuildLevel = 25;
+                // the older servers have no guild levels; 4.3.4 sends the real one above
+                if (!IsCataLegacy)
+                    updateData.EnsurePlayerData().GuildLevel = 25;
                 updateData.EnsurePlayerData().GuildRankID = updates[PLAYER_GUILDRANK].UInt32Value;
+                if (guid == GetSession().GameState.CurrentPlayerGuid)
+                    GetSession().GameState.GuildClub.OwnRankReceived((int)updates[PLAYER_GUILDRANK].UInt32Value);
             }
             int PLAYER_GUILD_TIMESTAMP = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILD_TIMESTAMP);
             if (PLAYER_GUILD_TIMESTAMP >= 0 && updateMaskArray[PLAYER_GUILD_TIMESTAMP])
@@ -3712,12 +3967,13 @@ public partial class WorldClient
                 // and 13,318 strings in a four-minute session, all of it discarded when
                 // Trace was off.
                 int questsCount = LegacyVersion.GetQuestLogSize();
+                bool isActivePlayer = guid == GetSession().GameState.CurrentPlayerGuid;
                 for (int i = 0; i < questsCount; i++)
                 {
                     // Only a slot the update carries materialises the array. Storing null into a
                     // fresh one changed nothing a reader can see, but it allocated the whole log
                     // for every player update in view, quest fields or not.
-                    QuestLog? entry = ReadQuestLogEntry(i, updateMaskArray, updates);
+                    QuestLog? entry = ReadQuestLogEntry(i, updateMaskArray, updates, isActivePlayer);
                     if (entry != null)
                         updateData.EnsurePlayerData().EnsureQuestLog()[i] = entry;
                 }
@@ -3786,6 +4042,10 @@ public partial class WorldClient
                                 _melUpdateValues, i, slotGuid.Low, slotGuid.High);
                     }
                 }
+                if (ModernVersion.PlayerObjectCarriesAverageItemLevel &&
+                    guid == GetSession().GameState.CurrentPlayerGuid &&
+                    (isCreate || AnyEquipmentSlotChanged(updateMaskArray, PLAYER_FIELD_INV_SLOT_HEAD)))
+                    SetAverageItemLevel(guid, updates, PLAYER_FIELD_INV_SLOT_HEAD, updateData);
             }
             int PLAYER_FIELD_PACK_SLOT_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_PACK_SLOT_1);
             if (PLAYER_FIELD_PACK_SLOT_1 >= 0)
@@ -3892,9 +4152,11 @@ public partial class WorldClient
                 var cached = GetSession().GameState.GetCachedObjectFieldsLegacy(guid.To128(GetSession().GameState));
                 if (cached != null)
                 {
+                    // A field that is 0 was never sent, so it is not in the cache either: a character
+                    // with the first skin, face and hair of its race has no PLAYER_BYTES at all.
                     if (skin == null && PLAYER_BYTES >= 0)
                     {
-                        uint bytes = cached[PLAYER_BYTES].UInt32Value;
+                        uint bytes = cached.TryGetValue(PLAYER_BYTES, out var bytesField) ? bytesField.UInt32Value : 0;
                         skin = (byte)(bytes & 0xFF);
                         face = (byte)((bytes >> 8) & 0xFF);
                         hairStyle = (byte)((bytes >> 16) & 0xFF);
@@ -3902,7 +4164,7 @@ public partial class WorldClient
                     }
                     else if (facialHair == null && PLAYER_BYTES_2 >= 0)
                     {
-                        facialHair = (byte)(cached[PLAYER_BYTES_2].UInt32Value & 0xFF);
+                        facialHair = (byte)((cached.TryGetValue(PLAYER_BYTES_2, out var bytes2Field) ? bytes2Field.UInt32Value : 0) & 0xFF);
                     }
                 }
             }
@@ -4042,6 +4304,77 @@ public partial class WorldClient
                     }
                 }
             }
+            // TrinityCore 4.3.4 keeps a skill in six arrays, two 16-bit slots to a field
+            // (Player::SetSkill), where earlier servers keep three fields per skill. Left unread,
+            // the 4.4.2 client had a profession's spells and no skill to go with them, and its
+            // GetProfessionInfo indexed the skill list with the "not found" it got back: a crash
+            // on opening the spellbook, and at every login once the character had a profession.
+            int PLAYER_SKILL_LINEID_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_LINEID_0);
+            if (PLAYER_SKILL_LINEID_0 >= 0)
+            {
+                int PLAYER_SKILL_STEP_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_STEP_0);
+                int PLAYER_SKILL_RANK_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_RANK_0);
+                int PLAYER_SKILL_MAX_RANK_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_MAX_RANK_0);
+                int PLAYER_SKILL_MODIFIER_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_MODIFIER_0);
+                int PLAYER_SKILL_TALENT_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_SKILL_TALENT_0);
+
+                for (int field = 0; field < 64; field++)
+                {
+                    int slot = field * 2;
+                    if (updateMaskArray[PLAYER_SKILL_LINEID_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_LINEID_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillLineID[slot] = (ushort)(value & 0xFFFF);
+                        skill.SkillLineID[slot + 1] = (ushort)(value >> 16);
+                    }
+                    if (updateMaskArray[PLAYER_SKILL_STEP_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_STEP_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillStep[slot] = (ushort)(value & 0xFFFF);
+                        skill.SkillStep[slot + 1] = (ushort)(value >> 16);
+                    }
+                    if (updateMaskArray[PLAYER_SKILL_RANK_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_RANK_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillRank[slot] = (ushort)(value & 0xFFFF);
+                        skill.SkillRank[slot + 1] = (ushort)(value >> 16);
+                    }
+                    if (updateMaskArray[PLAYER_SKILL_MAX_RANK_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_MAX_RANK_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillMaxRank[slot] = (ushort)(value & 0xFFFF);
+                        skill.SkillMaxRank[slot + 1] = (ushort)(value >> 16);
+                    }
+                    if (updateMaskArray[PLAYER_SKILL_MODIFIER_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_MODIFIER_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillTempBonus[slot] = (short)(value & 0xFFFF);
+                        skill.SkillTempBonus[slot + 1] = (short)(value >> 16);
+                    }
+                    if (updateMaskArray[PLAYER_SKILL_TALENT_0 + field])
+                    {
+                        uint value = updates[PLAYER_SKILL_TALENT_0 + field].UInt32Value;
+                        SkillInfo skill = updateData.EnsureActivePlayerData().EnsureSkill();
+                        skill.SkillPermBonus[slot] = (ushort)(value & 0xFFFF);
+                        skill.SkillPermBonus[slot + 1] = (ushort)(value >> 16);
+                    }
+                }
+            }
+            // The two primary professions, by skill line. Only 4.x servers have the field.
+            int PLAYER_PROFESSION_SKILL_LINE_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_PROFESSION_SKILL_LINE_1);
+            if (PLAYER_PROFESSION_SKILL_LINE_1 >= 0)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    if (updateMaskArray[PLAYER_PROFESSION_SKILL_LINE_1 + i])
+                        updateData.EnsureActivePlayerData().ProfessionSkillLine[i] = updates[PLAYER_PROFESSION_SKILL_LINE_1 + i].Int32Value;
+                }
+            }
             int PLAYER_CHARACTER_POINTS1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_CHARACTER_POINTS1);
             if (PLAYER_CHARACTER_POINTS1 >= 0 && updateMaskArray[PLAYER_CHARACTER_POINTS1])
             {
@@ -4054,10 +4387,43 @@ public partial class WorldClient
             int PLAYER_GLYPHS_ENABLED = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GLYPHS_ENABLED);
             if (PLAYER_GLYPHS_ENABLED >= 0 && updateMaskArray[PLAYER_GLYPHS_ENABLED])
             {
-                byte mask = (byte)(updates[PLAYER_GLYPHS_ENABLED].UInt32Value & 0xFF);
+                // nine bits from a 4.x server (0x100: the third prime slot, at 75)
+                ushort mask = (ushort)(updates[PLAYER_GLYPHS_ENABLED].UInt32Value & 0xFFFF);
                 GetSession().GameState.GlyphsEnabled = mask;
-                updateData.EnsureActivePlayerData().GlyphsEnabled = mask;
+                updateData.EnsureActivePlayerData().GlyphsEnabled = (byte)mask;
+                updateData.EnsureActivePlayerData().GlyphsEnabledWide = mask;
                 Log.Print(LogType.Network, $"[Glyphs] PLAYER_GLYPHS_ENABLED bitmask=0x{mask:X2}");
+            }
+            if (IsCataLegacy)
+            {
+                // 4.3.4 names the nine slots' fields as two arrays, PLAYER_FIELD_GLYPH_SLOTS_1 and
+                // PLAYER_FIELD_GLYPHS_1, both in the order of the GlyphSlot rows (21-26, then the
+                // prime ones 41-43), as the 4.4.2 client has them. Of the WotLK names below only
+                // the first of each exists on 4.3.4, the slot read here already.
+                int GLYPH_SLOTS = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_GLYPH_SLOTS_1);
+                int GLYPHS = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_GLYPHS_1);
+                var state = GetSession().GameState;
+                for (int gi = 0; gi < state.ActiveGlyphs.Length; gi++)
+                {
+                    if (GLYPHS >= 0 && updateMaskArray[GLYPHS + gi])
+                    {
+                        ushort glyphId = (ushort)(updates[GLYPHS + gi].UInt32Value & 0xFFFF);
+                        if (state.ActiveGlyphs[gi] != glyphId)
+                        {
+                            state.ActiveGlyphs[gi] = glyphId;
+                            state.ActiveGlyphsDirty = true;
+                        }
+                    }
+                    if (GLYPH_SLOTS >= 0 && updateMaskArray[GLYPH_SLOTS + gi])
+                    {
+                        uint slotId = updates[GLYPH_SLOTS + gi].UInt32Value;
+                        if (state.ActiveGlyphSlotIds[gi] != slotId)
+                        {
+                            state.ActiveGlyphSlotIds[gi] = slotId;
+                            state.ActiveGlyphsDirty = true;
+                        }
+                    }
+                }
             }
             // PLAYER_FIELD_GLYPHS_1..6 (uint32 each). Legacy server sends these as Values
             // updates on glyph apply/remove and on dual-spec switch. Without reading them,
@@ -4107,6 +4473,76 @@ public partial class WorldClient
                         GetSession().GameState.ActiveGlyphSlotIds[gi] = slotId;
                         GetSession().GameState.ActiveGlyphsDirty = true;
                         Log.Print(LogType.Network, $"[Glyphs] PLAYER_FIELD_GLYPH_SLOTS_{gi + 1} SlotID={slotId} (index {gi})");
+                    }
+                }
+            }
+            if (IsCataLegacy)
+            {
+                // 4.3.4 keeps melee, ranged and regeneration haste and the mastery in player fields;
+                // the 4.4.2 client has the haste multipliers in UnitData and the mastery in
+                // ActivePlayerData, and works its haste percentages out of them.
+                int MOD_HASTE = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_MOD_HASTE);
+                if (MOD_HASTE >= 0 && updateMaskArray[MOD_HASTE])
+                    updateData.UnitData.ModHaste = updates[MOD_HASTE].FloatValue;
+                int MOD_RANGED_HASTE = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_MOD_RANGED_HASTE);
+                if (MOD_RANGED_HASTE >= 0 && updateMaskArray[MOD_RANGED_HASTE])
+                    updateData.UnitData.ModRangedHaste = updates[MOD_RANGED_HASTE].FloatValue;
+                int MOD_HASTE_REGEN = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_MOD_HASTE_REGEN);
+                if (MOD_HASTE_REGEN >= 0 && updateMaskArray[MOD_HASTE_REGEN])
+                    updateData.UnitData.ModHasteRegen = updates[MOD_HASTE_REGEN].FloatValue;
+
+                // A rune's recharge rate, the share of its cooldown it regains a second: 4.3.4
+                // keeps one per rune type, haste included (0.1 unhasted). The 4.4.2 client adds the
+                // regeneration modifiers of the rune kind's power slot to its PowerType table's
+                // 0.1, so the rate goes there without that base. Without it a rune used in Unholy
+                // Presence showed ten seconds of cooldown where the server took 9.1.
+                int RUNE_REGEN_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_RUNE_REGEN_1);
+                if (RUNE_REGEN_1 >= 0)
+                {
+                    const float RuneBaseRegen = 0.1f;
+                    ReadOnlySpan<PowerType> runeKinds = [PowerType.RuneBlood, PowerType.RuneUnholy, PowerType.RuneFrost];
+                    for (int r = 0; r < runeKinds.Length; r++)
+                    {
+                        if (!updateMaskArray[RUNE_REGEN_1 + r])
+                            continue;
+                        Class runeClass = updateData.UnitData.ClassId != null
+                            ? (Class)updateData.UnitData.ClassId
+                            : GetSession().GameState.GetUnitClass(guid.To128(GetSession().GameState));
+                        sbyte slot = ClassPowerTypes.GetPowerSlotForClass(runeClass, runeKinds[r]);
+                        if (slot < 0)
+                            continue;
+                        float modifier = updates[RUNE_REGEN_1 + r].FloatValue - RuneBaseRegen;
+                        updateData.UnitData.EnsurePowerRegenFlatModifier()[slot] = modifier;
+                        updateData.UnitData.EnsurePowerRegenInterruptedFlatModifier()[slot] = modifier;
+                    }
+                }
+
+                int MASTERY = LegacyVersion.GetUpdateField(PlayerField.PLAYER_MASTERY);
+                if (MASTERY >= 0 && updateMaskArray[MASTERY])
+                    updateData.EnsureActivePlayerData().Mastery = updates[MASTERY].FloatValue;
+
+                // archaeology: the 4.4.2 client keeps both lists as arrays of their own
+                ReadTwoShortsInto(PlayerField.PLAYER_FIELD_RESEARCHING_1, GetSession().GameState.ResearchProjects);
+                ReadTwoShortsInto(PlayerField.PLAYER_FIELD_RESERACH_SITE_1, GetSession().GameState.ResearchSites);
+
+                void ReadTwoShortsInto(PlayerField field, ushort[] into)
+                {
+                    int first = LegacyVersion.GetUpdateField(field);
+                    if (first < 0)
+                        return;
+                    for (int f = 0; f < into.Length / 2; f++)
+                    {
+                        if (!updateMaskArray[first + f])
+                            continue;
+                        uint value = updates[first + f].UInt32Value;
+                        ushort low = (ushort)(value & 0xFFFF);
+                        ushort high = (ushort)(value >> 16);
+                        if (into[f * 2] != low || into[f * 2 + 1] != high)
+                        {
+                            into[f * 2] = low;
+                            into[f * 2 + 1] = high;
+                            GetSession().GameState.ResearchDirty = true;
+                        }
                     }
                 }
             }
@@ -4175,7 +4611,21 @@ public partial class WorldClient
                 updateData.EnsureActivePlayerData().ShieldBlock = updates[PLAYER_SHIELD_BLOCK].Int32Value;
             }
             int PLAYER_EXPLORED_ZONES_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_EXPLORED_ZONES_1);
-            if (PLAYER_EXPLORED_ZONES_1 >= 0)
+            if (PLAYER_EXPLORED_ZONES_1 >= 0 && IsCataLegacy)
+            {
+                // 4.3.4 has 156 fields. Each word is built from both of its halves, as the
+                // object holds them now: one half changing alone would otherwise zero the other.
+                for (int word = 0; word < CataExploredZoneFields / 2; word++)
+                {
+                    int low = PLAYER_EXPLORED_ZONES_1 + word * 2;
+                    if (!updateMaskArray[low] && !updateMaskArray[low + 1])
+                        continue;
+                    ulong lowBits = updates.TryGetValue(low, out var lowField) ? lowField.UInt32Value : 0u;
+                    ulong highBits = updates.TryGetValue(low + 1, out var highField) ? highField.UInt32Value : 0u;
+                    updateData.EnsureActivePlayerData().EnsureExploredZones()[word] = lowBits | (highBits << 32);
+                }
+            }
+            else if (PLAYER_EXPLORED_ZONES_1 >= 0)
             {
                 int maxZones = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ? 128 : 64;
                 for (int i = 0; i < maxZones; i++)
@@ -5076,6 +5526,8 @@ public partial class WorldClient
             {
                 updateData.DynamicObjectData.SpellID = updates[DYNAMICOBJECT_SPELLID].Int32Value;
                 updateData.DynamicObjectData.SpellXSpellVisualID = (int)GameData.GetSpellVisual((uint)updateData.DynamicObjectData.SpellID);
+                if (IsCataLegacy && updateData.CreateData?.MoveInfo is { } markerAt)
+                    NoteRaidMarker(updateData.DynamicObjectData.SpellID.Value, markerAt.Position);
             }
             int DYNAMICOBJECT_RADIUS = LegacyVersion.GetUpdateField(DynamicObjectField.DYNAMICOBJECT_RADIUS);
             if (DYNAMICOBJECT_RADIUS >= 0 && updateMaskArray[DYNAMICOBJECT_RADIUS])

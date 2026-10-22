@@ -31,6 +31,38 @@ public enum InstanceResetWarningType
     Expired        = 5
 }
 
+/// <summary>SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT's first field on a 3.3.5a server (AzerothCore InstanceScript.h).</summary>
+public enum EncounterFrameType : uint
+{
+    Engage           = 0,
+    Disengage        = 1,
+    UpdatePriority   = 2,
+    AddTimer         = 3,
+    EnableObjective  = 4,
+    UpdateObjective  = 5,
+    DisableObjective = 6,
+    RefreshFrames    = 7
+}
+
+/// <summary>
+/// The same field on a 4.3.4 server (TrinityCore 4.3.4 InstanceScript.h): the combat resurrection
+/// limit takes 0 and 1, which moves the 3.3.5a types up by two.
+/// </summary>
+public enum EncounterFrameTypeCata : uint
+{
+    SetCombatResLimit   = 0,
+    ResetCombatResLimit = 1,
+    Engage              = 2,
+    Disengage           = 3,
+    UpdatePriority      = 4,
+    AddTimer            = 5,
+    EnableObjective     = 6,
+    UpdateObjective     = 7,
+    DisableObjective    = 8,
+    Unk7                = 9,
+    AddCombatResLimit   = 10
+}
+
 public enum DifficultyLegacy : byte
 {
     Normal = 0,

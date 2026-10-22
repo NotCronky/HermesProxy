@@ -18,6 +18,7 @@
 using Framework.Constants;
 using Framework.Cryptography;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using System;
 using System.Collections.Generic;
@@ -75,8 +76,7 @@ class AuthChallenge : ServerPacket, ISpanWritable
         _worldPacket.WriteUInt8(DosZeroBits);
     }
 
-    // Fixed size: DosChallenge(32) + Challenge(16) + byte(1) = 49
-    public int MaxSize => 32 + 16 + 1;
+    public int MaxSize => DosChallenge.Length + Challenge.Length + 1;
 
     public int WriteToSpan(Span<byte> buffer)
     {
@@ -87,7 +87,7 @@ class AuthChallenge : ServerPacket, ISpanWritable
         return writer.Position;
     }
 
-    public byte[] Challenge = new byte[16];
+    public byte[] Challenge = new byte[WorldHandshake.Current.ChallengeLength];
     public byte[] DosChallenge = new byte[32]; // Encryption seeds
     public byte DosZeroBits;
 }
@@ -103,7 +103,7 @@ class AuthSession : ClientPacket
         BattlegroupID = _worldPacket.ReadUInt32();
         RealmID = _worldPacket.ReadUInt32();
 
-        LocalChallenge = _worldPacket.ReadBytes(16);
+        LocalChallenge = _worldPacket.ReadBytes((uint)WorldHandshake.Current.ChallengeLength);
         Digest = _worldPacket.ReadBytes(24);
 
         UseIPv6 = _worldPacket.HasBit();
@@ -115,7 +115,7 @@ class AuthSession : ClientPacket
     public uint RegionID;
     public uint BattlegroupID;
     public uint RealmID;
-    public byte[] LocalChallenge = new byte[16];
+    public byte[] LocalChallenge = [];
     public byte[] Digest = new byte[24];
     public ulong DosResponse;
     public string RealmJoinTicket = string.Empty;
@@ -319,16 +319,12 @@ class WaitQueueUpdate : ServerPacket, ISpanWritable
         WaitInfo.Write(_worldPacket);
     }
 
-    // AuthWaitInfo: 2 uints(8) + 1 bit(1) = 9 bytes
-    public int MaxSize => 9;
+    public int MaxSize => AuthWaitInfo.MaxSize;
 
     public int WriteToSpan(Span<byte> buffer)
     {
         var writer = new SpanPacketWriter(buffer);
-        writer.WriteUInt32(WaitInfo.WaitCount);
-        writer.WriteUInt32(WaitInfo.WaitTime);
-        writer.WriteBit(WaitInfo.HasFCM);
-        writer.FlushBits();
+        WaitInfo.Write(ref writer);
         return writer.Position;
     }
 
@@ -425,13 +421,13 @@ class AuthContinuedSession : ClientPacket
     {
         DosResponse = _worldPacket.ReadUInt64();
         Key = _worldPacket.ReadUInt64();
-        LocalChallenge = _worldPacket.ReadBytes(16);
+        LocalChallenge = _worldPacket.ReadBytes((uint)WorldHandshake.Current.ChallengeLength);
         Digest = _worldPacket.ReadBytes(24);
     }
 
     public ulong DosResponse;
     public ulong Key;
-    public byte[] LocalChallenge = new byte[16];
+    public byte[] LocalChallenge = [];
     public byte[] Digest = new byte[24];
 }
 
@@ -465,10 +461,9 @@ class EnterEncryptedMode : ServerPacket
     byte[] EncryptionKey;
     bool Enabled;
 
-    // The HMAC input seed has always been these 16 bytes. Retail/TBC-Classic/Era (<= 2.5.x)
-    // signs the HMAC output with the server's RSA private key; the client verifies with
-    // the baked-in RSA public key and the client-embedded `EnableEncryptionSeed`.
-    static readonly byte[] EnableEncryptionSeed = { 0x90, 0x9C, 0xD0, 0x50, 0x5A, 0x2C, 0x14, 0xDD, 0x5C, 0x2C, 0xC0, 0x64, 0x14, 0xF3, 0xFE, 0xC9 };
+    // What is signed is an HMAC of the key (WorldHandshake.EnterEncryptedModeDigest). Retail/
+    // TBC-Classic/Era (<= 2.5.x) signs it with the server's RSA private key; the client verifies
+    // with the baked-in RSA public key.
 
     // WotLK Classic 3.4.3+ replaced the RSA signature with Ed25519ctx (RFC 8032) using a
     // fixed context string. Private key and context are Blizzard constants; the client has
@@ -492,11 +487,7 @@ class EnterEncryptedMode : ServerPacket
 
     public override void Write()
     {
-        // Both paths start with HMAC-SHA256(EncryptionKey) over [Enabled] || EnableEncryptionSeed.
-        HmacSha256 hash = new(EncryptionKey);
-        hash.Process(BitConverter.GetBytes(Enabled), 1);
-        hash.Finish(EnableEncryptionSeed, 16);
-        byte[] toSign = hash.Digest!;
+        byte[] toSign = WorldHandshake.Current.EnterEncryptedModeDigest(EncryptionKey, Enabled);
 
         if (ModernVersion.ExpansionVersion >= 3)
             WriteEd25519(toSign);
@@ -523,14 +514,53 @@ class EnterEncryptedMode : ServerPacket
 }
 
 //Structs
-public class AuthWaitInfo
+public sealed class AuthWaitInfo
 {
-    public void Write(WorldPacket data)
+    /// <summary>
+    /// 4.4.2 (TrinityCore cata_classic, and the client's reader) adds a uint32
+    /// AllowedFactionGroupForCharacterCreate after the wait time and a second bit,
+    /// CanCreateOnlyIfExisting. Without them a queued login read its flag bit four bytes early.
+    /// </summary>
+    internal sealed class Shape(bool factionGroup)
+    {
+        public bool FactionGroup { get; } = factionGroup;
+    }
+
+    internal static readonly ServerPacketLayouts<Shape> Shapes = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new Shape(factionGroup: false)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new Shape(factionGroup: true)));
+
+    private static readonly Shape Running = Shapes.ForRunningClient();
+
+    // 3 uints(12) + 1 byte of bits, from 4.4.2
+    internal const int MaxSize = 13;
+
+    public void Write(WorldPacket data) => Write(data, Running);
+
+    internal void Write(WorldPacket data, Shape shape)
     {
         data.WriteUInt32(WaitCount);
         data.WriteUInt32(WaitTime);
+        if (shape.FactionGroup)
+            data.WriteUInt32(0);
         data.WriteBit(HasFCM);
+        if (shape.FactionGroup)
+            data.WriteBit(false);
         data.FlushBits();
+    }
+
+    internal void Write(ref SpanPacketWriter writer) => Write(ref writer, Running);
+
+    internal void Write(ref SpanPacketWriter writer, Shape shape)
+    {
+        writer.WriteUInt32(WaitCount);
+        writer.WriteUInt32(WaitTime);
+        if (shape.FactionGroup)
+            writer.WriteUInt32(0);
+        writer.WriteBit(HasFCM);
+        if (shape.FactionGroup)
+            writer.WriteBit(false);
+        writer.FlushBits();
     }
 
     public uint WaitCount; // position of the account in the login queue

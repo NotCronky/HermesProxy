@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Framework.Constants;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 
@@ -50,7 +51,8 @@ public static class GenerateRandomCharacterNameRequestCodec
     }
 }
 
-public static class CreateCharacterCodec
+[PacketCodec(typeof(CreateCharacter), RemovedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class CreateCharacterCodecPreCataClassic
 {
     public static void Read(ref SpanPacketReader r, out CreateCharacter packet)
     {
@@ -64,6 +66,41 @@ public static class CreateCharacterCodec
         createInfo.ClassId = (Class)r.ReadUInt8();
         createInfo.Sex = (Gender)r.ReadUInt8();
         var customizationCount = r.ReadUInt32();
+
+        createInfo.Name = r.ReadString(nameLength);
+        if (hasTemplateSet)
+            createInfo.TemplateSet = r.ReadUInt32();
+
+        for (var i = 0; i < customizationCount; ++i)
+        {
+            createInfo.Customizations.Add(new ChrCustomizationChoice(r.ReadUInt32(), r.ReadUInt32()));
+        }
+
+        createInfo.Customizations.Sort();
+        packet = new CreateCharacter(createInfo);
+    }
+}
+
+// 4.4.2 (TrinityCore cata_classic, and the client's writer): a fourth flag bit, HardcoreSelfFound,
+// and TimerunningSeasonID after the customization count. Read with the 3.4.3 codec, the name came
+// out empty and race and class zero, and every character creation failed.
+[PacketCodec(typeof(CreateCharacter), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class CreateCharacterCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out CreateCharacter packet)
+    {
+        var createInfo = new CharacterCreateInfo();
+        uint nameLength = r.ReadBits<uint>(6);
+        bool hasTemplateSet = r.HasBit();
+        createInfo.IsTrialBoost = r.HasBit();
+        createInfo.UseNPE = r.HasBit();
+        r.HasBit();                                 // HardcoreSelfFound
+
+        createInfo.RaceId = (Race)r.ReadUInt8();
+        createInfo.ClassId = (Class)r.ReadUInt8();
+        createInfo.Sex = (Gender)r.ReadUInt8();
+        var customizationCount = r.ReadUInt32();
+        r.ReadInt32();                              // TimerunningSeasonID
 
         createInfo.Name = r.ReadString(nameLength);
         if (hasTemplateSet)
@@ -169,6 +206,7 @@ public static class SetTitleCodec
         => packet = new SetTitle(r.ReadInt32());
 }
 
+[PacketCodec(typeof(AlterAppearance), RemovedIn = ClientVersionBuild.V4_4_2_60895)]
 public static class AlterAppearanceCodec
 {
     public static void Read(ref SpanPacketReader r, out AlterAppearance packet)
@@ -177,6 +215,28 @@ public static class AlterAppearanceCodec
         var newSexId = (Gender)r.ReadUInt8();
         var customizedRace = (Race)r.ReadUInt32();
         uint customizedChrModelId = r.ReadUInt32();
+
+        var customizations = new List<ChrCustomizationChoice>(8);
+        for (var i = 0; i < customizationCount; ++i)
+            customizations.Add(new ChrCustomizationChoice(r.ReadUInt32(), r.ReadUInt32()));
+
+        customizations.Sort();
+        packet = new AlterAppearance(newSexId, customizedRace, customizedChrModelId, customizations);
+    }
+}
+
+// 4.4.2 (TrinityCore cata_classic, and the client's writer) adds UnalteredVisualRaceID before
+// the choices. Read the 3.4.3 way, every choice came out shifted by four bytes.
+[PacketCodec(typeof(AlterAppearance), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class AlterAppearanceCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out AlterAppearance packet)
+    {
+        var customizationCount = r.ReadUInt32();
+        var newSexId = (Gender)r.ReadUInt8();
+        var customizedRace = (Race)r.ReadUInt32();
+        uint customizedChrModelId = r.ReadUInt32();
+        r.ReadInt32();                          // UnalteredVisualRaceID
 
         var customizations = new List<ChrCustomizationChoice>(8);
         for (var i = 0; i < customizationCount; ++i)

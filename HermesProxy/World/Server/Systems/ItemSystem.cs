@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Logging;
@@ -31,18 +33,40 @@ public static class ItemSystem
     private static readonly Microsoft.Extensions.Logging.ILogger _melServerItem =
         Log.CreateMelLogger(Log.CategoryServer);
     private static readonly string _logSourceItem = "ItemHandler".PadRight(15);
+    private static readonly string _netDirSend = Log.FormatDir(LogNetDir.P2S);
 
     [HandlesCmsg(Opcode.CMSG_BUY_ITEM)]
     public static void HandleBuyItem(in BuyItem item, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_BUY_ITEM);
         packet.WriteGuid(item.VendorGUID.To64());
-        packet.WriteUInt32(item.Item.ItemID);
         uint quantity = item.Quantity / ctx.GetSession().GameState.GetItemBuyCount(item.Item.ItemID);
 
         ItemLogMessages.VendorBuyItemForward(_melServerItem, _logSourceItem,
             item.VendorGUID.Low, item.VendorGUID.High, item.Item.ItemID, quantity,
             item.Quantity, (uint)item.MuID, (uint)item.Slot, (uint)item.BagSlot, (uint)item.ItemType);
+
+        if (WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleBuyItemOpcode: the item-or-currency type first, and the bag
+            // as a GUID ahead of its slot. The vendor slot is the 1-based MuID. The target slot is
+            // the client's Slot, 255 for "anywhere": with no bag that pair is the only one the
+            // server auto-stores, and any other slot fails as a wrong slot.
+            // A currency is asked for by the client's id (1901 for honor) and in the amount it
+            // wants, which the server checks against the vendor entry by its own id and takes
+            // as a whole number of the entry's amount; the count of stacks fails as a wrong item.
+            bool currency = item.ItemType == ItemVendorType.Currency;
+            packet.WriteUInt8((byte)item.ItemType);
+            packet.WriteUInt32(currency ? WorldClient.CataCurrencyId(item.Item.ItemID) : item.Item.ItemID);
+            packet.WriteUInt32(item.MuID);
+            packet.WriteUInt32(currency ? item.Quantity : quantity);
+            packet.WriteGuid(item.ContainerGUID.To64());
+            packet.WriteUInt8((byte)item.Slot);
+            ctx.SendPacketToServer(packet);
+            return;
+        }
+
+        packet.WriteUInt32(item.Item.ItemID);
 
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_1_0_9767))
         {
@@ -161,9 +185,12 @@ public static class ItemSystem
         ctx.SendPacketToServer(packet);
     }
 
+    [HandlesCmsg(Opcode.CMSG_AUTOBANK_ITEM)]
+    public static void HandleAutoBankItem(in AutoBankItem item, in SessionContext ctx)
+        => HandleAutoEquipItem(Opcode.CMSG_AUTOBANK_ITEM, new AutoEquipItem(item.Inv, item.PackSlot, item.Slot), in ctx);
+
     [HandlesCmsg(Opcode.CMSG_AUTO_EQUIP_ITEM)]
     [HandlesCmsg(Opcode.CMSG_AUTOSTORE_BANK_ITEM)]
-    [HandlesCmsg(Opcode.CMSG_AUTOBANK_ITEM)]
     public static void HandleAutoEquipItem(Opcode opcode, in AutoEquipItem item, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(opcode);
@@ -276,6 +303,120 @@ public static class ItemSystem
         packet.WriteGuid(item.VendorGUID.To64());
         byte slot = ModernVersion.AdjustModernInventorySlotToLegacy((byte)item.Slot);
         packet.WriteUInt32(slot);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// What an item cost that can still be handed back: the client asks for every item in its bags
+    /// that carries the refundable flag. Refunds came with 3.0; an older server has no such request.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GET_ITEM_PURCHASE_DATA)]
+    public static void HandleGetItemPurchaseData(in GetItemPurchaseData request, in SessionContext ctx)
+    {
+        if (LegacyVersion.GetCurrentOpcode(Opcode.CMSG_GET_ITEM_PURCHASE_DATA) == 0)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GET_ITEM_PURCHASE_DATA);
+        packet.WriteGuid(request.ItemGUID.To64());
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>Handing an item back for what it cost.</summary>
+    [HandlesCmsg(Opcode.CMSG_ITEM_PURCHASE_REFUND)]
+    public static void HandleItemPurchaseRefund(in ItemPurchaseRefund request, in SessionContext ctx)
+    {
+        if (LegacyVersion.GetCurrentOpcode(Opcode.CMSG_ITEM_PURCHASE_REFUND) == 0)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_ITEM_PURCHASE_REFUND);
+        packet.WriteGuid(request.ItemGUID.To64());
+        ctx.SendPacketToServer(packet);
+    }
+
+    // TrinityCore 4.3.4 ReforgeItem::Read: the reforge row, the slot, the bag, then the reforger as a
+    // masked GUID. The server checks the NPC by its own reforger flag, so no gossip has to come first.
+    /// <summary>
+    /// The wardrobe's Apply. The 4.4.2 client names each slot's new look by appearance; a 4.3.4
+    /// server takes an item from the bags for it (TrinityCore 4.3.4 HandleTransmogrifyItems: the
+    /// source item's GUID and entry, the slot), so the appearance is turned back into a carried
+    /// item of that entry. An appearance of 0 puts the slot's own look back (entry 0, no item).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_TRANSMOGRIFY_ITEMS)]
+    public static void HandleTransmogrifyItems(in TransmogrifyItems request, in SessionContext ctx)
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var carried = ctx.GetSession().GameState.GetCarriedItems();
+        var slots = new List<(ulong Source, uint Entry, uint Slot)>(request.Items.Length);
+        foreach (var item in request.Items)
+        {
+            if (item.ItemModifiedAppearanceID == 0)
+            {
+                slots.Add((0, 0, item.Slot));
+                continue;
+            }
+
+            if (GameData.GetItemModifiedAppearance((uint)item.ItemModifiedAppearanceID) is not { } appearance)
+            {
+                WorldSocketLogMessages.TransmogrifySourceMissing(_melServerItem, _logSourceItem, _netDirSend, item.ItemModifiedAppearanceID, 0, item.Slot);
+                return;
+            }
+            ulong source = 0;
+            foreach (var (guid, entry, equipSlot) in carried)
+            {
+                if (entry == (uint)appearance.ItemID && equipSlot != (int)item.Slot)
+                {
+                    source = guid.Low;
+                    break;
+                }
+            }
+            if (source == 0)
+            {
+                WorldSocketLogMessages.TransmogrifySourceMissing(_melServerItem, _logSourceItem, _netDirSend, item.ItemModifiedAppearanceID, appearance.ItemID, item.Slot);
+                return;
+            }
+            slots.Add((source, (uint)appearance.ItemID, item.Slot));
+        }
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_TRANSMOGRIFY_ITEMS);
+        WriteLegacyTransmogrify(packet, request.Npc.To64().Low, slots);
+        ctx.SendPacketToServer(packet);
+    }
+
+    // TrinityCore 4.3.4 TransmogrifyItems::Read: the count in 22 bits, every source item's mask,
+    // the transmogrifier's, then per slot the source entry, its GUID's bytes and the slot, and the
+    // transmogrifier's bytes.
+    internal static void WriteLegacyTransmogrify(WorldPacket packet, ulong npc, List<(ulong Source, uint Entry, uint Slot)> slots)
+    {
+        packet.WriteBits((uint)slots.Count, 22);
+        foreach (var slot in slots)
+            MaskedGuid.WriteMaskBits(packet, slot.Source, [0, 5, 6, 2, 3, 7, 4, 1]);
+        MaskedGuid.WriteMaskBits(packet, npc, [7, 3, 5, 6, 1, 4, 0, 2]);
+        packet.FlushBits();
+        foreach (var slot in slots)
+        {
+            packet.WriteUInt32(slot.Entry);
+            MaskedGuid.WriteBytes(packet, slot.Source, [1, 5, 0, 4, 6, 7, 3, 2]);
+            packet.WriteUInt32(slot.Slot);
+        }
+        MaskedGuid.WriteBytes(packet, npc, [7, 2, 5, 4, 3, 1, 6, 0]);
+    }
+
+    [HandlesCmsg(Opcode.CMSG_REFORGE_ITEM)]
+    public static void HandleReforgeItem(in ReforgeItem reforge, in SessionContext ctx)
+    {
+        // The 4.4.2 client counts its backpack from slot 35, 4.3.4 from 23 (the ring in the 13th
+        // backpack slot came as 255/47 and was refused); a bag's own slots are the same on both.
+        byte container = (byte)reforge.ContainerId;
+        byte bag = container != Enums.Classic.InventorySlots.Bag0 ? ModernVersion.AdjustModernInventorySlotToLegacy(container) : container;
+        byte slot = container == Enums.Classic.InventorySlots.Bag0 ? ModernVersion.AdjustModernInventorySlotToLegacy((byte)reforge.SlotNum) : (byte)reforge.SlotNum;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_REFORGE_ITEM);
+        packet.WriteUInt32(reforge.ItemReforgeRecId);
+        packet.WriteUInt32(slot);
+        packet.WriteUInt32(bag);
+        MaskedGuid.Write(packet, reforge.ReforgerGUID.To64().Low, [2, 6, 3, 4, 1, 0, 7, 5], [2, 3, 6, 4, 1, 0, 7, 5]);
         ctx.SendPacketToServer(packet);
     }
 }

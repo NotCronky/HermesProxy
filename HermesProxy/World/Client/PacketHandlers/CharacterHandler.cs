@@ -38,12 +38,14 @@ public partial class WorldClient
 
         GetSession().GameState.OwnCharacters.Clear();
 
-        byte count = packet.ReadUInt8();
+        List<LegacyCharacterEntry> entries = IsCataLegacy ? ReadCharacterEntriesCata(packet) : ReadCharacterEntries(packet);
+        byte count = (byte)entries.Count;
         Log.Print(LogType.Network, $"[CharEnum] legacy count={count}");
         uint virtualRealmAddress = GetSession().Realm?.Id.GetAddress() ?? 0u;
         Log.Print(LogType.Trace, $"[Trace] HandleEnumCharactersResult: realm.GetAddress()=0x{virtualRealmAddress:X8} ({virtualRealmAddress})");
         for (byte i = 0; i < count; i++)
         {
+            LegacyCharacterEntry entry = entries[i];
             EnumCharactersResult.CharacterInfo char1 = new EnumCharactersResult.CharacterInfo();
             // Unique per-char slot. With ListPosition=0 for all chars, the V3_4_3 client
             // collapses multi-char enums into a single slot and renders nothing — confirmed
@@ -54,41 +56,35 @@ public partial class WorldClient
             char1.ListPosition = i;
             char1.VirtualRealmAddress = virtualRealmAddress;
             PlayerCache cache = new PlayerCache();
-            char1.Guid = packet.ReadGuid().To128(GetSession().GameState);
-            char1.Name = cache.Name = packet.ReadCString();
-            char1.RaceId = cache.RaceId = (Race)packet.ReadUInt8();
-            char1.ClassId = cache.ClassId = (Class)packet.ReadUInt8();
-            char1.SexId = cache.SexId = (Gender)packet.ReadUInt8();
+            char1.Guid = entry.Guid.To128(GetSession().GameState);
+            char1.GuildClubMemberID = GuildClub.MemberIdOf(char1.Guid);
+            char1.Name = cache.Name = entry.Name;
+            char1.RaceId = cache.RaceId = entry.Race;
+            char1.ClassId = cache.ClassId = entry.Class;
+            char1.SexId = cache.SexId = entry.Sex;
 
-            byte skin = packet.ReadUInt8();
-            byte face = packet.ReadUInt8();
-            byte hairStyle = packet.ReadUInt8();
-            byte hairColor = packet.ReadUInt8();
-            byte facialHair = packet.ReadUInt8();
-            char1.Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern((Race)char1.RaceId, (Gender)char1.SexId, skin, face, hairStyle, hairColor, facialHair);
+            char1.Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern((Race)char1.RaceId, (Gender)char1.SexId, entry.Skin, entry.Face, entry.HairStyle, entry.HairColor, entry.FacialHair);
 
-            char1.ExperienceLevel = cache.Level = packet.ReadUInt8();
+            char1.ExperienceLevel = cache.Level = entry.Level;
             if (char1.ExperienceLevel > charEnum.MaxCharacterLevel)
                 charEnum.MaxCharacterLevel = char1.ExperienceLevel;
 
             GetSession().GameState.UpdatePlayerCache(char1.Guid, cache);
 
-            char1.ZoneId = packet.ReadUInt32();
-            char1.MapId = packet.ReadUInt32();
-            char1.PreloadPos = packet.ReadVector3();
-            uint guildId = packet.ReadUInt32();
+            char1.ZoneId = entry.ZoneId;
+            char1.MapId = entry.MapId;
+            char1.PreloadPos = entry.PreloadPos;
+            uint guildId = entry.GuildId;
             GetSession().GameState.StorePlayerGuildId(char1.Guid, guildId);
             char1.GuildGuid = guildId != 0 ? WowGuid128.Create(HighGuidType703.Guild, guildId) : WowGuid128.Empty;
-            char1.Flags = (CharacterFlags)packet.ReadUInt32();
+            char1.Flags = entry.Flags;
             // Preserve Declined: legacy servers set it when declined names exist
             // OR the feature is disabled. Clearing it makes ruRU clients request
             // unnecessary name cases before entering the world.
 
-            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
-                char1.Flags2 = packet.ReadUInt32(); // Customization Flags
+            char1.Flags2 = entry.CustomizationFlags;
 
-            byte legacyFirstLogin = packet.ReadUInt8();
-            char1.FirstLogin = legacyFirstLogin != 0;
+            char1.FirstLogin = entry.FirstLogin;
 
             // V3_4_3 client validates ZoneId/MapId against the race's starting-zone DB
             // iff FirstLogin=true. Both cMangos (Map=0, Zone=0) and TC (Map=valid,
@@ -102,27 +98,15 @@ public partial class WorldClient
             {
                 ApplyStartingLocation(char1);
             }
-            char1.PetCreatureDisplayId = packet.ReadUInt32();
-            char1.PetExperienceLevel = packet.ReadUInt32();
-            char1.PetCreatureFamilyId = packet.ReadUInt32();
+            char1.PetCreatureDisplayId = entry.PetCreatureDisplayId;
+            char1.PetExperienceLevel = entry.PetExperienceLevel;
+            char1.PetCreatureFamilyId = entry.PetCreatureFamilyId;
 
-            for (int j = EquipmentSlot.Start; j < EquipmentSlot.End; j++)
+            for (int j = 0; j < entry.VisualItems.Length; j++)
             {
-                char1.VisualItems[j].DisplayId = packet.ReadUInt32();
-                char1.VisualItems[j].InvType = packet.ReadUInt8();
-
-                if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
-                    char1.VisualItems[j].DisplayEnchantId = packet.ReadUInt32();
-            }
-
-            int bagCount = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_3_11685) ? 4 : 1;
-            for (int j = 0; j < bagCount; j++)
-            {
-                char1.VisualItems[EquipmentSlot.Bag1 + j].DisplayId = packet.ReadUInt32();
-                char1.VisualItems[EquipmentSlot.Bag1 + j].InvType = packet.ReadUInt8();
-
-                if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
-                    char1.VisualItems[EquipmentSlot.Bag1 + j].DisplayEnchantId = packet.ReadUInt32();
+                char1.VisualItems[j].DisplayId = entry.VisualItems[j].DisplayId;
+                char1.VisualItems[j].InvType = entry.VisualItems[j].InvType;
+                char1.VisualItems[j].DisplayEnchantId = entry.VisualItems[j].DisplayEnchantId;
             }
 
             // Reset Flags2 — the legacy CustomizationFlags read above are not the same field as
@@ -164,6 +148,7 @@ public partial class WorldClient
                 ClassId = char1.ClassId,
                 SexId = char1.SexId,
                 Level = char1.ExperienceLevel,
+                MapId = char1.MapId,
             });
         }
 
@@ -180,6 +165,14 @@ public partial class WorldClient
         {
             charEnum.RaceUnlockData.Add(new EnumCharactersResult.RaceUnlock(10, true, false, false));
             charEnum.RaceUnlockData.Add(new EnumCharactersResult.RaceUnlock(11, true, false, false));
+        }
+        // Goblin and Worgen arrived with Cataclysm; without their unlock the 4.4.2 client greys out
+        // their icons on the creation screen.
+        if (ModernVersion.ExpansionVersion >= 4 &&
+            LegacyVersion.ExpansionVersion >= 4)
+        {
+            charEnum.RaceUnlockData.Add(new EnumCharactersResult.RaceUnlock(9, true, false, false));
+            charEnum.RaceUnlockData.Add(new EnumCharactersResult.RaceUnlock(22, true, false, false));
         }
         Log.Print(LogType.Trace,
             $"[Trace] HandleEnumCharactersResult: SEND — chars={charEnum.Characters.Count} maxLvl={charEnum.MaxCharacterLevel} " +
@@ -231,6 +224,199 @@ public partial class WorldClient
 
         SendPacketToClient(charEnum);
         Log.Print(LogType.Trace, "[Trace] HandleEnumCharactersResult: EXIT — translation complete, packet queued for modern client");
+    }
+
+    /// <summary>One character of a legacy SMSG_ENUM_CHARACTERS_RESULT, as the server sent it.</summary>
+    internal sealed class LegacyCharacterEntry
+    {
+        public WowGuid64 Guid;
+        public string Name = "";
+        public Race Race;
+        public Class Class;
+        public Gender Sex;
+        public byte Skin, Face, HairStyle, HairColor, FacialHair, Level;
+        public uint ZoneId, MapId, GuildId;
+        public Vector3 PreloadPos;
+        public CharacterFlags Flags;
+        public uint CustomizationFlags;
+        public bool FirstLogin;
+        public uint PetCreatureDisplayId, PetExperienceLevel, PetCreatureFamilyId;
+        // The equipment slots, then the bags (one before 3.3.3, four from it on).
+        public (uint DisplayId, byte InvType, uint DisplayEnchantId)[] VisualItems = new (uint, byte, uint)[EquipmentSlot.Bag1 + 4];
+    }
+
+    /// <summary>The 1.12 to 3.3.5a list: a count, then one character after another.</summary>
+    private static List<LegacyCharacterEntry> ReadCharacterEntries(WorldPacket packet)
+    {
+        byte count = packet.ReadUInt8();
+        var entries = new List<LegacyCharacterEntry>(count);
+        for (byte i = 0; i < count; i++)
+        {
+            var entry = new LegacyCharacterEntry();
+            entry.Guid = packet.ReadGuid();
+            entry.Name = packet.ReadCString();
+            entry.Race = (Race)packet.ReadUInt8();
+            entry.Class = (Class)packet.ReadUInt8();
+            entry.Sex = (Gender)packet.ReadUInt8();
+
+            entry.Skin = packet.ReadUInt8();
+            entry.Face = packet.ReadUInt8();
+            entry.HairStyle = packet.ReadUInt8();
+            entry.HairColor = packet.ReadUInt8();
+            entry.FacialHair = packet.ReadUInt8();
+
+            entry.Level = packet.ReadUInt8();
+
+            entry.ZoneId = packet.ReadUInt32();
+            entry.MapId = packet.ReadUInt32();
+            entry.PreloadPos = packet.ReadVector3();
+            entry.GuildId = packet.ReadUInt32();
+            entry.Flags = (CharacterFlags)packet.ReadUInt32();
+
+            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+                entry.CustomizationFlags = packet.ReadUInt32();
+
+            entry.FirstLogin = packet.ReadUInt8() != 0;
+            entry.PetCreatureDisplayId = packet.ReadUInt32();
+            entry.PetExperienceLevel = packet.ReadUInt32();
+            entry.PetCreatureFamilyId = packet.ReadUInt32();
+
+            for (int j = EquipmentSlot.Start; j < EquipmentSlot.End; j++)
+            {
+                entry.VisualItems[j].DisplayId = packet.ReadUInt32();
+                entry.VisualItems[j].InvType = packet.ReadUInt8();
+
+                if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
+                    entry.VisualItems[j].DisplayEnchantId = packet.ReadUInt32();
+            }
+
+            int bagCount = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_3_11685) ? 4 : 1;
+            for (int j = 0; j < bagCount; j++)
+            {
+                entry.VisualItems[EquipmentSlot.Bag1 + j].DisplayId = packet.ReadUInt32();
+                entry.VisualItems[EquipmentSlot.Bag1 + j].InvType = packet.ReadUInt8();
+
+                if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
+                    entry.VisualItems[EquipmentSlot.Bag1 + j].DisplayEnchantId = packet.ReadUInt32();
+            }
+
+            entries.Add(entry);
+        }
+        return entries;
+    }
+
+    /// <summary>
+    /// The 4.3.4 list (TrinityCore 4.3.4 EnumCharactersResult::Write): every character's GUID and
+    /// guild GUID masks and its name length up front as bits, then each character's fields with
+    /// the GUID bytes interleaved in a fixed order, each non-zero byte XORed with 1.
+    /// </summary>
+    internal static List<LegacyCharacterEntry> ReadCharacterEntriesCata(WorldPacket packet)
+    {
+        uint restrictionCount = packet.ReadBits<uint>(23);  // FactionChangeRestrictions
+        packet.HasBit();                            // Success
+        uint count = packet.ReadBits<uint>(17);
+
+        var guidMasks = new bool[count][];
+        var guildMasks = new bool[count][];
+        var nameLengths = new uint[count];
+        var firstLogins = new bool[count];
+        for (uint i = 0; i < count; i++)
+        {
+            bool[] g = guidMasks[i] = new bool[8];
+            bool[] gg = guildMasks[i] = new bool[8];
+            g[3] = packet.HasBit();
+            gg[1] = packet.HasBit();
+            gg[7] = packet.HasBit();
+            gg[2] = packet.HasBit();
+            nameLengths[i] = packet.ReadBits<uint>(7);
+            g[4] = packet.HasBit();
+            g[7] = packet.HasBit();
+            gg[3] = packet.HasBit();
+            g[5] = packet.HasBit();
+            gg[6] = packet.HasBit();
+            g[1] = packet.HasBit();
+            gg[5] = packet.HasBit();
+            gg[4] = packet.HasBit();
+            firstLogins[i] = packet.HasBit();
+            g[0] = packet.HasBit();
+            g[2] = packet.HasBit();
+            g[6] = packet.HasBit();
+            gg[0] = packet.HasBit();
+        }
+        packet.ResetBitPos();
+
+        var entries = new List<LegacyCharacterEntry>((int)count);
+        for (uint i = 0; i < count; i++)
+        {
+            bool[] g = guidMasks[i];
+            bool[] gg = guildMasks[i];
+            byte[] guid = new byte[8];
+            byte[] guild = new byte[8];
+            void Seq(bool[] mask, byte[] bytes, int index)
+            {
+                if (mask[index])
+                    bytes[index] = (byte)(packet.ReadUInt8() ^ 1);
+            }
+
+            var entry = new LegacyCharacterEntry { FirstLogin = firstLogins[i] };
+            entry.Class = (Class)packet.ReadUInt8();
+            for (int j = 0; j < entry.VisualItems.Length; j++)
+            {
+                entry.VisualItems[j].InvType = packet.ReadUInt8();
+                entry.VisualItems[j].DisplayId = packet.ReadUInt32();
+                entry.VisualItems[j].DisplayEnchantId = packet.ReadUInt32();
+            }
+
+            entry.PetCreatureFamilyId = packet.ReadUInt32();
+            Seq(gg, guild, 2);
+            packet.ReadUInt8();                     // ListPosition
+            entry.HairStyle = packet.ReadUInt8();
+            Seq(gg, guild, 3);
+            entry.PetCreatureDisplayId = packet.ReadUInt32();
+            entry.Flags = (CharacterFlags)packet.ReadUInt32();
+            entry.HairColor = packet.ReadUInt8();
+            Seq(g, guid, 4);
+            entry.MapId = packet.ReadUInt32();
+            Seq(gg, guild, 5);
+            float z = packet.ReadFloat();
+            Seq(gg, guild, 6);
+            entry.PetExperienceLevel = packet.ReadUInt32();
+            Seq(g, guid, 3);
+            float y = packet.ReadFloat();
+            entry.CustomizationFlags = packet.ReadUInt32();
+            entry.FacialHair = packet.ReadUInt8();
+            Seq(g, guid, 7);
+            entry.Sex = (Gender)packet.ReadUInt8();
+            entry.Name = packet.ReadString(nameLengths[i]);
+            entry.Face = packet.ReadUInt8();
+            Seq(g, guid, 0);
+            Seq(g, guid, 2);
+            Seq(gg, guild, 1);
+            Seq(gg, guild, 7);
+            float x = packet.ReadFloat();
+            entry.Skin = packet.ReadUInt8();
+            entry.Race = (Race)packet.ReadUInt8();
+            entry.Level = packet.ReadUInt8();
+            Seq(g, guid, 6);
+            Seq(gg, guild, 4);
+            Seq(gg, guild, 0);
+            Seq(g, guid, 5);
+            Seq(g, guid, 1);
+            entry.ZoneId = packet.ReadUInt32();
+
+            entry.PreloadPos = new Vector3(x, y, z);
+            entry.Guid = new WowGuid64(BitConverter.ToUInt64(guid));
+            // A 4.3.4 guild GUID carries the guild id in its low half.
+            entry.GuildId = (uint)BitConverter.ToUInt64(guild);
+            entries.Add(entry);
+        }
+
+        for (uint i = 0; i < restrictionCount; i++)
+        {
+            packet.ReadInt32();                     // Mask
+            packet.ReadUInt8();                     // Race
+        }
+        return entries;
     }
 
     [HandlesSmsg(Opcode.SMSG_CREATE_CHAR)]
@@ -330,8 +516,21 @@ public partial class WorldClient
         response.Data.IsDeleted = false;
         response.Data.AccountID = GetSession().GetGameAccountGuidForPlayer(response.Player);
         response.Data.BnetAccountID = GetSession().GetBnetAccountGuidForPlayer(response.Player);
+        response.Data.GuildClubMemberID = GuildClub.MemberIdOf(response.Player);
         response.Data.VirtualRealmAddress = GetSession().RealmId.GetAddress();
         SendPacketToClient(response);
+
+        // A client that reads the name from the player object was given none when the player was
+        // created, unless this answer had come before. It takes the name as a change.
+        if (ModernVersion.PlayerObjectCarriesName && response.Player != GetSession().GameState.CurrentPlayerGuid
+            && cache.Name.Length > 0)
+        {
+            ObjectUpdate named = new ObjectUpdate(response.Player, UpdateTypeModern.Values, GetSession());
+            named.EnsurePlayerData().Name = cache.Name;
+            UpdateObject updatePacket = new UpdateObject(GetSession().GameState);
+            updatePacket.ObjectUpdates.Add(named);
+            SendPacketToClient(updatePacket);
+        }
     }
 
     [HandlesSmsg(Opcode.SMSG_LOGIN_VERIFY_WORLD)]
@@ -375,9 +574,19 @@ public partial class WorldClient
         setup.ServerExpansionLevel = VersionChecker.GetClientExpansionLevel(LegacyVersion.Build);
         SendPacketToClient(setup);
 
-        LoadCUFProfiles cuf = new();
-        cuf.Data = GetSession().AccountDataMgr.LoadCUFProfiles();
-        SendPacketToClient(cuf);
+        // A 4.3.4 server sends the character's raid frame profiles itself, right after this
+        // (HandleLoadCUFProfiles); the proxy's own copy is for the servers that keep none.
+        if (!IsCataLegacy)
+        {
+            LoadCUFProfiles cuf = new();
+            cuf.Data = GetSession().AccountDataMgr.LoadCUFProfiles();
+            SendPacketToClient(cuf);
+        }
+        // A 4.3.4 server sends archaeology's completed projects only when asked, which its own
+        // client does when the archaeology window opens. The 4.4.2 client keeps them in the player
+        // data and never asks, so the proxy asks once here.
+        else
+            SendPacketToServer(new WorldPacket(Opcode.CMSG_REQUEST_RESEARCH_HISTORY));
 
         // Issue #80: modern 1.14+ Classic clients auto-cancel wand `Shoot` when target enters
         // melee range (`autoRangedCombat` CVar default-ON). Priests rely on wand for downtime
@@ -401,7 +610,9 @@ public partial class WorldClient
             // SMSG_ALL_ACHIEVEMENT_DATA arrives async from the legacy 3.3.5a server
             // and is translated by AchievementHandler.HandleAllAchievementData.
             SendPacketToClient(new EmptyAllAccountCriteria());
-            SendPacketToClient(new EmptySetupCurrency());
+            // A 4.3.4 server has sent its own list by now; an empty one after it clears the tab.
+            if (!IsCataLegacy)
+                SendPacketToClient(new EmptySetupCurrency());
             SendPacketToClient(new EmptySpellHistory());
             SendPacketToClient(new EmptySpellCharges());
             // Use cached talent state if the legacy server already pushed it (relog case);
@@ -464,7 +675,15 @@ public partial class WorldClient
     internal void HandleUpdateActionButtons(WorldPacket packet)
     {
         byte reason = 0;
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_1_0_9767))
+        if (IsCataLegacy)
+        {
+            // 4.3.4 moved the reason behind the buttons (TrinityCore 4.3.4 UpdateActionButtons).
+            ReadOnlySpan<byte> rest = packet.GetRemainingSpan();
+            reason = rest.Length > 0 ? rest[^1] : (byte)0;
+            if (reason == 2)
+                return;
+        }
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_1_0_9767))
         {
             reason = packet.ReadUInt8();
             if (reason == 2)
@@ -612,7 +831,10 @@ public partial class WorldClient
         info.Level = packet.ReadInt32();
         info.HealthDelta = packet.ReadInt32();
 
-        for (var i = 0; i < LegacyVersion.GetPowersCount(); i++)
+        // TrinityCore 4.3.4 LevelUpInfo::Write sends six power deltas, one more than a 4.x unit
+        // has power fields. Read as five, every stat gain was taken from the slot before its own.
+        int powerDeltas = IsCataLegacy ? 6 : LegacyVersion.GetPowersCount();
+        for (var i = 0; i < powerDeltas; i++)
             info.PowerDelta[i] = packet.ReadInt32();
 
         for (var i = 0; i < 5; i++)
@@ -647,7 +869,9 @@ public partial class WorldClient
     internal void HandleInspectResult(WorldPacket packet)
     {
         InspectResult inspect = new InspectResult();
-        if (packet.GetUniversalOpcode(false) == Opcode.SMSG_INSPECT_RESULT)
+        // TrinityCore 4.3.4 HandleInspectOpcode writes the GUID whole; 3.x packs it. Read packed
+        // on 4.3.4, it named no player the proxy knew and the inspect was dropped without a word.
+        if (packet.GetUniversalOpcode(false) == Opcode.SMSG_INSPECT_RESULT || IsCataLegacy)
             inspect.DisplayInfo.GUID = packet.ReadGuid().To128(GetSession().GameState);
         else
             inspect.DisplayInfo.GUID = packet.ReadPackedGuid().To128(GetSession().GameState);
@@ -684,7 +908,7 @@ public partial class WorldClient
                 }
             }
             int PLAYER_VISIBLE_ITEM_1_ENTRYID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_ENTRYID);
-            if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0) // wotlk
+            if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0 && !IsCataLegacy) // wotlk; 4.3.4 lists the items itself
             {
                 int offset = 2;
                 for (byte i = 0; i < 19; i++)
@@ -726,6 +950,14 @@ public partial class WorldClient
 
             for (byte specIdx = 0; specIdx < specsCount; ++specIdx)
             {
+                // 4.3.4 Player::BuildPlayerTalentsInfoData: each group starts with its primary tree.
+                if (IsCataLegacy)
+                {
+                    uint primaryTree = packet.ReadUInt32();
+                    if (specIdx == activeSpec)
+                        inspect.PrimaryTalentTree = primaryTree;
+                }
+
                 byte talentCount = packet.ReadUInt8();
                 for (byte t = 0; t < talentCount; ++t)
                 {
@@ -737,16 +969,88 @@ public partial class WorldClient
 
                 byte glyphSlots = packet.ReadUInt8();
                 for (byte g = 0; g < glyphSlots; ++g)
-                    packet.ReadUInt16();
+                {
+                    ushort glyph = packet.ReadUInt16();
+                    if (IsCataLegacy && specIdx == activeSpec)
+                        inspect.Glyphs.Add(glyph);
+                }
 
                 totalTalents += talentCount;
             }
 
             WorldClientLogMessages.InspectTalents(
                 _melLog, _sourceFile, _netDirRecv, unspent, specsCount, activeSpec, totalTalents);
+
+            if (IsCataLegacy)
+                ReadInspectedEquipmentCata(packet, inspect);
         }
 
         SendPacketToClient(inspect);
+    }
+
+    // TrinityCore 4.3.4 Player::BuildEnchantmentsInfoData, after the talents: what each equipment
+    // slot really holds. The visible items name a transmogrification's look instead and carry no
+    // gems, so the inspect window showed that item, without its enchantment, gems or random suffix.
+    // TrinityCore cata_classic fills the 4.4.2 list from the items themselves, and the item level
+    // from them too.
+    private void ReadInspectedEquipmentCata(WorldPacket packet, InspectResult inspect)
+    {
+        uint usedSlots = packet.ReadUInt32();
+        Span<(InventoryType Type, uint Level)> worn = stackalloc (InventoryType, uint)[EquipmentSlots];
+        int count = 0;
+        for (byte slot = 0; slot < EquipmentSlots; slot++)
+        {
+            if ((usedSlots & (1u << slot)) == 0)
+                continue;
+
+            InspectItemData item = new InspectItemData();
+            item.Index = slot;
+            item.Usable = true;
+            item.Item.ItemID = packet.ReadUInt32();
+            ushort enchanted = packet.ReadUInt16();
+            for (int cataSlot = 0; cataSlot < 16; cataSlot++)
+            {
+                if ((enchanted & (1 << cataSlot)) == 0)
+                    continue;
+
+                uint enchantId = packet.ReadUInt16();
+                int modernSlot = ModernEnchantmentSlot(cataSlot);
+                if (modernSlot < 0)
+                    continue;
+                item.Enchants.Add(new InspectEnchantData(enchantId, (byte)modernSlot));
+
+                int socket = cataSlot - Enums.Cata.EnchantmentSlot.Sock1;
+                uint gem = socket is >= 0 and < ItemConst.MaxGemSockets ? GameData.GetGemFromEnchantId(enchantId) : 0;
+                if (gem != 0)
+                {
+                    ItemGemData gemData = new ItemGemData();
+                    gemData.Slot = (byte)socket;
+                    gemData.Item.ItemID = gem;
+                    item.Gems.Add(gemData);
+                }
+            }
+            // signed: a random suffix is the negative id, cut to 16 bits
+            item.Item.RandomPropertiesID = (uint)(int)packet.ReadInt16();
+            item.CreatorGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            item.Item.RandomPropertiesSeed = packet.ReadUInt32();
+            inspect.DisplayInfo.Items.Add(item);
+
+            if (GameData.TryGetItemLevel(item.Item.ItemID, out var type, out uint level))
+                worn[count++] = (type, level);
+        }
+
+        inspect.ItemLevel = (int)AverageItemLevel.OfEquipped(inspect.DisplayInfo.ClassId, worn[..count]);
+    }
+
+    // A 4.3.4 enchantment slot as the 4.4.2 client numbers it. Its reforge and transmogrification
+    // are item modifiers there, not enchantments.
+    private static int ModernEnchantmentSlot(int cataSlot)
+    {
+        if (cataSlot <= Enums.Cata.EnchantmentSlot.Engineering)
+            return cataSlot;
+        if (cataSlot >= Enums.Cata.EnchantmentSlot.Prop0 && cataSlot <= Enums.Cata.EnchantmentSlot.Prop4)
+            return cataSlot - Enums.Cata.EnchantmentSlot.Prop0 + Enums.Classic.EnchantmentSlot.Prop0;
+        return -1;
     }
 
     [HandlesSmsg(Opcode.MSG_INSPECT_HONOR_STATS, RemovedIn = ClientVersionBuild.V2_0_1_6180)]
@@ -863,6 +1167,32 @@ public partial class WorldClient
         }
     }
 
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>InspectHonorStats::Write</c>, the answer to CMSG_REQUEST_HONOR_STATS: the
+    /// kills of today, yesterday and all time around a masked GUID. A 4.3.4 server keeps no honor
+    /// of the day and leaves the rank 0; the client is given the kills.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_INSPECT_HONOR_STATS)]
+    internal void HandleInspectHonorStatsCata(WorldPacket packet)
+    {
+        Span<bool> mask = stackalloc bool[8];
+        Span<byte> guidBytes = stackalloc byte[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [4, 3, 6, 2, 5, 0, 7, 1]);
+        packet.ReadUInt8();     // lifetime highest rank
+        ushort yesterdayHonorableKills = packet.ReadUInt16();
+        ushort todayHonorableKills = packet.ReadUInt16();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [2, 0, 6, 3, 4, 1, 5]);
+        uint lifetimeHonorableKills = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [7]);
+
+        InspectHonorStatsResultWotLKClassic honor = new InspectHonorStatsResultWotLKClassic();
+        honor.PlayerGUID = new WowGuid64(MaskedGuid.ToUInt64(guidBytes)).To128(GetSession().GameState);
+        honor.TodayHK = todayHonorableKills;
+        honor.YesterdayHK = yesterdayHonorableKills;
+        honor.LifeTimeHK = lifetimeHonorableKills;
+        SendPacketToClient(honor);
+    }
+
     [HandlesSmsg(Opcode.MSG_INSPECT_ARENA_TEAMS)]
     internal void HandleInspectArenaTeams(WorldPacket packet)
     {
@@ -970,6 +1300,17 @@ public partial class WorldClient
                 char1.MapId = 530;
                 char1.ZoneId = 3524;    // Azuremyst Isle
                 char1.PreloadPos = new Vector3(-3961.64f, -13931.2f, 100.615f);
+                break;
+            // Cataclysm's new races (TrinityCore 4.3.4 playercreateinfo).
+            case Race.Goblin:
+                char1.MapId = 648;      // Lost Isles
+                char1.ZoneId = 4765;    // Kezan
+                char1.PreloadPos = new Vector3(-8423.81f, 1361.3f, 104.671f);
+                break;
+            case Race.Worgen:
+                char1.MapId = 654;      // Gilneas
+                char1.ZoneId = 4756;    // Gilneas City
+                char1.PreloadPos = new Vector3(-1451.53f, 1403.35f, 35.5561f);
                 break;
             default:
                 // Last-resort fallback to keep the enum valid even for unknown races.

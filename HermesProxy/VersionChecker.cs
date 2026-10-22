@@ -72,7 +72,8 @@ public static class VersionChecker
                 or ClientVersionBuild.V1_12_2_6005
                 or ClientVersionBuild.V1_12_3_6141
                 or ClientVersionBuild.V2_4_3_8606
-                or ClientVersionBuild.V3_3_5a_12340 => true,
+                or ClientVersionBuild.V3_3_5a_12340
+                or ClientVersionBuild.V4_3_4_15595 => true,
             _ => false,
         };
 
@@ -129,7 +130,8 @@ public static class VersionChecker
                 or ClientVersionBuild.V1_14_2_42082
                 or ClientVersionBuild.V1_14_2_42214
                 or ClientVersionBuild.V1_14_2_42597
-                or ClientVersionBuild.V3_4_3_54261 => true,
+                or ClientVersionBuild.V3_4_3_54261
+                or ClientVersionBuild.V4_4_2_60895 => true,
             _ => false,
         };
 
@@ -140,6 +142,7 @@ public static class VersionChecker
             1 => ClientVersionBuild.V1_12_1_5875,
             2 => ClientVersionBuild.V2_4_3_8606,
             3 => ClientVersionBuild.V3_3_5a_12340,
+            4 => ClientVersionBuild.V4_3_4_15595,
             _ => ClientVersionBuild.Zero,
         };
     }
@@ -356,6 +359,7 @@ public static class LegacyVersion
                 or ClientVersionBuild.V1_12_3_6141 => ClientVersionBuild.V1_12_1_5875,
             ClientVersionBuild.V2_4_3_8606 => ClientVersionBuild.V2_4_3_8606,
             ClientVersionBuild.V3_3_5a_12340 => ClientVersionBuild.V3_3_5a_12340,
+            ClientVersionBuild.V4_3_4_15595 => ClientVersionBuild.V4_3_4_15595,
             _ => ClientVersionBuild.Zero,
         };
 
@@ -437,6 +441,7 @@ public static class LegacyVersion
             ClientVersionBuild.V1_12_1_5875 => typeof(World.Enums.V1_12_1_5875.ResponseCodes),
             ClientVersionBuild.V2_4_3_8606 => typeof(World.Enums.V2_4_3_8606.ResponseCodes),
             ClientVersionBuild.V3_3_5a_12340 => typeof(World.Enums.V3_3_5a_12340.ResponseCodes),
+            ClientVersionBuild.V4_3_4_15595 => typeof(World.Enums.V4_3_4_15595.ResponseCodes),
             _ => null,
         };
 
@@ -488,7 +493,8 @@ public static class LegacyVersion
 
     public static int GetPowersCount()
     {
-        if (RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
+        // 4.x indexes powers by class slot and has five of them (UNIT_FIELD_POWER1..5).
+        if (RemovedInVersion(ClientVersionBuild.V3_0_2_9056) || ExpansionVersion >= 4)
             return 5;
 
         return 7;
@@ -521,6 +527,8 @@ public static class LegacyVersion
         // — Bear Form / shapeshift cast errors displayed as flight-related text.
         if (ModernVersion.IsWotLKClassicOrLater)
         {
+            if (ExpansionVersion >= 4)
+                return (uint)((SpellCastResultCata)result).CastEnum<SpellCastResultV343>();
             if (AddedInVersion(ClientVersionBuild.V3_0_2_9056))
                 return (uint)((SpellCastResultWotLK)result).CastEnum<SpellCastResultV343>();
             else if (AddedInVersion(ClientVersionBuild.V2_0_1_6180))
@@ -585,6 +593,26 @@ public static class ModernVersion
 
     /// <summary>See <see cref="VersionChecker.IsWotLKClassicOrLater"/>.</summary>
     public static readonly bool IsWotLKClassicOrLater = VersionChecker.IsWotLKClassicOrLater(Build);
+
+    /// <summary>
+    /// From 4.4.2 on a player's name is part of its object, and the client reads it there: a
+    /// player created without one shows no name anywhere and cannot be invited. Earlier clients
+    /// ask for the name themselves.
+    /// </summary>
+    public static readonly bool PlayerObjectCarriesName = ExpansionVersion >= 4;
+    /// <summary>
+    /// A battleground announcement about a player ("The Horde Flag was picked up by $n!", Alliance
+    /// or Horde type): from 4.4.2 on the client wants the player as the target, the way TrinityCore
+    /// cata_classic's BroadcastTextBuilder sends it. Given the player as the sender, the 4.4.2 client
+    /// put the line nowhere. The older clients want the player as the sender.
+    /// </summary>
+    public static readonly bool BattlegroundAnnouncementNamesTarget = ExpansionVersion >= 4;
+    /// <summary>
+    /// From 4.4.2 on the character sheet shows the average item level the player's object
+    /// carries, and no legacy server sends one. The proxy works it out for these clients only, so
+    /// the older ones get the bytes they always did.
+    /// </summary>
+    public static readonly bool PlayerObjectCarriesAverageItemLevel = ExpansionVersion >= 4;
 
     public static int BuildInt => (int)Build;
     public static string VersionString => Build.ToString();
@@ -730,6 +758,7 @@ public static class ModernVersion
                 or ClientVersionBuild.V2_5_3_42328
                 or ClientVersionBuild.V2_5_3_42598 => ClientVersionBuild.V2_5_3_41750,
             ClientVersionBuild.V3_4_3_54261 => ClientVersionBuild.V3_4_3_54261,
+            ClientVersionBuild.V4_4_2_60895 => ClientVersionBuild.V4_4_2_60895,
             _ => ClientVersionBuild.Zero,
         };
 
@@ -808,6 +837,7 @@ public static class ModernVersion
             ClientVersionBuild.V2_5_3_41750
                 or ClientVersionBuild.V1_14_1_40688 => typeof(World.Enums.V1_14_1_40688.ResponseCodes),
             ClientVersionBuild.V3_4_3_54261 => typeof(World.Enums.V3_4_3_54261.ResponseCodes),
+            ClientVersionBuild.V4_4_2_60895 => typeof(World.Enums.V3_4_3_54261.ResponseCodes),
             _ => null,
         };
 
@@ -937,6 +967,12 @@ public static class ModernVersion
                 return 15;
             if (AddedInVersion(2, 5, 3))
                 return 13;
+        }
+        else if (ExpansionVersion == 4 && MajorVersion >= 4)
+        {
+            // TrinityCore cata_classic's NUM_ACCOUNT_DATA_TYPES, and what a native 4.4.2.60895
+            // capture carries: 146 bytes, an empty packed guid, the server time and 17 times.
+            return 17;
         }
         else if (!IsClassicVersionBuild())
         {

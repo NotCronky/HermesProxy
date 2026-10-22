@@ -2,6 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Framework.Constants;
+using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 
@@ -14,20 +15,47 @@ static class EquipmentSetModern
     public static readonly WowGuid128 IgnoredSlot = new(0xFFFFFFFFFFFFFFFF, 0x0C00040000000000);
 }
 
-class EquipmentSetID : ServerPacket
+sealed class EquipmentSetID : ServerPacket
 {
     public EquipmentSetID() : base(Opcode.SMSG_EQUIPMENT_SET_ID) { }
 
-    public override void Write()
-    {
-        _worldPacket.WriteUInt64(GUID);
-        _worldPacket.WriteInt32(Type);
-        _worldPacket.WriteUInt32(SetID);
-    }
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<EquipmentSetID>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new GuidFirstLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new GuidLastLayout()));
+
+    private static readonly ServerPacketLayout<EquipmentSetID> Layout = Layouts.ForRunningClient();
+
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     public ulong GUID;
     public int Type;
     public uint SetID;
+
+    /// <summary>Up to 3.4.3.</summary>
+    internal sealed class GuidFirstLayout : ServerPacketLayout<EquipmentSetID>
+    {
+        public override void Write(EquipmentSetID packet, WorldPacket data)
+        {
+            data.WriteUInt64(packet.GUID);
+            data.WriteInt32(packet.Type);
+            data.WriteUInt32(packet.SetID);
+        }
+    }
+
+    /// <summary>
+    /// 4.4.2 (docs/protocol, and TrinityCore cata_classic EquipmentSetID::Write): the GUID last.
+    /// Written first, the client took its low half for the type and kept a GUID of 0, so a new set
+    /// could not be deleted or changed.
+    /// </summary>
+    internal sealed class GuidLastLayout : ServerPacketLayout<EquipmentSetID>
+    {
+        public override void Write(EquipmentSetID packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Type);
+            data.WriteUInt32(packet.SetID);
+            data.WriteUInt64(packet.GUID);
+        }
+    }
 }
 
 class LoadEquipmentSet : ServerPacket
@@ -46,18 +74,44 @@ class LoadEquipmentSet : ServerPacket
     public List<EquipmentSetData> Sets = new();
 }
 
-class UseEquipmentSetResult : ServerPacket
+sealed class UseEquipmentSetResult : ServerPacket
 {
     public UseEquipmentSetResult() : base(Opcode.SMSG_USE_EQUIPMENT_SET_RESULT) { }
 
-    public override void Write()
-    {
-        _worldPacket.WriteUInt64(GUID);
-        _worldPacket.WriteUInt8(Reason);
-    }
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<UseEquipmentSetResult>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new GuidFirstLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new ReasonFirstLayout()));
+
+    private static readonly ServerPacketLayout<UseEquipmentSetResult> Layout = Layouts.ForRunningClient();
+
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     public ulong GUID;
     public byte Reason;
+
+    /// <summary>Up to 3.4.3.</summary>
+    internal sealed class GuidFirstLayout : ServerPacketLayout<UseEquipmentSetResult>
+    {
+        public override void Write(UseEquipmentSetResult packet, WorldPacket data)
+        {
+            data.WriteUInt64(packet.GUID);
+            data.WriteUInt8(packet.Reason);
+        }
+    }
+
+    /// <summary>
+    /// 4.4.2 (docs/protocol, and TrinityCore cata_classic UseEquipmentSetResult::Write): an int32
+    /// reason, then the GUID. Written the 3.4.3 way, nine bytes with the GUID first, the client
+    /// called every set it put on a failure.
+    /// </summary>
+    internal sealed class ReasonFirstLayout : ServerPacketLayout<UseEquipmentSetResult>
+    {
+        public override void Write(UseEquipmentSetResult packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Reason);
+            data.WriteUInt64(packet.GUID);
+        }
+    }
 }
 
 /// <remarks>
