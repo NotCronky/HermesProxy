@@ -43,21 +43,23 @@ These are the private server versions HermesProxy can connect to:
 
 #### WotLK backend coverage
 
-The 3.4.3 work was developed and playtested against these cores, in this order of confidence:
-
-| Core | Status | Notes |
-|---|---|---|
-| TrinityCore 3.3.5a | Primary | Most tested — current upstream `3.3.5` branch. The reference backend for nearly every 3.4.3 fix. |
-| AzerothCore | Secondary | Broadly working. Corpse handling is the known weak spot — see [#190](https://github.com/Xian55/HermesProxy/issues/190). |
-| CMaNGOS WotLK | Partial | Logs in and plays, but Dungeon Finder ([#104](https://github.com/Xian55/HermesProxy/issues/104)) and MOTransports ([#101](https://github.com/Xian55/HermesProxy/issues/101)) are open. |
-
-**This table is about backends, not features.** For what works, read the [status matrix in wotlk.md](wotlk.md): one row per subsystem, one column per backend, marked ✅ verified / ⚠️ partial / ❌ broken / ❓ not tested on that backend.
-
-Read ❓ as "unknown", not "broken". A row that is ✅ only under AzerothCore means it has not been exercised on TrinityCore — not that it fails there. Wintergrasp, group and master loot, and the Toy Box are currently in that position.
+What works, subsystem by subsystem and on which backend, is tracked in [wotlk.md](wotlk.md).
 
 #### Cataclysm backend coverage
 
 The 4.4.2 work is playtested against the Cataclysm Preservation Project's TrinityCore 4.3.4, with AzerothCore 3.3.5a as an earlier protocol test bed (`LegacyServerOptions:Build=V3_3_5a_12340`). The 4.3.4 server moves each player to a second connection at character login by default; HermesProxy stays on one, so set `LegacyConnectionModeEnabled = 1` in its `worldserver.conf`. A ready server is [Xian55/TrinityCore-docker](https://github.com/Xian55/TrinityCore-docker), branch `4.3.4`, where that is `TC_LEGACY_CONNECTION_MODE_ENABLED=1` in `tc.env`.
+
+The 4.4.2 client logs in with SRP and never sends its password, so the proxy has to be given the legacy account's password to log in with. Set it in the environment before starting the proxy:
+
+```powershell
+$env:HERMES_LegacyServerOptions__Password = "your-legacy-password"   # PowerShell
+```
+
+```bash
+export HERMES_LegacyServerOptions__Password='your-legacy-password'    # bash / zsh
+```
+
+Left unset, the proxy asks for it at startup and reads it without echoing; run without a console to type into, it cannot ask and logins fail. Never put it in a config file.
 
 ### Version Mapping
 
