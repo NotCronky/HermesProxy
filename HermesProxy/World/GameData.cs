@@ -187,6 +187,29 @@ public static partial class GameData
         return null;
     }
 
+    /// <summary>
+    /// An item's base level and where it is worn: as the server described it when it did, else
+    /// from the client's own item data.
+    /// </summary>
+    public static bool TryGetItemLevel(uint entry, out InventoryType inventoryType, out uint itemLevel)
+    {
+        if (ItemTemplates.TryGetValue(entry, out var template))
+        {
+            inventoryType = (InventoryType)template.InventoryType;
+            itemLevel = template.ItemLevel;
+            return true;
+        }
+        if (ItemSparseRecordsStore.TryGetValue(entry, out var row))
+        {
+            inventoryType = (InventoryType)row.InventoryType;
+            itemLevel = row.ItemLevel;
+            return true;
+        }
+        inventoryType = InventoryType.NonEquip;
+        itemLevel = 0;
+        return false;
+    }
+
     public static void StoreQuestTemplate(uint entry, QuestTemplate template)
     {
         CollectionsMarshal.GetValueRefOrAddDefault(QuestTemplates, entry, out _) = template;

@@ -607,6 +607,12 @@ public static class ModernVersion
     /// put the line nowhere. The older clients want the player as the sender.
     /// </summary>
     public static readonly bool BattlegroundAnnouncementNamesTarget = ExpansionVersion >= 4;
+    /// <summary>
+    /// From 4.4.2 on the character sheet shows the average item level the player's object
+    /// carries, and no legacy server sends one. The proxy works it out for these clients only, so
+    /// the older ones get the bytes they always did.
+    /// </summary>
+    public static readonly bool PlayerObjectCarriesAverageItemLevel = ExpansionVersion >= 4;
 
     public static int BuildInt => (int)Build;
     public static string VersionString => Build.ToString();

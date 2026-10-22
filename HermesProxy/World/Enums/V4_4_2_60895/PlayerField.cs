@@ -151,13 +151,15 @@ public enum PlayerField
     [DescriptorCreatePlaceholder(DescriptorType.Int32)]
     PLAYER_PAD_INT32_3,
 
-    // AvgItemLevel[6] zero placeholders (Create-only — 6× Float 0).
-    [DescriptorCreatePlaceholder(DescriptorType.Float)]
-    PLAYER_PAD_AVG_ITEM_LEVEL_0,
-    [DescriptorCreatePlaceholder(DescriptorType.Float)]
-    PLAYER_PAD_AVG_ITEM_LEVEL_1,
-    [DescriptorCreatePlaceholder(DescriptorType.Float)]
-    PLAYER_PAD_AVG_ITEM_LEVEL_2,
+    // AvgItemLevel[6], by TrinityCore cata_classic's AvgItemLevelCategory: 0 overall, 1 equipped,
+    // 2 equipped effective, 3-5 PvP, PvP weighted, equipped effective weighted. The character
+    // sheet shows slot 1 / slot 0. The proxy fills 0-2 for the active player; 3-5 stay 0, which
+    // TrinityCore cata_classic never sets either.
+    // Update: PerElement bits 89-91 (92-94 unused), parent 88.
+    [DescriptorCreateField(nameof(PlayerData.AvgItemLevel), DescriptorType.Float, ArrayCount = 3, ArrayMode = ArrayMode.Grouped)]
+    [DescriptorUpdateField(nameof(PlayerData.AvgItemLevel), DescriptorType.Float, bit: 89,
+                           ArrayCount = 3, ArrayMode = ArrayMode.PerElement, ParentBit = 88)]
+    PLAYER_AVG_ITEM_LEVEL,
     [DescriptorCreatePlaceholder(DescriptorType.Float)]
     PLAYER_PAD_AVG_ITEM_LEVEL_3,
     [DescriptorCreatePlaceholder(DescriptorType.Float)]

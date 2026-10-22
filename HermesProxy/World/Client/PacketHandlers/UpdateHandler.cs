@@ -2245,6 +2245,41 @@ public partial class WorldClient
         return GetGuidValue64(updates, field).To128(GetSession().GameState);
     }
 
+    private const int EquipmentSlots = 19;
+
+    private static bool AnyEquipmentSlotChanged(BitArray updateMaskArray, int invSlotHead)
+    {
+        for (int slot = 0; slot < EquipmentSlots; slot++)
+            if (updateMaskArray[invSlotHead + slot * 2])
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// The average level of what the player wears, the way the server's dungeon finder works it
+    /// out (<see cref="AverageItemLevel"/>). No legacy server sends one, so the character sheet
+    /// read 0 / 0. The overall average would count better items in the bags too, which needs to
+    /// know what the player can wear; it is given the equipped one.
+    /// </summary>
+    private void SetAverageItemLevel(WowGuid128 guid, Dictionary<int, UpdateField> updates, int invSlotHead, ObjectUpdate updateData)
+    {
+        GameSessionData state = GetSession().GameState;
+        Span<(InventoryType Type, uint Level)> worn = stackalloc (InventoryType, uint)[EquipmentSlots];
+        int count = 0;
+        for (int slot = 0; slot < EquipmentSlots; slot++)
+        {
+            WowGuid128 item = GetSlotGuidValue(updates, invSlotHead + slot * 2);
+            if (!item.IsEmpty() && GameData.TryGetItemLevel(state.GetItemId(item), out var type, out uint level))
+                worn[count++] = (type, level);
+        }
+
+        float average = AverageItemLevel.OfEquipped(state.GetUnitClass(guid), worn[..count]);
+        float?[] slots = updateData.EnsurePlayerData().AvgItemLevel;
+        slots[0] = average;
+        slots[1] = average;
+        slots[2] = average;
+    }
+
     public QuestLog? ReadQuestLogEntry(int i, BitArray? updateMaskArray, Dictionary<int, UpdateField> updates, bool isActivePlayer)
     {
         int PLAYER_QUEST_LOG_1_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_QUEST_LOG_1_1);
@@ -4007,6 +4042,10 @@ public partial class WorldClient
                                 _melUpdateValues, i, slotGuid.Low, slotGuid.High);
                     }
                 }
+                if (ModernVersion.PlayerObjectCarriesAverageItemLevel &&
+                    guid == GetSession().GameState.CurrentPlayerGuid &&
+                    (isCreate || AnyEquipmentSlotChanged(updateMaskArray, PLAYER_FIELD_INV_SLOT_HEAD)))
+                    SetAverageItemLevel(guid, updates, PLAYER_FIELD_INV_SLOT_HEAD, updateData);
             }
             int PLAYER_FIELD_PACK_SLOT_1 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_PACK_SLOT_1);
             if (PLAYER_FIELD_PACK_SLOT_1 >= 0)
