@@ -1313,7 +1313,13 @@ public partial class WorldClient
             // (observed once in twelve crossings). Keep it; a later create is a no-op for a
             // guid the client holds, and an explicit SMSG_DESTROY_OBJECT -- the round-2
             // respawn -- still goes through HandleDestroyObject untouched.
+            //
+            // AzerothCore moves its boats itself (a StaticTransport with a HighGuid::Transport
+            // guid), so it never loses one under a rider, and its OUT_OF_RANGE is how it
+            // removes the previous round's boats: that one has to reach the client, or the old
+            // boat stays docked under the new one.
             if (ModernVersion.IsWotLKClassicOrLater
+                && guid.GetHighType() != HighGuidType.Transport
                 && GetSession().GameState.SynthesizedTransports.ContainsKey(guid))
             {
                 if (_melGoFields.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
@@ -1328,6 +1334,8 @@ public partial class WorldClient
             }
             GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
             GetSession().GameState.VehicleRecIds.Remove(guid);
+            // A boat that comes back is a new crossing, joined from its own path progress.
+            GetSession().GameState.SynthesizedTransports.Remove(guid);
 
             // If the pet is too far away, sends a SMSG_UPDATE_OBJECT protocol
             if (GetSession().GameState.CurrentPetGuid == guid)
