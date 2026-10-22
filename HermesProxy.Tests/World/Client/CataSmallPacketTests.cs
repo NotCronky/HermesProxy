@@ -728,6 +728,36 @@ public sealed class CataSmallPacketTests
         Assert.Equal(new WowGuid64(creature).To128(_harness.Session.GameState), mover.MoverGUID);
     }
 
+    [Fact]
+    public void HandlePrintNotification_ReadsTheTextAfterItsLength()
+    {
+        // as `.gm on` was answered: a 13-bit length (13), flushed, and the text with no terminator
+        var notify = Deliver<PrintNotification>(Opcode.SMSG_PRINT_NOTIFICATION,
+            "00 68" + Convert.ToHexString(Encoding.UTF8.GetBytes("GM mode is ON")),
+            _harness.Client.HandlePrintNotificationCata);
+
+        Assert.Equal("GM mode is ON", notify.NotifyText);
+    }
+
+    [Fact]
+    public void HandlePrintNotification_AnEmptyText_IsTheLengthAlone()
+    {
+        var notify = Deliver<PrintNotification>(Opcode.SMSG_PRINT_NOTIFICATION, "00 00",
+            _harness.Client.HandlePrintNotificationCata);
+
+        Assert.Equal("", notify.NotifyText);
+    }
+
+    [Fact]
+    public void HandlePrintNotification_TheNotifyCommandsCString_IsReadAsOne()
+    {
+        // HandleNotifyCommand writes the text with `<<`: no length in front, a terminator after
+        var notify = Deliver<PrintNotification>(Opcode.SMSG_PRINT_NOTIFICATION,
+            Text("Global notify: back in five"), _harness.Client.HandlePrintNotificationCata);
+
+        Assert.Equal("Global notify: back in five", notify.NotifyText);
+    }
+
     private static string Ints(params int[] values)
         => string.Concat(Array.ConvertAll(values, v => Convert.ToHexString(BitConverter.GetBytes(v))));
 }

@@ -845,8 +845,34 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_PRINT_NOTIFICATION)]
     internal void HandlePrintNotification(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandlePrintNotificationCata(packet);
+            return;
+        }
+
         PrintNotification notify = new PrintNotification();
         notify.NotifyText = packet.ReadCString();
+        SendPacketToClient(notify);
+    }
+
+    // TrinityCore 4.3.4 sends the text after a 13-bit length and without a terminator
+    // (WorldSession::SendNotification). Only its .notify and .gmnotify commands still write a C
+    // string, and a length read from that text's first two characters is not what is left.
+    internal void HandlePrintNotificationCata(WorldPacket packet)
+    {
+        int start = packet.ReadPosition;
+        uint length = packet.ReadBits<uint>(13);
+        packet.ResetBitPos();
+
+        PrintNotification notify = new PrintNotification();
+        if (length == packet.Remaining())
+            notify.NotifyText = packet.ReadString(length);
+        else
+        {
+            packet.RewindTo(start);
+            notify.NotifyText = packet.ReadCString();
+        }
         SendPacketToClient(notify);
     }
 
