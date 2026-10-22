@@ -1057,6 +1057,12 @@ internal static unsafe class GeneratedCmsgDispatch
         global::HermesProxy.World.Server.Systems.ItemSystem.HandleDestroyItem(in packet, in ctx);
     }
 
+    private static void Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFBootPlayerVote_CMSG_DF_BOOT_PLAYER_VOTE(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
+    {
+        global::HermesProxy.World.Server.Packets.DFBootPlayerVotePktCodec.Read(ref reader, out var packet);
+        global::HermesProxy.World.Server.Systems.LfgSystem.HandleDFBootPlayerVote(in packet, in ctx);
+    }
+
     private static void Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFGetJoinStatus_CMSG_DF_GET_JOIN_STATUS(ref global::Framework.IO.SpanPacketReader reader, in global::HermesProxy.World.Dispatch.SessionContext ctx)
     {
         global::HermesProxy.World.Server.Packets.DFGetJoinStatusPktCodec.Read(ref reader, out var packet);
@@ -3415,6 +3421,7 @@ internal static unsafe class GeneratedCmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DEL_FRIEND] = &Thunk_HermesProxy_World_Server_Systems_SocialSystem_HandleDelFriend_CMSG_DEL_FRIEND;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DEL_IGNORE] = &Thunk_HermesProxy_World_Server_Systems_SocialSystem_HandleDelFriend_CMSG_DEL_IGNORE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DESTROY_ITEM] = &Thunk_HermesProxy_World_Server_Systems_ItemSystem_HandleDestroyItem_CMSG_DESTROY_ITEM;
+        table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_BOOT_PLAYER_VOTE] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFBootPlayerVote_CMSG_DF_BOOT_PLAYER_VOTE;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_GET_JOIN_STATUS] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFGetJoinStatus_CMSG_DF_GET_JOIN_STATUS;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_GET_SYSTEM_INFO] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFGetSystemInfo_CMSG_DF_GET_SYSTEM_INFO;
         table[(int)global::HermesProxy.World.Enums.Opcode.CMSG_DF_JOIN] = &Thunk_HermesProxy_World_Server_Systems_LfgSystem_HandleDFJoin_CMSG_DF_JOIN;
@@ -4029,6 +4036,7 @@ internal static unsafe class GeneratedCmsgDispatch
             global::HermesProxy.World.Enums.Opcode.CMSG_DEL_FRIEND,
             global::HermesProxy.World.Enums.Opcode.CMSG_DEL_IGNORE,
             global::HermesProxy.World.Enums.Opcode.CMSG_DESTROY_ITEM,
+            global::HermesProxy.World.Enums.Opcode.CMSG_DF_BOOT_PLAYER_VOTE,
             global::HermesProxy.World.Enums.Opcode.CMSG_DF_GET_JOIN_STATUS,
             global::HermesProxy.World.Enums.Opcode.CMSG_DF_GET_SYSTEM_INFO,
             global::HermesProxy.World.Enums.Opcode.CMSG_DF_JOIN,

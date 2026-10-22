@@ -200,6 +200,30 @@ public static class LfgSystem
         ctx.SendPacketToServer(legacy);
     }
 
+    /// <summary>
+    /// A member votes on removing someone from the group.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_DF_BOOT_PLAYER_VOTE)]
+    public static void HandleDFBootPlayerVote(in DFBootPlayerVotePkt packet, in SessionContext ctx)
+    {
+        // Only a 4.3.4 server's vote reaches the client, so only one is answered; a 3.3.5a server
+        // reads the same byte, but no 3.3.5a session has been played with it.
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(BuildSetBootVote(packet.Vote));
+    }
+
+    /// <summary>
+    /// The vote as one byte (TrinityCore 4.3.4 LFGBootPlayerVote::Read).
+    /// </summary>
+    internal static WorldPacket BuildSetBootVote(bool vote)
+    {
+        WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_BOOT_VOTE);
+        legacy.WriteUInt8((byte)(vote ? 1 : 0));
+        return legacy;
+    }
+
     [HandlesCmsg(Opcode.CMSG_DF_SET_ROLES)]
     public static void HandleDFSetRoles(in DFSetRolesPkt packet, in SessionContext ctx)
     {

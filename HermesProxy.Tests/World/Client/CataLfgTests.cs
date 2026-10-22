@@ -243,6 +243,16 @@ public sealed class CataLfgTests
         Assert.Equal(Convert.FromHexString("00000000 360FCF6A 03000000 D5000000 20 03".Replace(" ", "")), leave.GetDataSpan().ToArray());
     }
 
+    // TrinityCore 4.3.4 LFGBootPlayerVote::Read: the vote as one byte
+    [Theory]
+    [InlineData(true, (byte)1)]
+    [InlineData(false, (byte)0)]
+    public void BuildSetBootVote_TheVoteAsOneByte(bool vote, byte expected)
+    {
+        using var legacy = LfgSystem.BuildSetBootVote(vote);
+        Assert.Equal([expected], legacy.GetDataSpan().ToArray());
+    }
+
     [Fact]
     public void HandleLFGProposalUpdateCata_ADungeonFoundForOne()
     {

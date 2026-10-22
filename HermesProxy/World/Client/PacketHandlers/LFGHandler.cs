@@ -2,6 +2,7 @@
 using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
+using HermesProxy.World.Logging;
 using HermesProxy.World.Server;
 using HermesProxy.World.Server.Packets;
 using System;
@@ -551,6 +552,8 @@ public partial class WorldClient
         boot.TimeLeft = packet.ReadInt32();
         boot.VotesNeeded = packet.ReadUInt32();
         boot.Reason = Encoding.UTF8.GetString(packet.GetRemainingSpan());
+        LfgLogMessages.BootVote(_melLog, boot.VoteInProgress, boot.VotePassed, boot.MyVoteCompleted, boot.MyVote,
+            boot.TotalVotes, boot.BootVotes, boot.VotesNeeded);
         SendPacketToClient(boot);
     }
 
