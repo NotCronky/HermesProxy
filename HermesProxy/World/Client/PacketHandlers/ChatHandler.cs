@@ -494,6 +494,16 @@ public partial class WorldClient
             text = ItemLinkTranslator.LegacyToModern(text);
 
         ChatMessageTypeModern chatTypeModern = chatType.CastEnum<ChatMessageTypeModern>();
+        // TrinityCore 4.3.4 has no instance chat: a dungeon finder group talks in party chat. The
+        // 4.4.2 client holds that group in its instance category and its talk as instance chat,
+        // which is what it sends itself there; as party chat it was shown as party talk, in a
+        // group the client says has no party. The modern client's instance chat has the numbers
+        // battleground chat had (CHAT_MSG_INSTANCE_CHAT 62, _LEADER 63).
+        if (IsCataLegacy && chatTypeModern is ChatMessageTypeModern.Party or ChatMessageTypeModern.PartyLeader
+            && GetSession().GameState.CurrentGroups[1]?.PartyFlags.HasFlag(GroupFlags.Lfg) == true)
+            chatTypeModern = chatTypeModern == ChatMessageTypeModern.Party
+                ? ChatMessageTypeModern.Battleground
+                : ChatMessageTypeModern.BattlegroundLeader;
         ChatPkt chat = new ChatPkt(GetSession(), chatTypeModern, text, language, sender, senderName, receiver, receiverName, channelName, chatFlags, addonPrefix, achievementId);
 
         if (_melLog.IsEnabled(LogLevel.Trace))
