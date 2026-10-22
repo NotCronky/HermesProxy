@@ -908,7 +908,7 @@ public partial class WorldClient
                 }
             }
             int PLAYER_VISIBLE_ITEM_1_ENTRYID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_ENTRYID);
-            if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0) // wotlk
+            if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0 && !IsCataLegacy) // wotlk; 4.3.4 lists the items itself
             {
                 int offset = 2;
                 for (byte i = 0; i < 19; i++)
@@ -980,9 +980,77 @@ public partial class WorldClient
 
             WorldClientLogMessages.InspectTalents(
                 _melLog, _sourceFile, _netDirRecv, unspent, specsCount, activeSpec, totalTalents);
+
+            if (IsCataLegacy)
+                ReadInspectedEquipmentCata(packet, inspect);
         }
 
         SendPacketToClient(inspect);
+    }
+
+    // TrinityCore 4.3.4 Player::BuildEnchantmentsInfoData, after the talents: what each equipment
+    // slot really holds. The visible items name a transmogrification's look instead and carry no
+    // gems, so the inspect window showed that item, without its enchantment, gems or random suffix.
+    // TrinityCore cata_classic fills the 4.4.2 list from the items themselves, and the item level
+    // from them too.
+    private void ReadInspectedEquipmentCata(WorldPacket packet, InspectResult inspect)
+    {
+        uint usedSlots = packet.ReadUInt32();
+        Span<(InventoryType Type, uint Level)> worn = stackalloc (InventoryType, uint)[EquipmentSlots];
+        int count = 0;
+        for (byte slot = 0; slot < EquipmentSlots; slot++)
+        {
+            if ((usedSlots & (1u << slot)) == 0)
+                continue;
+
+            InspectItemData item = new InspectItemData();
+            item.Index = slot;
+            item.Usable = true;
+            item.Item.ItemID = packet.ReadUInt32();
+            ushort enchanted = packet.ReadUInt16();
+            for (int cataSlot = 0; cataSlot < 16; cataSlot++)
+            {
+                if ((enchanted & (1 << cataSlot)) == 0)
+                    continue;
+
+                uint enchantId = packet.ReadUInt16();
+                int modernSlot = ModernEnchantmentSlot(cataSlot);
+                if (modernSlot < 0)
+                    continue;
+                item.Enchants.Add(new InspectEnchantData(enchantId, (byte)modernSlot));
+
+                int socket = cataSlot - Enums.Cata.EnchantmentSlot.Sock1;
+                uint gem = socket is >= 0 and < ItemConst.MaxGemSockets ? GameData.GetGemFromEnchantId(enchantId) : 0;
+                if (gem != 0)
+                {
+                    ItemGemData gemData = new ItemGemData();
+                    gemData.Slot = (byte)socket;
+                    gemData.Item.ItemID = gem;
+                    item.Gems.Add(gemData);
+                }
+            }
+            // signed: a random suffix is the negative id, cut to 16 bits
+            item.Item.RandomPropertiesID = (uint)(int)packet.ReadInt16();
+            item.CreatorGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            item.Item.RandomPropertiesSeed = packet.ReadUInt32();
+            inspect.DisplayInfo.Items.Add(item);
+
+            if (GameData.TryGetItemLevel(item.Item.ItemID, out var type, out uint level))
+                worn[count++] = (type, level);
+        }
+
+        inspect.ItemLevel = (int)AverageItemLevel.OfEquipped(inspect.DisplayInfo.ClassId, worn[..count]);
+    }
+
+    // A 4.3.4 enchantment slot as the 4.4.2 client numbers it. Its reforge and transmogrification
+    // are item modifiers there, not enchantments.
+    private static int ModernEnchantmentSlot(int cataSlot)
+    {
+        if (cataSlot <= Enums.Cata.EnchantmentSlot.Engineering)
+            return cataSlot;
+        if (cataSlot >= Enums.Cata.EnchantmentSlot.Prop0 && cataSlot <= Enums.Cata.EnchantmentSlot.Prop4)
+            return cataSlot - Enums.Cata.EnchantmentSlot.Prop0 + Enums.Classic.EnchantmentSlot.Prop0;
+        return -1;
     }
 
     [HandlesSmsg(Opcode.MSG_INSPECT_HONOR_STATS, RemovedIn = ClientVersionBuild.V2_0_1_6180)]
