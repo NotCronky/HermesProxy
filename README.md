@@ -43,7 +43,7 @@ These are the private server versions HermesProxy can connect to:
 
 #### WotLK backend coverage
 
-What works, subsystem by subsystem and on which backend, is tracked in [wotlk.md](wotlk.md).
+What works, opcode by opcode and on which backend, is generated into [docs/wotlk-progress.md](docs/wotlk-progress.md).
 
 #### Cataclysm backend coverage
 
