@@ -47,6 +47,10 @@ internal static class DeliberatelyUnhandledOpcodes
         Opcode.CMSG_USED_FOLLOW,
         Opcode.CMSG_REQUEST_CROWD_CONTROL_SPELL,
         Opcode.CMSG_QUERY_PLAYER_NAME_BY_COMMUNITY_ID,
+        // The auction sales waiting for their money, asked whenever the auction house opens:
+        // TrinityCore wotlk_classic and cata_classic do not register the opcode, and every 3.3.5a
+        // server answers it with an empty list.
+        Opcode.CMSG_AUCTION_LIST_PENDING_SALES,
         // Things a modern server is asked for and a legacy server says unasked, or not at all: a
         // countdown that is running (a 4.3.4 server starts its own with SMSG_START_TIMER, the older
         // ones have none), and the forced reactions, which every legacy server sends at login.
