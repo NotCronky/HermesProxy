@@ -194,24 +194,11 @@ public partial class WorldClient
         item.ItemGuid = packet.ReadGuid().To128(GetSession().GameState);
         item.SpellID = packet.ReadUInt32();
 
-        // The legacy packet carries no duration, so read it off the item template rather
-        // than asserting a flat 30s for every item. Slots were indexed by the legacy spell
-        // id when the item query was parsed. Keep the old constant as the last resort so a
-        // backend that does send this opcode still shows *some* sweep.
+        // The legacy packet carries no duration because it has only one: every core sends it
+        // from Player::ApplyEquipCooldown alone, for the 30 seconds an on-use spell is locked
+        // after its item is equipped. The item's own cooldown (Thunderbrew's Boot Flask, 30
+        // minutes) is not what the server holds, and the client refused a use the server takes.
         item.Cooldown = 30000;
-        uint cooldownItemId = GetSession().GameState.GetItemId(item.ItemGuid);
-        if (cooldownItemId != 0 && GameData.GetItemTemplate(cooldownItemId) is { } cooldownTemplate)
-        {
-            byte cooldownSlot = GameData.GetItemEffectSlot(cooldownItemId, item.SpellID);
-            if (cooldownSlot < cooldownTemplate.TriggeredSpellCooldowns.Length)
-            {
-                int ms = cooldownTemplate.TriggeredSpellCooldowns[cooldownSlot];
-                if (ms <= 0)
-                    ms = cooldownTemplate.TriggeredSpellCategoryCooldowns[cooldownSlot];
-                if (ms > 0)
-                    item.Cooldown = (uint)ms;
-            }
-        }
         SendPacketToClient(item);
     }
     [HandlesSmsg(Opcode.SMSG_SELL_RESPONSE)]
