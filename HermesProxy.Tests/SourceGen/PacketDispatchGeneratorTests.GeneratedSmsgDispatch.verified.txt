@@ -1457,6 +1457,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleLevelUpInfo(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleLFGBootProposalUpdate_SMSG_LFG_BOOT_PROPOSAL_UPDATE(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleLFGBootProposalUpdate(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleLFGDisabled_SMSG_LFG_DISABLED(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleLFGDisabled(packet);
@@ -3160,6 +3165,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_ITEM_REFUND_INFO_RESPONSE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleItemRefundInfoResponse_SMSG_ITEM_REFUND_INFO_RESPONSE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LEARNED_SPELL] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLearnedSpell_SMSG_LEARNED_SPELL;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LEVEL_UP_INFO] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLevelUpInfo_SMSG_LEVEL_UP_INFO;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LFG_BOOT_PROPOSAL_UPDATE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLFGBootProposalUpdate_SMSG_LFG_BOOT_PROPOSAL_UPDATE;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LFG_DISABLED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLFGDisabled_SMSG_LFG_DISABLED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LFG_JOIN_RESULT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLFGJoinResult_SMSG_LFG_JOIN_RESULT;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_LFG_OFFER_CONTINUE] = &Thunk_HermesProxy_World_Client_WorldClient_HandleLFGOfferContinue_SMSG_LFG_OFFER_CONTINUE;
@@ -3729,6 +3735,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_ITEM_REFUND_INFO_RESPONSE,
             global::HermesProxy.World.Enums.Opcode.SMSG_LEARNED_SPELL,
             global::HermesProxy.World.Enums.Opcode.SMSG_LEVEL_UP_INFO,
+            global::HermesProxy.World.Enums.Opcode.SMSG_LFG_BOOT_PROPOSAL_UPDATE,
             global::HermesProxy.World.Enums.Opcode.SMSG_LFG_DISABLED,
             global::HermesProxy.World.Enums.Opcode.SMSG_LFG_JOIN_RESULT,
             global::HermesProxy.World.Enums.Opcode.SMSG_LFG_OFFER_CONTINUE,

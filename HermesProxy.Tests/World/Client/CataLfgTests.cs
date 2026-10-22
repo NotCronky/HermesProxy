@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using HermesProxy.Tests.Support;
 using HermesProxy.World;
+using HermesProxy.World.Client;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server;
 using HermesProxy.World.Server.Packets;
@@ -361,5 +362,37 @@ public sealed class CataLfgTests
 
         Assert.Equal(ClientOnlyDungeons - 2, slots.Count);
         Assert.DoesNotContain(slots, s => LfgSlots.GetDungeonId(s) is 2881 or 436);
+    }
+
+    [Fact]
+    public void HandleLFGBootProposalUpdate_ReadsTheVoteAndTheReasonToTheEnd()
+    {
+        if (!WorldClient.IsCataLegacy)
+            return;
+
+        var boot = Deliver<LfgBootPlayer>(packet =>
+        {
+            packet.WriteUInt8(1);                                   // in progress
+            packet.WriteUInt8(0);                                   // not passed
+            packet.WriteUInt8(1);                                   // voted
+            packet.WriteUInt8(1);                                   // for
+            packet.WriteUInt64(0x21);
+            packet.WriteUInt32(2);                                  // votes cast
+            packet.WriteUInt32(1);                                  // votes for
+            packet.WriteInt32(87);
+            packet.WriteUInt32(4);                                  // votes needed
+            packet.WriteString("noisy");                            // no terminator
+        }, _harness.Client.HandleLFGBootProposalUpdate);
+
+        Assert.True(boot.VoteInProgress);
+        Assert.False(boot.VotePassed);
+        Assert.True(boot.MyVoteCompleted);
+        Assert.True(boot.MyVote);
+        Assert.Equal(_other, boot.Target);
+        Assert.Equal(2u, boot.TotalVotes);
+        Assert.Equal(1u, boot.BootVotes);
+        Assert.Equal(87, boot.TimeLeft);
+        Assert.Equal(4u, boot.VotesNeeded);
+        Assert.Equal("noisy", boot.Reason);
     }
 }

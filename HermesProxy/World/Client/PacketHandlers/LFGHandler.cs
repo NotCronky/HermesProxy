@@ -6,6 +6,7 @@ using HermesProxy.World.Server;
 using HermesProxy.World.Server.Packets;
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace HermesProxy.World.Client;
 
@@ -525,6 +526,32 @@ public partial class WorldClient
         chosen.Accepted = packet.ReadUInt8() != 0;
         chosen.RoleMask = (byte)packet.ReadUInt32();
         SendPacketToClient(chosen);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LfgBootInfo</c>: four flag bytes, the GUID of whoever is voted on, the
+    /// votes cast and for, the seconds left and the votes needed, then the reason as the rest of
+    /// the packet with no terminator. 3.3.5a has three flag bytes and a terminated reason.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_LFG_BOOT_PROPOSAL_UPDATE)]
+    internal void HandleLFGBootProposalUpdate(WorldPacket packet)
+    {
+        // A 3.3.5a server sends the same opcode; no 3.3.5a session has been played with it.
+        if (!IsCataLegacy)
+            return;
+
+        LfgBootPlayer boot = new LfgBootPlayer();
+        boot.VoteInProgress = packet.ReadUInt8() != 0;
+        boot.VotePassed = packet.ReadUInt8() != 0;
+        boot.MyVoteCompleted = packet.ReadUInt8() != 0;
+        boot.MyVote = packet.ReadUInt8() != 0;
+        boot.Target = packet.ReadGuid().To128(GetSession().GameState);
+        boot.TotalVotes = packet.ReadUInt32();
+        boot.BootVotes = packet.ReadUInt32();
+        boot.TimeLeft = packet.ReadInt32();
+        boot.VotesNeeded = packet.ReadUInt32();
+        boot.Reason = Encoding.UTF8.GetString(packet.GetRemainingSpan());
+        SendPacketToClient(boot);
     }
 
     [HandlesSmsg(Opcode.SMSG_LFG_PARTY_INFO)]
