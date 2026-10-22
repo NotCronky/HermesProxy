@@ -1091,43 +1091,47 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_BATTLEFIELD_PLAYER_POSITIONS)]
     internal void HandleBattlegroundPlayerPositionsCata(WorldPacket packet)
     {
-        Span<bool> firstMask = stackalloc bool[8];
-        Span<bool> secondMask = stackalloc bool[8];
+        const int MaxCarriers = 4;
+        Span<bool> firstMasks = stackalloc bool[8 * MaxCarriers];
+        Span<bool> secondMasks = stackalloc bool[8 * MaxCarriers];
         Span<byte> guid = stackalloc byte[8];
 
-        // the server sends at most one carrier in each list
+        // TrinityCore 4.3.4 lists the Alliance flag's carrier first and the Horde flag's second,
+        // one at most in each; another 4.3.4 core puts both carriers in the second list.
         uint firstCount = packet.ReadBits<uint>(22);
-        if (firstCount > 1)
+        if (firstCount > MaxCarriers)
             return;
-        if (firstCount == 1)
-            MaskedGuid.ReadMaskBits(packet, firstMask, [3, 5, 1, 6, 7, 0, 2, 4]);
+        for (int i = 0; i < firstCount; i++)
+            MaskedGuid.ReadMaskBits(packet, firstMasks.Slice(i * 8, 8), [3, 5, 1, 6, 7, 0, 2, 4]);
         uint secondCount = packet.ReadBits<uint>(22);
-        if (secondCount > 1)
+        if (secondCount > MaxCarriers)
             return;
-        if (secondCount == 1)
-            MaskedGuid.ReadMaskBits(packet, secondMask, [6, 5, 4, 7, 2, 1, 0, 3]);
+        for (int i = 0; i < secondCount; i++)
+            MaskedGuid.ReadMaskBits(packet, secondMasks.Slice(i * 8, 8), [6, 5, 4, 7, 2, 1, 0, 3]);
 
         GetSession().GameState.FlagCarrierGuids.Clear();
         BattlegroundPlayerPositions bglist = new BattlegroundPlayerPositions();
-        if (secondCount == 1)
+        for (int i = 0; i < secondCount; i++)
         {
+            ReadOnlySpan<bool> mask = secondMasks.Slice(i * 8, 8);
             guid.Clear();
             Vector2 pos;
-            MaskedGuid.ReadBytes(packet, secondMask, guid, [2, 1]);
+            MaskedGuid.ReadBytes(packet, mask, guid, [2, 1]);
             pos.Y = packet.ReadFloat();
-            MaskedGuid.ReadBytes(packet, secondMask, guid, [5, 4, 7, 0, 6, 3]);
+            MaskedGuid.ReadBytes(packet, mask, guid, [5, 4, 7, 0, 6, 3]);
             pos.X = packet.ReadFloat();
             AddFlagCarrier(bglist, MaskedGuid.ToUInt64(guid), pos);
         }
-        if (firstCount == 1)
+        for (int i = 0; i < firstCount; i++)
         {
+            ReadOnlySpan<bool> mask = firstMasks.Slice(i * 8, 8);
             guid.Clear();
             Vector2 pos;
-            MaskedGuid.ReadBytes(packet, firstMask, guid, [6]);
+            MaskedGuid.ReadBytes(packet, mask, guid, [6]);
             pos.X = packet.ReadFloat();
-            MaskedGuid.ReadBytes(packet, firstMask, guid, [5, 3]);
+            MaskedGuid.ReadBytes(packet, mask, guid, [5, 3]);
             pos.Y = packet.ReadFloat();
-            MaskedGuid.ReadBytes(packet, firstMask, guid, [1, 7, 0, 2, 4]);
+            MaskedGuid.ReadBytes(packet, mask, guid, [1, 7, 0, 2, 4]);
             AddFlagCarrier(bglist, MaskedGuid.ToUInt64(guid), pos);
         }
         SendPacketToClient(bglist);

@@ -37,6 +37,9 @@ public sealed class CataBattlegroundReaderTests
         "00 00 02 21 10 00 00 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 " +
         "00 00 00 00 00 00 00 00 00 00 00 00 03 00 01";
     private const string OneFlagCarrier = "00 00 00 00 00 10 20 00 40 b3 44 03 00 80 65 44";
+    // as another 4.3.4 core sent it in Warsong Gulch with both flags taken (2026-10-12): the first
+    // list empty, both carriers (0x21F3, 0x2175) in the second
+    private const string TwoFlagCarriers = "00 00 00 00 00 20 60 60 20 3e 3a b3 44 f2 b3 38 65 44 20 1f 0d b6 44 74 85 20 88 44";
     private const string Countdown = "00 00 00 00 6e 00 00 00 78 00 00 00";
 
     private readonly LegacyHandlerHarness _harness = new(recordClientPackets: true);
@@ -199,6 +202,24 @@ public sealed class CataBattlegroundReaderTests
         Assert.Equal(_player, carrier.Guid);
         Assert.Equal(new Vector2(918f, 1434f), carrier.Pos);
         Assert.Contains(_player, _harness.Session.GameState.FlagCarrierGuids);
+    }
+
+    [Fact]
+    public void FlagCarriers_BothInTheSecondList_AreBothRead()
+    {
+        var first = _harness.AddKnownObject(new WowGuid64(0x21F3), ObjectType.Player);
+        var second = _harness.AddKnownObject(new WowGuid64(0x2175), ObjectType.Player);
+
+        var positions = Deliver<BattlegroundPlayerPositions>(
+            Opcode.SMSG_BATTLEFIELD_PLAYER_POSITIONS, TwoFlagCarriers, _harness.Client.HandleBattlegroundPlayerPositionsCata);
+
+        Assert.Equal(2, positions.FlagCarriers.Count);
+        Assert.Equal(first, positions.FlagCarriers[0].Guid);
+        Assert.Equal(new Vector2(916.8859f, 1433.8201f), positions.FlagCarriers[0].Pos);
+        Assert.Equal(second, positions.FlagCarriers[1].Guid);
+        Assert.Equal(new Vector2(1089.0162f, 1456.4100f), positions.FlagCarriers[1].Pos);
+        Assert.Contains(first, _harness.Session.GameState.FlagCarrierGuids);
+        Assert.Contains(second, _harness.Session.GameState.FlagCarrierGuids);
     }
 
     [Fact]
