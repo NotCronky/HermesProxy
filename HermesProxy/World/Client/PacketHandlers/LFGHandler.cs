@@ -102,9 +102,9 @@ public partial class WorldClient
             for (int j = 0; j < lockCounts[i]; j++)
             {
                 DFJoinBlackListSlot slot = new DFJoinBlackListSlot();
-                slot.Reason = LfgSlots.ToDisplayLockStatus(packet.ReadUInt32());
-                packet.ReadUInt32();    // item level needed
-                packet.ReadUInt32();    // item level had
+                slot.Reason = packet.ReadUInt32();
+                slot.SubReason1 = packet.ReadInt32();   // item level needed
+                slot.SubReason2 = packet.ReadInt32();   // item level had
                 slot.Slot = packet.ReadUInt32();
                 member.Slots.Add(slot);
             }

@@ -193,6 +193,23 @@ public sealed class CataLfgTests
     }
 
     [Fact]
+    public void HandleLFGJoinResultCata_ARefusalForGear_KeepsTheLockAndItsItemLevels()
+    {
+        // End Time (heroic) alone, as TrinityCore 4.3.4 refused it: not meet the requirements,
+        // one member (0x2224) with one lock, too low an item level, 353 needed and 336 had
+        var result = DeliverHex<DFJoinResult>(
+            "03000000 1F D5000000 00 0BABD96A 10000010 90000048 04000000 61010000 50010000 B3010000 2325 2325",
+            _harness.Client.HandleLFGJoinResultCata);
+
+        Assert.Equal(LfgJoinResults.ModernNoSlots, result.Result);
+        DFJoinBlackListSlot locked = Assert.Single(Assert.Single(result.BlackList).Slots);
+        Assert.Equal(435u, locked.Slot);
+        Assert.Equal((uint)LFGLockStatus.TooLowGearScore, locked.Reason);
+        Assert.Equal(353, locked.SubReason1);
+        Assert.Equal(336, locked.SubReason2);
+    }
+
+    [Fact]
     public void HandleLFGUpdateStatusCata_TheThreeUpdatesOfAQueue()
     {
         // joined, then queued, then (after leaving) removed
