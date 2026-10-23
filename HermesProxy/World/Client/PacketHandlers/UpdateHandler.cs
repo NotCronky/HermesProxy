@@ -436,6 +436,25 @@ public partial class WorldClient
         return LegacyPowerSlotsCata.TypeAt(classId, slot);
     }
 
+    // A 3.4.3 or later client keeps a creature's powers in no class's slots: its own power type is
+    // slot 0 and combo points slot 2, whatever its class (TrinityCore wotlk_classic
+    // Creature::GetPowerIndex, and every creature in a native capture). By the class table a
+    // warrior-class vehicle whose power display is energy, such as Soo-holu in Will of the Titans,
+    // had no energy at all, and the client refused its spells for want of it. Invalid where the
+    // class table applies: players, hunter pets, the older clients, and a 4.3.4 server, whose
+    // power fields are the class's slots already.
+    PowerType CreatureDisplayPower(WowGuid128 guid, ObjectType objectType, Dictionary<int, UpdateField> updates)
+    {
+        if (objectType != ObjectType.Unit || IsCataLegacy || !ModernVersion.IsWotLKClassicOrLater
+            || GetSession().GameState.HunterPetGuids.Contains(guid))
+            return PowerType.Invalid;
+
+        int bytes0 = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_BYTES_0);
+        return bytes0 >= 0 && updates.TryGetValue(bytes0, out var field)
+            ? (PowerType)((field.UInt32Value >> 24) & 0xFF)
+            : PowerType.Mana;
+    }
+
     // 4.3.4 sends what a power's regeneration adds to its power type's base, in the class's power
     // slot, and the 4.4.2 client adds the same bases from its PowerType table, so the modifiers go
     // over as they are. Without them the client counted a hunter's focus back at the bare 5 a
@@ -3328,23 +3347,31 @@ public partial class WorldClient
                 }
             }
 
+            // A creature's new power type puts another power in its slot 0, and that power's own
+            // field need not change with it (a druid's form, a vehicle's power display).
+            PowerType creaturePower = CreatureDisplayPower(guid, objectType, updates);
+            bool creaturePowerChanged = creaturePower != PowerType.Invalid && UNIT_FIELD_BYTES_0 >= 0 && updateMaskArray[UNIT_FIELD_BYTES_0];
             int UNIT_FIELD_POWER1 = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER1);
             if (UNIT_FIELD_POWER1 >= 0)
             {
                 for (int i = 0; i < LegacyVersion.GetPowersCount(); i++)
                 {
-                    if (updateMaskArray[UNIT_FIELD_POWER1 + i])
+                    if (updateMaskArray[UNIT_FIELD_POWER1 + i] || (creaturePowerChanged && (PowerType)i == creaturePower))
                     {
                         PowerType power = IsCataLegacy ? LegacyPowerTypeAt(guid, updateData, i) : (PowerType)i;
                         if (power == PowerType.Invalid)
                             continue;
 
+                        // A create leaves out a field that is 0.
+                        int value = updates.TryGetValue(UNIT_FIELD_POWER1 + i, out var field) ? field.Int32Value : 0;
                         if (powerUpdate != null &&
                            (guid == GetSession().GameState.CurrentPlayerGuid || guid == GetSession().GameState.CurrentPetGuid))
-                            powerUpdate.Powers.Add(new PowerUpdatePower(updates[UNIT_FIELD_POWER1 + i].Int32Value, (byte)ClassPowerTypes.ToModernPowerType(power)));
+                            powerUpdate.Powers.Add(new PowerUpdatePower(value, (byte)ClassPowerTypes.ToModernPowerType(power)));
 
                         sbyte powerSlot;
-                        if (GetSession().GameState.HunterPetGuids.Contains(guid))
+                        if (creaturePower != PowerType.Invalid)
+                            powerSlot = power == creaturePower ? (sbyte)0 : (sbyte)-1;
+                        else if (GetSession().GameState.HunterPetGuids.Contains(guid))
                             powerSlot = ClassPowerTypes.GetPowerSlotForPet(power);
                         else
                         {
@@ -3357,7 +3384,7 @@ public partial class WorldClient
                         }
                             
                         if (powerSlot >= 0)
-                            updateData.UnitData.EnsurePower()[powerSlot] = updates[UNIT_FIELD_POWER1 + i].Int32Value;
+                            updateData.UnitData.EnsurePower()[powerSlot] = value;
                     }
                 }
             }
@@ -3366,12 +3393,13 @@ public partial class WorldClient
             {
                 for (int i = 0; i < LegacyVersion.GetPowersCount(); i++)
                 {
-                    if (updateMaskArray[UNIT_FIELD_MAXPOWER1 + i])
+                    if (updateMaskArray[UNIT_FIELD_MAXPOWER1 + i] || (creaturePowerChanged && (PowerType)i == creaturePower))
                     {
                         PowerType power = IsCataLegacy ? LegacyPowerTypeAt(guid, updateData, i) : (PowerType)i;
                         if (power == PowerType.Invalid)
                             continue;
 
+                        int value = updates.TryGetValue(UNIT_FIELD_MAXPOWER1 + i, out var field) ? field.Int32Value : 0;
                         Class classId;
                         if (updateData.UnitData.ClassId != null)
                             classId = (Class)updateData.UnitData.ClassId;
@@ -3379,17 +3407,21 @@ public partial class WorldClient
                             classId = GetSession().GameState.GetUnitClass(guid.To128(GetSession().GameState));
 
                         sbyte powerSlot;
-                        if (GetSession().GameState.HunterPetGuids.Contains(guid))
+                        if (creaturePower != PowerType.Invalid)
+                            powerSlot = power == creaturePower ? (sbyte)0 : (sbyte)-1;
+                        else if (GetSession().GameState.HunterPetGuids.Contains(guid))
                             powerSlot = ClassPowerTypes.GetPowerSlotForPet(power);
                         else
                             powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, power);
 
                         if (powerSlot >= 0)
-                            updateData.UnitData.EnsureMaxPower()[powerSlot] = updates[UNIT_FIELD_MAXPOWER1 + i].Int32Value;
+                            updateData.UnitData.EnsureMaxPower()[powerSlot] = value;
 
                         if (power == PowerType.Energy)
                         {
-                            powerSlot = ClassPowerTypes.GetPowerSlotForClass(classId, PowerType.ComboPoints);
+                            powerSlot = creaturePower != PowerType.Invalid
+                                ? ClassPowerTypes.CreatureComboPointsSlot
+                                : ClassPowerTypes.GetPowerSlotForClass(classId, PowerType.ComboPoints);
                             if (powerSlot >= 0)
                                 updateData.UnitData.EnsureMaxPower()[powerSlot] = 5;
                         }
