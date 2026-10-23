@@ -321,8 +321,8 @@ public static class PetCancelAuraCodec
 
 /// <summary>
 /// A pet spell's autocast turned on or off: the modern clients' one layout (TrinityCore
-/// PetSpellAutocast::Read, cata_classic and master alike). Seen from the 4.4.2 client; 3.4.3 has
-/// no such opcode.
+/// PetSpellAutocast::Read, cata_classic, wotlk_classic and master alike). Seen from the 4.4.2 and
+/// 3.4.3 clients.
 /// </summary>
 public static class PetSpellAutocastCodec
 {
