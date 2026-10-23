@@ -456,11 +456,13 @@ public partial class WorldClient
             : PowerType.Mana;
     }
 
-    // 4.3.4 sends what a power's regeneration adds to its power type's base, in the class's power
-    // slot, and the 4.4.2 client adds the same bases from its PowerType table, so the modifiers go
-    // over as they are. Without them the client counted a hunter's focus back at the bare 5 a
-    // second while the server gave 4, and let shots go out that the server refused for want of focus.
-    void CopyPowerRegenModifiersCata(WowGuid128 guid, ObjectUpdate updateData, BitArray updateMaskArray, Dictionary<int, UpdateField> updates)
+    // 3.3.5 and 4.3.4 send what a power's regeneration adds to its power type's base (mana's is the
+    // whole rate), 3.3.5 by power type and 4.3.4 in the class's power slot. The 3.4.3 and 4.4.2
+    // clients add the same bases from their PowerType table, so the modifiers go over as they are.
+    // Without them the 4.4.2 client counted a hunter's focus back at the bare 5 a second while the
+    // server gave 4, and let shots go out that the server refused for want of focus; the 3.4.3
+    // client counted a rogue's energy at 10 a second through Adrenaline Rush, where the server gave 20.
+    void CopyPowerRegenModifiers(WowGuid128 guid, ObjectUpdate updateData, BitArray updateMaskArray, Dictionary<int, UpdateField> updates)
     {
         int flat = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER);
         int interrupted = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER);
@@ -475,7 +477,7 @@ public partial class WorldClient
             if (!hasFlat && !hasInterrupted)
                 continue;
 
-            PowerType power = LegacyPowerTypeAt(guid, updateData, i);
+            PowerType power = IsCataLegacy ? LegacyPowerTypeAt(guid, updateData, i) : (PowerType)i;
             if (power == PowerType.Invalid)
                 continue;
 
@@ -3443,8 +3445,8 @@ public partial class WorldClient
                     }
                 }
             }
-            if (IsCataLegacy)
-                CopyPowerRegenModifiersCata(guid, updateData, updateMaskArray, updates);
+            if (IsCataLegacy || ModernVersion.ExpansionVersion == 3)
+                CopyPowerRegenModifiers(guid, updateData, updateMaskArray, updates);
             int UNIT_VIRTUAL_ITEM_SLOT_DISPLAY = LegacyVersion.GetUpdateField(UnitField.UNIT_VIRTUAL_ITEM_SLOT_DISPLAY);
             if (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY >= 0)
             {
