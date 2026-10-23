@@ -479,7 +479,7 @@ public partial class WorldClient
             return;
 
         SpellStart spell = new SpellStart();
-        spell.Cast = HandleSpellStartOrGo(packet, false);
+        spell.Cast = HandleSpellStartOrGo(packet, false, out _);
 
         // Mark pending cast as started (queue-based, FIFO order)
         if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
@@ -634,7 +634,7 @@ public partial class WorldClient
             return;
 
         SpellGo spell = new SpellGo();
-        spell.Cast = HandleSpellStartOrGo(packet, true);
+        spell.Cast = HandleSpellStartOrGo(packet, true, out byte runesMadeReady);
 
         // Dequeue completed cast (queue-based, FIFO order)
         if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
@@ -718,6 +718,11 @@ public partial class WorldClient
         ApplyV343NativeCastPolicy(spell.Cast, isSpellGo: true);
         SendGuidSubjectPacket(spell, spell.Cast.CasterUnit);
 
+        // TrinityCore 3.4.3 tells of runes a spell made ready at once (Blood Tap, Empower Rune
+        // Weapon) with SMSG_ADD_RUNE_POWER after the cast; the 3.4.3 client goes by that alone.
+        if (runesMadeReady != 0)
+            SendPacketToClient(new AddRunePower { AddedRunesMask = runesMadeReady });
+
         if (ModernVersion.IsWotLKClassicOrLater
             && GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit
             && GameData.TryGetBattlePetSpecies((uint)spell.Cast.SpellID, out _))
@@ -746,8 +751,9 @@ public partial class WorldClient
             cast.CastFlags &= ~(uint)CastFlag.HasTrajectory;
     }
 
-    SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo)
+    SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo, out byte runesMadeReady)
     {
+        runesMadeReady = 0;
         SpellCastData dbdata = new SpellCastData();
 
         dbdata.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
@@ -958,6 +964,13 @@ public partial class WorldClient
 
                 if (runeStateCache != null)
                 {
+                    byte knownReady = 0;
+                    for (int i = 0; i < RuneStateData.MaxRunes; i++)
+                    {
+                        if (runeStateCache.Cooldowns[i] == 255)
+                            knownReady |= (byte)(1 << i);
+                    }
+
                     // Sync the cached RuneState so the next CREATE (zone change / mount)
                     // reflects the latest state, and emit a V3_4_3-shaped RemainingRunes
                     // (per CypherCore native sniff): Start always 0x3F, Count = post-cast
@@ -979,6 +992,15 @@ public partial class WorldClient
                         Start = (byte)((1 << RuneStateData.MaxRunes) - 1),
                         Count = usableMask,
                     };
+
+                    // A 3.3.5a server tells of runes a spell made ready at once only by the cast's
+                    // masks, and its mask before is no good for which: a triggered cast has none
+                    // ready before it, and AzerothCore takes it again at each rune effect, so it
+                    // shows only Empower Rune Weapon's last. When a cast shows any, the runes it
+                    // made ready are those ready after it that the last cast left recharging.
+                    if (!everyRune && dbdata.CasterUnit == GetSession().GameState.CurrentPlayerGuid
+                        && (usableMask & ~rechargingMask) != 0)
+                        runesMadeReady = (byte)(usableMask & ~knownReady);
                     for (int i = 0; i < RuneStateData.MaxRunes; i++)
                         runes.Cooldowns.Add(runeStateCache.Cooldowns[i]);
                     dbdata.RemainingRunes = runes;
@@ -2038,7 +2060,8 @@ public partial class WorldClient
     // and the V3_4_3 client manages the visual cooldown swirl from that snapshot — that's the
     // dominant path. The cached RuneState feeds the next CREATE block on zone change / mount.
     // CONVERT_RUNE comes only when a rune changes kind and is the client's only word of a death
-    // rune, so it goes on to the 3.4.3 client too.
+    // rune, so it goes on to the 3.4.3 client too. Runes a spell made ready at once come from a
+    // 3.3.5a server only in the cast's SPELL_GO, and HandleSpellGo sends ADD_RUNE_POWER for them.
     // TrinityCore 4.3.4 sends RESYNC_RUNES only at login, and the other two only when a spell or
     // an aura changes a rune, as TrinityCore cata_classic does; those two go on to the 4.4.2
     // client, which has no other way to learn of a death rune or of runes made ready at once.
