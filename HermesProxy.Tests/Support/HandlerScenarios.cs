@@ -78,6 +78,14 @@ internal sealed class AlteracValleyScenario
             (Field(UnitField.UNIT_FIELD_POWER1), mana));
     });
 
+    /// <summary>The SMSG_POWER_UPDATE a server's SetPower sends for the player's mana.</summary>
+    public byte[] BuildOwnLegacyPowerUpdate(uint mana) => LegacyPacketBuilder.Build(Opcode.SMSG_POWER_UPDATE, packet =>
+    {
+        packet.WritePackedGuid(LegacyPlayer);
+        packet.WriteUInt8((byte)PowerType.Mana);
+        packet.WriteUInt32(mana);
+    });
+
     /// <summary>Another player's Values block with only the player flags.</summary>
     public byte[] BuildPlayerFlags(uint flags) => LegacyPacketBuilder.Build(Opcode.SMSG_UPDATE_OBJECT, packet =>
     {

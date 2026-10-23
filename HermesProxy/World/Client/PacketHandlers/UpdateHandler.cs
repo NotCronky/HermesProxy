@@ -3366,7 +3366,11 @@ public partial class WorldClient
                         int value = updates.TryGetValue(UNIT_FIELD_POWER1 + i, out var field) ? field.Int32Value : 0;
                         if (powerUpdate != null &&
                            (guid == GetSession().GameState.CurrentPlayerGuid || guid == GetSession().GameState.CurrentPetGuid))
-                            powerUpdate.Powers.Add(new PowerUpdatePower(value, (byte)ClassPowerTypes.ToModernPowerType(power)));
+                        {
+                            byte modernPower = (byte)ClassPowerTypes.ToModernPowerType(power);
+                            if (!RepeatsForwardedPowerUpdate(guid, modernPower, value))
+                                powerUpdate.Powers.Add(new PowerUpdatePower(value, modernPower));
+                        }
 
                         sbyte powerSlot;
                         if (creaturePower != PowerType.Invalid)
