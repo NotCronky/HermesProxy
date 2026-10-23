@@ -540,6 +540,21 @@ public class SpellCodecEquivalenceTests
     }
 
     /// <summary>
+    /// The 3.4.3 client sends an autocast toggle as 13455 (0x348F, between CMSG_PET_CANCEL_AURA and
+    /// CMSG_REQUEST_PET_INFO, as in TrinityCore wotlk_classic's table; the client's layout is the
+    /// packed GUID, u32 and bit above). Without it in the table the toggle arrived as
+    /// MSG_NULL_ACTION and went no further: the bar showed the change, the server never had it.
+    /// </summary>
+    [Fact]
+    public void PetSpellAutocast_OfA343Client_IsDispatchedAndHasA335Opcode()
+    {
+        Opcode dispatched = Opcodes.GetUniversalOpcode(13455u, ClientVersionBuild.V3_4_3_54261);
+
+        Assert.Equal(Opcode.CMSG_PET_SPELL_AUTOCAST, dispatched);
+        Assert.Equal(0x2F3u, Opcodes.GetOpcodeValueForVersion(dispatched, ClientVersionBuild.V3_3_5a_12340));
+    }
+
+    /// <summary>
     /// A Mirror Image asking what it looks like, captured from a 4.4.2 client: the image's GUID
     /// (creature 31216) and the display id the client has for it (50, the caster's).
     /// </summary>

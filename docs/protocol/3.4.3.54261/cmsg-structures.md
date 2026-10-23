@@ -1092,11 +1092,12 @@ Notation: see [the README](README.md).
 - Size: 4 bytes (packed GUIDs not counted)
 - HermesProxy: `PetCancelAura` — matches
 
-### — (0x348f)
+### CMSG_PET_SPELL_AUTOCAST (0x348f)
 
-- Modern: 13455 (0x348f) · 3.3.5a: —
+- Modern: 13455 (0x348f) · 3.3.5a: 755 (0x2f3)
 - Layout (after the opcode): `guid u32 flush`
 - Bit fields (message of zeros, widths in order written): byte 6: 1 · (7 unused)
+- HermesProxy: `PetSpellAutocast` — matches
 
 ### CMSG_REQUEST_PET_INFO (0x3490)
 
