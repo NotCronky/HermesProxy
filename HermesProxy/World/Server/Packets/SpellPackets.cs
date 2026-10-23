@@ -2857,27 +2857,24 @@ public sealed class SetSpellModifier : ServerPacket, ISpanWritable
 
     public override void Write() => Layout.Write(this, _worldPacket);
 
-    private const int MaxModifiers = 8;
-    private const int MaxDataPerModifier = 8;
-    // 4 (count) + 8 * (1 + 4 + 8 * 5) = 4 + 8 * 45 = 364 bytes
-    public int MaxSize => 4 + MaxModifiers * (1 + 4 + MaxDataPerModifier * 5);
+    // Sized from this packet's own modifiers: the count, then per modifier its index and count and
+    // 5 bytes per value. The set the proxy sends again when the player is created holds every
+    // modifier the character has, past any fixed cap: a level 80 death knight's went down the
+    // boxed path with an "exceeded MaxSize" warning at every map change.
+    public int MaxSize
+    {
+        get
+        {
+            int size = 4;
+            foreach (SpellModifierInfo spellMod in Modifiers)
+                size += 1 + 4 + spellMod.ModifierData.Count * 5;
+            return size;
+        }
+    }
 
     public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
 
     public List<SpellModifierInfo> Modifiers = new();
-
-    private static bool FitsSpan(SetSpellModifier packet)
-    {
-        if (packet.Modifiers.Count > MaxModifiers)
-            return false;
-
-        foreach (SpellModifierInfo spellMod in packet.Modifiers)
-        {
-            if (spellMod.ModifierData.Count > MaxDataPerModifier)
-                return false;
-        }
-        return true;
-    }
 
     /// <summary>Up to 4.4.0 (WowPacketParser reads an int32 until 3.4.4 and 4.4.1): the value is an int32.</summary>
     internal sealed class IntValueLayout : ServerPacketLayout<SetSpellModifier>
@@ -2899,9 +2896,6 @@ public sealed class SetSpellModifier : ServerPacket, ISpanWritable
 
         public override int WriteToSpan(SetSpellModifier packet, Span<byte> buffer)
         {
-            if (!FitsSpan(packet))
-                return -1;
-
             var writer = new SpanPacketWriter(buffer);
             writer.WriteInt32(packet.Modifiers.Count);
             foreach (SpellModifierInfo spellMod in packet.Modifiers)
@@ -2942,9 +2936,6 @@ public sealed class SetSpellModifier : ServerPacket, ISpanWritable
 
         public override int WriteToSpan(SetSpellModifier packet, Span<byte> buffer)
         {
-            if (!FitsSpan(packet))
-                return -1;
-
             var writer = new SpanPacketWriter(buffer);
             writer.WriteInt32(packet.Modifiers.Count);
             foreach (SpellModifierInfo spellMod in packet.Modifiers)
