@@ -2560,8 +2560,8 @@ class EnvironmentalDamageLog : ServerPacket, ISpanWritable
 public sealed class SpellInstakillLog : ServerPacket, ISpanWritable
 {
     internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellInstakillLog>> Layouts = new(
-        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new GuidOrderLayout(casterFirst: false)),
-        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new GuidOrderLayout(casterFirst: true)));
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new GuidOrderLayout(casterFirst: false)),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.Zero, new GuidOrderLayout(casterFirst: true)));
 
     private static readonly ServerPacketLayout<SpellInstakillLog> Layout = Layouts.ForRunningClient();
 
@@ -2574,10 +2574,11 @@ public sealed class SpellInstakillLog : ServerPacket, ISpanWritable
     public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
 
     /// <summary>
-    /// The 4.4.2 client logs the first GUID as the SPELL_INSTAKILL source, the one whose spell
-    /// "instantly kills" the other. TrinityCore cata_classic and WowPacketParser call the first
-    /// GUID the target, and with the target first the 4.4.2 client logged the victim as the killer
-    /// of the caster. The older clients are untested and keep the target first.
+    /// The 3.4.3 and 4.4.2 clients log the first GUID as the SPELL_INSTAKILL source, the one whose
+    /// spell "instantly kills" the other. TrinityCore wotlk_classic and cata_classic and
+    /// WowPacketParser call the first GUID the target, and with the target first both clients
+    /// logged the victim as the killer of the caster. The 1.14 and 2.5 clients are untested and keep
+    /// the target first.
     /// </summary>
     internal sealed class GuidOrderLayout(bool casterFirst) : ServerPacketLayout<SpellInstakillLog>
     {
