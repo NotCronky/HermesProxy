@@ -3658,6 +3658,12 @@ public partial class WorldClient
             if (UNIT_MOD_CAST_SPEED >= 0 && updateMaskArray[UNIT_MOD_CAST_SPEED])
             {
                 updateData.UnitData.ModCastSpeed = updates[UNIT_MOD_CAST_SPEED].FloatValue;
+                // A server before 4.x has this one cast-time multiplier, and shortens the global
+                // cooldown of spells with it. The 3.4.3 client shortens its own global cooldown with
+                // a second one, which TrinityCore 3.4.3 moves together with the cast speed
+                // (ApplyCastTimePercentMod); left at 1, the client held a hasted caster to 1.5 s.
+                if (!IsCataLegacy && ModernVersion.IsWotLKClassicOrLater)
+                    updateData.UnitData.ModCastHaste = updates[UNIT_MOD_CAST_SPEED].FloatValue;
             }
             // 4.3.4's spell haste multiplier; the 4.4.2 client's spell haste percentage comes from it.
             int UNIT_MOD_CAST_HASTE = IsCataLegacy ? LegacyVersion.GetUpdateField(UnitField.UNIT_MOD_CAST_HASTE) : -1;
