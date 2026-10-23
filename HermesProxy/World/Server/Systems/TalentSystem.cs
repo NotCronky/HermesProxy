@@ -82,15 +82,17 @@ public static class TalentSystem
     }
 
     // Modern V3_4_3 CMSG_REMOVE_GLYPH (0x32E0 / 13056) → legacy CMSG_REMOVE_GLYPH (0x48A).
-    // Both share the same payload: uint8 GlyphSlot (0-5). The legacy server replies with
-    // a fresh SMSG_UPDATE_TALENT_DATA, which TalentHandler.HandleTalentsInfoUpdate processes
+    // The modern client sends the socket as a uint8; a 3.3.5a server reads a uint32
+    // (AzerothCore and CMaNGOS HandleRemoveGlyph), and a single byte left it reading past
+    // the end, the glyph kept. The legacy server replies with a fresh
+    // SMSG_UPDATE_TALENT_DATA, which TalentHandler.HandleTalentsInfoUpdate processes
     // and re-emits SMSG_ACTIVE_GLYPHS — the slot will appear empty in the UI on next refresh.
     [HandlesCmsg(Opcode.CMSG_REMOVE_GLYPH)]
     public static void HandleRemoveGlyph(in RemoveGlyph remove, in SessionContext ctx)
     {
         Log.Print(LogType.Network, $"CMSG_REMOVE_GLYPH: slot={remove.GlyphSlot} → forwarding to legacy");
         WorldPacket packet = new WorldPacket(Opcode.CMSG_REMOVE_GLYPH);
-        packet.WriteUInt8(remove.GlyphSlot);
+        packet.WriteUInt32(remove.GlyphSlot);
         ctx.SendPacketToServer(packet);
     }
 }
