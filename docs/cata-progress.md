@@ -1299,7 +1299,7 @@ HermesProxy/World/Server/Packets/QuestPackets.cs 8b406683478dfc3b
 HermesProxy/World/Server/Packets/ReputationPackets.cs e34c6c2589a93d36
 HermesProxy/World/Server/Packets/SessionPackets.cs 42add97ee432dd80
 HermesProxy/World/Server/Packets/SocialPackets.cs 3cb59544ceaf9e11
-HermesProxy/World/Server/Packets/SpellPackets.cs dd4edd236269007d
+HermesProxy/World/Server/Packets/SpellPackets.cs 638afaf1ed609495
 HermesProxy/World/Server/Packets/SupportTicketPackets.cs 8a60b9d239df6733
 HermesProxy/World/Server/Packets/SystemPackets.cs 4f6491fd9e219bdc
 HermesProxy/World/Server/Packets/TalentPackets.cs 2e67cc9aad895d57

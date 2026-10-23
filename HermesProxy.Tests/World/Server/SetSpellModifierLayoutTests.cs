@@ -59,18 +59,33 @@ public sealed class SetSpellModifierLayoutTests
         AssertBothSerialisers(new SetSpellModifier.FloatValueLayout(), packet, expected);
     }
 
-    [Fact]
-    public void WriteToSpan_PastTheCap_FallsBack()
+    /// <summary>
+    /// The set sent again when the player is created holds every modifier the character has: more
+    /// modifiers, and more class bits per modifier, than any fixed cap. It is written in place,
+    /// into a buffer exactly its size.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteToSpan_EveryModifierOfALevel80Character_FitsExactly(bool floatValues)
     {
         var packet = new SetSpellModifier(Opcode.SMSG_SET_PCT_SPELL_MODIFIER);
-        var mod = new SpellModifierInfo { ModIndex = 0 };
-        for (byte i = 0; i < 9; i++)
-            mod.ModifierData.Add(new SpellModifierData { ClassIndex = i, ModifierValue = 15 });
-        packet.Modifiers.Add(mod);
+        for (byte modIndex = 0; modIndex < 20; modIndex++)
+        {
+            var mod = new SpellModifierInfo { ModIndex = modIndex };
+            for (byte classIndex = 0; classIndex < 30; classIndex++)
+                mod.ModifierData.Add(new SpellModifierData { ClassIndex = classIndex, ModifierValue = 15 });
+            packet.Modifiers.Add(mod);
+        }
+        ServerPacketLayout<SetSpellModifier> layout = floatValues ? new SetSpellModifier.FloatValueLayout() : new SetSpellModifier.IntValueLayout();
 
+        using var data = new WorldPacket(1u);
+        layout.Write(packet, data);
         byte[] buffer = new byte[packet.MaxSize];
-        Assert.Equal(-1, new SetSpellModifier.IntValueLayout().WriteToSpan(packet, buffer));
-        Assert.Equal(-1, new SetSpellModifier.FloatValueLayout().WriteToSpan(packet, buffer));
+
+        Assert.Equal(data.GetDataSpan().Length, packet.MaxSize);
+        Assert.Equal(packet.MaxSize, layout.WriteToSpan(packet, buffer));
+        Assert.Equal(data.GetDataSpan().ToArray(), buffer);
     }
 
     private static SetSpellModifier LongAndRapidCharge()
