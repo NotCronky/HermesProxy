@@ -9,7 +9,7 @@ namespace HermesProxy.Tests.World.Server;
 
 /// <summary>
 /// <see cref="SpellInstakillLog"/>: the older clients keep the target first, the bytes the single
-/// serialiser gave before the layouts; from 4.4.2 the caster comes first, the GUID the client logs
+/// serialiser gave before the layouts; from 3.4.3 the caster comes first, the GUID the client logs
 /// as the killer.
 /// </summary>
 public sealed class SpellInstakillLogLayoutTests
@@ -22,7 +22,7 @@ public sealed class SpellInstakillLogLayoutTests
     {
         Assert.False(CasterFirst(SpellInstakillLog.Layouts.For(ClientVersionBuild.V1_14_2_42597)));
         Assert.False(CasterFirst(SpellInstakillLog.Layouts.For(ClientVersionBuild.V2_5_3_41750)));
-        Assert.False(CasterFirst(SpellInstakillLog.Layouts.For(ClientVersionBuild.V3_4_3_54261)));
+        Assert.True(CasterFirst(SpellInstakillLog.Layouts.For(ClientVersionBuild.V3_4_3_54261)));
         Assert.True(CasterFirst(SpellInstakillLog.Layouts.For(ClientVersionBuild.V4_4_2_60895)));
     }
 
