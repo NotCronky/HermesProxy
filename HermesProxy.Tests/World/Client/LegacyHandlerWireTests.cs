@@ -67,6 +67,41 @@ public class LegacyHandlerWireTests
     }
 
     /// <summary>
+    /// SetPower sends SMSG_POWER_UPDATE and puts the same value in the next Values block, which
+    /// gave the client every such change twice. A field-only change after it still goes out.
+    /// </summary>
+    [Fact]
+    public void OwnPowerUpdate_RepeatedByTheNextValuesBlock_IsSentOnce()
+    {
+        DeliverPowerUpdate(_scenario.BuildOwnLegacyPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(110));
+
+        Assert.Equal([100, 110], SentOwnPowers());
+    }
+
+    /// <summary>
+    /// The power moved again before the Values block went out, so the block is news and the value
+    /// forwarded before it is spent: a later block that comes back to it is sent as well.
+    /// </summary>
+    [Fact]
+    public void OwnPowerUpdate_FollowedByAnotherValue_IsNotHeldForLater()
+    {
+        DeliverPowerUpdate(_scenario.BuildOwnLegacyPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(97));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(100));
+
+        Assert.Equal([100, 97, 100], SentOwnPowers());
+    }
+
+    private void DeliverPowerUpdate(byte[] wire)
+        => _harness.Deliver(Opcode.SMSG_POWER_UPDATE, wire, _harness.Client.HandlePowerUpdate);
+
+    private int[] SentOwnPowers()
+        => [.. _harness.ClientWire.Sent.Select(s => s.Packet).OfType<PowerUpdate>()
+            .Where(p => p.Guid == _scenario.Player).Select(p => Assert.Single(p.Powers).Power)];
+
+    /// <summary>
     /// Bit 31 is negative as an int, and PlayerFlagsLegacy was int-backed, so a player flags value
     /// with it set threw OverflowException and took every block of the packet down with it.
     /// </summary>

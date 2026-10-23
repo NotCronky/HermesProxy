@@ -2004,6 +2004,17 @@ public partial class WorldClient
         World.Logging.SpellLogMessages.HealthUpdate(_melSpellLog, guid.Low, health);
     }
 
+    // 3.3.5 SetPower sends SMSG_POWER_UPDATE at once and the same value again in the next
+    // SMSG_UPDATE_OBJECT, whose Values block builds a POWER_UPDATE of its own for the player and
+    // the pet, so the client got each of these changes twice. A value forwarded here waits for
+    // the next Values entry of its power, which drops it if it only repeats the value. A power the
+    // server changes in the field alone (regeneration, rage decay) still goes out from there.
+    private readonly Dictionary<(WowGuid128 Guid, byte PowerType), int> _forwardedPowerUpdates = [];
+
+    // Either way the forwarded value is used up: only the next entry for that power repeats it.
+    private bool RepeatsForwardedPowerUpdate(WowGuid128 guid, byte powerType, int value) =>
+        _forwardedPowerUpdates.Remove((guid, powerType), out int forwarded) && forwarded == value;
+
     // Legacy 3.3.5a SMSG_POWER_UPDATE wire format: PackedGuid + uint8 powerType + uint32 power.
     // Modern V3_4_3 expects: PackedGuid128 + int32 count + (int32 power, uint8 type)*.
     // The `type` byte is forwarded as-is — the V3_4_3 client interprets it as the
@@ -2026,6 +2037,10 @@ public partial class WorldClient
         update.Powers.Add(new PowerUpdatePower(power, powerType));
         SendGuidSubjectPacket(update, guid);
         World.Logging.SpellLogMessages.PowerUpdate(_melSpellLog, guid.Low, (PowerType)powerType, power);
+
+        var gameState = GetSession().GameState;
+        if (guid == gameState.CurrentPlayerGuid || guid == gameState.CurrentPetGuid)
+            _forwardedPowerUpdates[(guid, powerType)] = power;
 
         // Cache RunicPower for the local player so SpellGo can embed a RemainingPower
         // entry with the post-cast value (V3_4_3 wire shape — see CastFlag.RuneInfo branch).
