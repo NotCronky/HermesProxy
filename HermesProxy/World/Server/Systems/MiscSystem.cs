@@ -388,13 +388,13 @@ public static class MiscSystem
         ctx.SendPacketToServer(packet);
     }
     /// <summary>
-    /// A movie has played to its end or was skipped. Empty on both sides; only a 4.3.4 server's
-    /// movies are started (SMSG_TRIGGER_MOVIE), so only it is told.
+    /// A movie has played to its end or was skipped. Empty on both sides. 3.3.5a and 4.3.4
+    /// servers start movies (SMSG_TRIGGER_MOVIE) and wait for this; older servers have neither.
     /// </summary>
     [HandlesCmsg(Opcode.CMSG_COMPLETE_MOVIE)]
     public static void HandleCompleteMovie(in EmptyClientPacket movie, in SessionContext ctx)
     {
-        if (!WorldClient.IsCataLegacy)
+        if (!LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             return;
 
         ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_COMPLETE_MOVIE));
