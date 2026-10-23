@@ -36,6 +36,21 @@ public static class ClassPowerTypes
                     return 4;
             }
         }
+        // 3.4.3's table has the rune kinds as well, with no Runes row ahead of them. Without these
+        // a rune made faster by Improved Unholy Presence had no slot for its rate, and the client
+        // counted ten seconds where the server took nine.
+        else if (ModernVersion.ExpansionVersion == 3)
+        {
+            switch (classId, power)
+            {
+                case (Class.Deathknight, PowerType.RuneBlood):
+                    return 1;
+                case (Class.Deathknight, PowerType.RuneFrost):
+                    return 2;
+                case (Class.Deathknight, PowerType.RuneUnholy):
+                    return 3;
+            }
+        }
 
         switch (classId)
         {

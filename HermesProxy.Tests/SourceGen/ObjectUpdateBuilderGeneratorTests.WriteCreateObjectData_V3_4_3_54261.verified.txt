@@ -4163,6 +4163,26 @@ public partial class ObjectUpdateBuilder
         if (src.Lifesteal.HasValue) { blocks.SetBit(90); }
         if (src.ScaleDuration.HasValue) { blocks.SetBit(102); }
         if (src.ComboTarget != null) { blocks.SetBit(112); }
+        if (src.PowerRegenFlatModifier != null)
+        {
+            if (src.PowerRegenFlatModifier[0].HasValue) { blocks.SetBit(116); blocks.SetBit(117); }
+            if (src.PowerRegenFlatModifier[1].HasValue) { blocks.SetBit(116); blocks.SetBit(118); }
+            if (src.PowerRegenFlatModifier[2].HasValue) { blocks.SetBit(116); blocks.SetBit(119); }
+            if (src.PowerRegenFlatModifier[3].HasValue) { blocks.SetBit(116); blocks.SetBit(120); }
+            if (src.PowerRegenFlatModifier[4].HasValue) { blocks.SetBit(116); blocks.SetBit(121); }
+            if (src.PowerRegenFlatModifier[5].HasValue) { blocks.SetBit(116); blocks.SetBit(122); }
+            if (src.PowerRegenFlatModifier[6].HasValue) { blocks.SetBit(116); blocks.SetBit(123); }
+        }
+        if (src.PowerRegenInterruptedFlatModifier != null)
+        {
+            if (src.PowerRegenInterruptedFlatModifier[0].HasValue) { blocks.SetBit(116); blocks.SetBit(127); }
+            if (src.PowerRegenInterruptedFlatModifier[1].HasValue) { blocks.SetBit(116); blocks.SetBit(128); }
+            if (src.PowerRegenInterruptedFlatModifier[2].HasValue) { blocks.SetBit(116); blocks.SetBit(129); }
+            if (src.PowerRegenInterruptedFlatModifier[3].HasValue) { blocks.SetBit(116); blocks.SetBit(130); }
+            if (src.PowerRegenInterruptedFlatModifier[4].HasValue) { blocks.SetBit(116); blocks.SetBit(131); }
+            if (src.PowerRegenInterruptedFlatModifier[5].HasValue) { blocks.SetBit(116); blocks.SetBit(132); }
+            if (src.PowerRegenInterruptedFlatModifier[6].HasValue) { blocks.SetBit(116); blocks.SetBit(133); }
+        }
         if (src.Power != null)
         {
             if (src.Power[0].HasValue) { blocks.SetBit(116); blocks.SetBit(137); }
@@ -4469,6 +4489,8 @@ public partial class ObjectUpdateBuilder
         if (src.Lifesteal.HasValue) return true;
         if (src.ScaleDuration.HasValue) return true;
         if (src.ComboTarget != null) return true;
+        if (src.PowerRegenFlatModifier != null) for (int i = 0; i < 7; i++) if (src.PowerRegenFlatModifier[i].HasValue) return true;
+        if (src.PowerRegenInterruptedFlatModifier != null) for (int i = 0; i < 7; i++) if (src.PowerRegenInterruptedFlatModifier[i].HasValue) return true;
         if (src.Power != null) for (int i = 0; i < 7; i++) if (src.Power[i].HasValue) return true;
         if (src.MaxPower != null) for (int i = 0; i < 7; i++) if (src.MaxPower[i].HasValue) return true;
         if (src.ModPowerRegen != null) for (int i = 0; i < 7; i++) if (src.ModPowerRegen[i].HasValue) return true;
