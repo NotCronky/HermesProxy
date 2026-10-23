@@ -104,7 +104,7 @@ class Evidence:
 
 def read_logs(dirs: list[Path], names: dict[int, list[str]], realms: dict[str, str]) -> Evidence:
     ev = Evidence()
-    client_names = client_opcode_names(CLIENT_DOCS)
+    client_names = client_opcode_names(CLIENT_DOCS, MODERN_BUILD)
     files = sorted({f for d in dirs for f in d.glob('hermes-*.log')}, key=lambda p: p.name)
     for f in files:
         with f.open(encoding='utf-8', errors='ignore') as fh:

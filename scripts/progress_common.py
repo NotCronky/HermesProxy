@@ -263,9 +263,10 @@ def read_capture(path: Path, names: dict[int, list[str]]) -> tuple[dict[str, int
     return smsg, cmsg
 
 
-def client_opcode_names(build: str) -> dict[int, str]:
-    """A client's opcode -> name, from its docs/protocol build: the log prints MSG_NULL_ACTION for a
-    request HermesProxy's table has no name for."""
+def client_opcode_names(build: str, modern: str | None = None) -> dict[int, str]:
+    """A client's opcode -> name, from its docs/protocol build and HermesProxy's table for it: the log
+    prints MSG_NULL_ACTION for a request the table had no name for when the session ran. One the
+    table has named since takes the table's name, which is the one its handler goes by."""
     out: dict[int, str] = {}
     table = REPO / 'docs' / 'protocol' / build / 'cmsg-opcodes.md'
     if table.exists():
@@ -273,6 +274,8 @@ def client_opcode_names(build: str) -> dict[int, str]:
             cells = [c.strip().strip('`') for c in line.strip().strip('|').split('|')]
             if len(cells) >= 2 and cells[1].startswith('0x') and cells[0] not in ('—', '-'):
                 out[int(cells[1], 16)] = cells[0]
+    if modern:
+        out.update({value: name for name, value in enum_names(HP / 'World' / 'Enums' / modern / 'Opcode.cs').items()})
     return out
 
 
