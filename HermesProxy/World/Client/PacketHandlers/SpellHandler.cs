@@ -298,9 +298,10 @@ public partial class WorldClient
             failed.FailedArg2 = arg2;
             SendPacketToClient(failed);
 
-            // A cast refused in TrinityCore 4.3.4's Spell::cast is followed by SMSG_SPELL_FAILURE and
-            // SMSG_SPELL_FAILED_OTHER (SendInterrupted); they name the same cast.
-            if (IsCataLegacy)
+            // A cast a 3.3.5a or 4.3.4 server refuses in Spell::cast, or stops in Spell::cancel, is
+            // followed by SMSG_SPELL_FAILURE and SMSG_SPELL_FAILED_OTHER (SendInterrupted); they
+            // name the same cast.
+            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
                 GetSession().GameState.LastCompletedNormalCast = pendingCast;
         }
         // AC EffectDuel (SPELL_FAILED_NO_DUELING) and similar hit-time checks
