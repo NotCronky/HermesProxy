@@ -1088,4 +1088,9 @@ public enum Opcode : uint
 	CMSG_PLAYER_SHOWING_HELM = 13672u,
 	CMSG_PLAYER_SHOWING_CLOAK = 13673u,
 	CMSG_REQUEST_CROWD_CONTROL_SPELL = 13610u,
+
+	// A mirror image asking what it looks like, and the answer. Values from WowPacketParser's
+	// V3_4_3_51666 table; the client's own readers have the same layouts at these ids.
+	CMSG_GET_MIRROR_IMAGE_DATA = 12951u, // 0x3297
+	SMSG_MIRROR_IMAGE_COMPONENTED_DATA = 11284u, // 0x2C14
 }
