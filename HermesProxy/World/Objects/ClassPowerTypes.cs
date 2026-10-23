@@ -143,6 +143,10 @@ public static class ClassPowerTypes
 
         return -1;
     }
+    // A creature's combo points, whatever its class: a native 3.4.3 or 4.4.2 server creates every
+    // creature with MaxPower[2] = 5 next to its display power in slot 0.
+    public const sbyte CreatureComboPointsSlot = 2;
+
     // The power type a packet names, for the modern client. Only a 4.3.4 server's eclipse differs.
     public static PowerType ToModernPowerType(PowerType power) =>
         power == PowerType.Eclipse && ModernVersion.AddedInVersion(4, 4, 0) ? PowerType.Balance : power;
