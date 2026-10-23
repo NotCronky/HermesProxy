@@ -221,7 +221,7 @@ silently wrong wherever it does not. Check each against the 4.4.2 client
 (`docs/protocol/4.4.2.60895`) before 4.4.2 becomes a supported build; where it differs, the
 site gets a layout of its own (`World/Server/Packets/CLAUDE.md`) rather than a narrower check.
 
-202 sites across 57 files.
+203 sites across 57 files.
 
 | file | sites |
 |---|---:|
@@ -246,12 +246,12 @@ site gets a layout of its own (`World/Server/Packets/CLAUDE.md`) rather than a n
 | `HermesProxy/World/Client/PacketHandlers/CombatHandler.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/EquipmentSetHandler.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/GroupHandler.cs` | 3 |
+| `HermesProxy/World/Client/PacketHandlers/MiscHandler.cs` | 3 |
 | `HermesProxy/World/Server/Packets/UpdatePackets.cs` | 3 |
 | `HermesProxy/World/Server/Systems/BattlegroundSystem.cs` | 3 |
 | `HermesProxy/World/Server/Systems/EquipmentSetSystem.cs` | 3 |
 | `HermesProxy/World/Server/Systems/PetSystem.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/LFGHandler.cs` | 2 |
-| `HermesProxy/World/Client/PacketHandlers/MiscHandler.cs` | 2 |
 | `HermesProxy/World/Client/PacketHandlers/TalentHandler.cs` | 2 |
 | `HermesProxy/World/Server/CollectionSync.cs` | 2 |
 | `HermesProxy/World/Server/Packets/AuctionPackets.cs` | 2 |
