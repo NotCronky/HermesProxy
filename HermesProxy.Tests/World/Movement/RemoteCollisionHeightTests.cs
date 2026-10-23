@@ -64,6 +64,26 @@ public class RemoteCollisionHeightTests
         Assert.Empty(Sent<MoveUpdateCollisionHeight>(harness));
     }
 
+    // A 3.3.5a server also sends the player its own height on a mount (AzerothCore Unit::Mount); the
+    // one made from the fields is already out, so the client gets one, not two.
+    [Fact]
+    public void OwnMount_TheServersOwnHeightIsNotSentAgain()
+    {
+        if (LegacyVersion.ExpansionVersion != 3) return;
+        var harness = NewHarness();
+
+        DeliverMount(harness, MovementScenarios.ActivePlayer);
+        byte[] wire = LegacyPacketBuilder.Build(Opcode.SMSG_MOVE_SET_COLLISION_HGT, packet =>
+        {
+            packet.WritePackedGuid(MovementScenarios.ActivePlayer);
+            packet.WriteUInt32(53);         // the server's move counter
+            packet.WriteFloat(2.8f);
+        });
+        harness.Deliver(Opcode.SMSG_MOVE_SET_COLLISION_HGT, wire, harness.Client.HandleMoveSetCollisionHgt);
+
+        Assert.Single(Sent<MoveSetCollisionHeight>(harness));
+    }
+
     [Fact]
     public void AnotherPlayersMount_GoesOutWithItsNextMovement()
     {

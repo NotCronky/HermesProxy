@@ -996,6 +996,15 @@ public partial class WorldClient
         SendPacketToClient(new MoveUpdateCollisionHeight { MoverGUID = guid, MoveInfo = info, Height = height, Scale = ObjectScale(guid) });
     }
 
+    // A 3.3.5a server tells the player of its own collision height when it mounts or dismounts
+    // (AzerothCore Unit::Mount and Dismount). The proxy already sends the client one of its own,
+    // worked out from the display and mount fields of the same change, and discards the client's
+    // ack (MovementSystem.HandleMoveSetCollisionHeightAck), so this one is dropped on purpose.
+    [HandlesSmsg(Opcode.SMSG_MOVE_SET_COLLISION_HGT)]
+    internal void HandleMoveSetCollisionHgt(WorldPacket packet)
+    {
+    }
+
     private float ObjectScale(WowGuid128 guid)
     {
         float scale = GetSession().GameState.GetLegacyFieldValueFloat(guid, ObjectField.OBJECT_FIELD_SCALE_X);

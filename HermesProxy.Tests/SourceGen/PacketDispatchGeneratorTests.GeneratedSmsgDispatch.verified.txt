@@ -1707,6 +1707,11 @@ internal static unsafe class GeneratedSmsgDispatch
         client.HandleMoveSetCollisionHeightCata(packet);
     }
 
+    private static void Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetCollisionHgt_SMSG_MOVE_SET_COLLISION_HGT(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
+    {
+        client.HandleMoveSetCollisionHgt(packet);
+    }
+
     private static void Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceFlagChange_SMSG_MOVE_SET_FEATHER_FALL(global::HermesProxy.World.Client.WorldClient client, global::HermesProxy.World.WorldPacket packet)
     {
         client.HandleMoveForceFlagChange(packet);
@@ -3220,6 +3225,7 @@ internal static unsafe class GeneratedSmsgDispatch
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_ACTIVE_MOVER] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetActiveMover_SMSG_MOVE_SET_ACTIVE_MOVER;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_CAN_FLY] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceFlagChange_SMSG_MOVE_SET_CAN_FLY;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_COLLISION_HEIGHT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetCollisionHeightCata_SMSG_MOVE_SET_COLLISION_HEIGHT;
+        table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_COLLISION_HGT] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetCollisionHgt_SMSG_MOVE_SET_COLLISION_HGT;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FEATHER_FALL] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveForceFlagChange_SMSG_MOVE_SET_FEATHER_FALL;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FLIGHT_BACK_SPEED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetSpeedCata_SMSG_MOVE_SET_FLIGHT_BACK_SPEED;
         table[(int)global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FLIGHT_SPEED] = &Thunk_HermesProxy_World_Client_WorldClient_HandleMoveSetSpeedCata_SMSG_MOVE_SET_FLIGHT_SPEED;
@@ -3791,6 +3797,7 @@ internal static unsafe class GeneratedSmsgDispatch
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_ACTIVE_MOVER,
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_CAN_FLY,
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_COLLISION_HEIGHT,
+            global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_COLLISION_HGT,
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FEATHER_FALL,
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FLIGHT_BACK_SPEED,
             global::HermesProxy.World.Enums.Opcode.SMSG_MOVE_SET_FLIGHT_SPEED,
