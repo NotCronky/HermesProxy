@@ -2031,13 +2031,14 @@ public partial class WorldClient
 
     // V3_4_3 DK rune-state legacy handlers. Older modern targets (V1_14 / V2_5) pre-date
     // Death Knights and never allocate RuneState, so the null-guard makes these no-ops.
-    // None of these forward to the V3_4_3 client — TC fires the rune opcodes thousands of
-    // times per session (especially RESYNC_RUNES with constantly-decaying cooldown values),
-    // and forwarding overwhelmed the client (observed: WoW #132 ACCESS_VIOLATION crash).
-    // SpellGo's embedded RemainingRunes carries the per-cast snapshot, and the V3_4_3
-    // client manages the visual cooldown swirl from that snapshot — that's the dominant
-    // path. We only mutate the cached RuneState here so the next CREATE block reflects
-    // authoritative state on zone change / mount.
+    // RESYNC_RUNES and ADD_RUNE_POWER don't go on to the V3_4_3 client — TC fires the rune
+    // opcodes thousands of times per session (especially RESYNC_RUNES with constantly-decaying
+    // cooldown values), and forwarding overwhelmed the client (observed: WoW #132
+    // ACCESS_VIOLATION crash). SpellGo's embedded RemainingRunes carries the per-cast snapshot,
+    // and the V3_4_3 client manages the visual cooldown swirl from that snapshot — that's the
+    // dominant path. The cached RuneState feeds the next CREATE block on zone change / mount.
+    // CONVERT_RUNE comes only when a rune changes kind and is the client's only word of a death
+    // rune, so it goes on to the 3.4.3 client too.
     // TrinityCore 4.3.4 sends RESYNC_RUNES only at login, and the other two only when a spell or
     // an aura changes a rune, as TrinityCore cata_classic does; those two go on to the 4.4.2
     // client, which has no other way to learn of a death rune or of runes made ready at once.
@@ -2072,8 +2073,7 @@ public partial class WorldClient
             return;
 
         runeState.RuneTypes[index] = newType;
-        if (IsCataLegacy)
-            SendPacketToClient(new ConvertRune { Index = index, Rune = RuneTypeToCata(newType) });
+        SendPacketToClient(new ConvertRune { Index = index, Rune = RuneTypeToClient(newType) });
     }
 
     [HandlesSmsg(Opcode.SMSG_ADD_RUNE_POWER)]
@@ -2110,9 +2110,10 @@ public partial class WorldClient
         };
     }
 
-    // The 4.4.2 client numbers rune types Blood 0, Frost 1, Unholy 2, Death 3 (GetRuneType gives
-    // one more): sent TrinityCore's numbers, a Frost rune turned back from death showed Unholy.
-    private static uint RuneTypeToCata(byte runeType)
+    // The 3.4.3 and 4.4.2 clients number rune types Blood 0, Frost 1, Unholy 2, Death 3
+    // (GetRuneType gives one more, RuneFrame.lua): sent TrinityCore's numbers, a Frost rune
+    // turned back from death showed Unholy.
+    private static uint RuneTypeToClient(byte runeType)
     {
         return runeType switch
         {
