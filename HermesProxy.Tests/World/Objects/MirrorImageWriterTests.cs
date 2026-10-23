@@ -9,13 +9,14 @@ using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
 using Xunit;
 using ObjectUpdateBuilder = HermesProxy.World.Objects.Version.V4_4_2_60895.ObjectUpdateBuilder;
+using ObjectUpdateBuilderWotLK = HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder;
 
 namespace HermesProxy.Tests.World.Objects;
 
 /// <summary>
-/// A Mage's Mirror Image for the 4.4.2 client. The client asks what an image looks like only when
-/// the image carries UNIT_FLAG2_MIRROR_IMAGE (0x10); the proxy used to clear that bit on every
-/// creature (it is also NPCBot's "cloned" bit), so the images were drawn as a bare race model.
+/// A Mage's Mirror Image for the 4.4.2 and 3.4.3 clients. The client asks what an image looks like
+/// only when the image carries UNIT_FLAG2_MIRROR_IMAGE (0x10); the proxy used to clear that bit on
+/// every creature (it is also NPCBot's "cloned" bit), so the images were drawn as a bare race model.
 /// </summary>
 public sealed class MirrorImageWriterTests
 {
@@ -29,7 +30,32 @@ public sealed class MirrorImageWriterTests
     [InlineData(1234u, 0x20u)]
     public void Flags2_KeepsTheMirrorImageBitOnlyForTheMagesImages(uint entry, uint expectedFlags2)
     {
-        var session = (GameSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GameSessionData));
+        var update = ImageWithFlags2(entry, out var session);
+
+        using var data = new WorldPacket(1u);
+        new ObjectUpdateBuilder(update, session).WriteUpdateUnitData(data);
+        byte[] bytes = data.GetData();
+
+        Assert.Equal(expectedFlags2, BitConverter.ToUInt32(bytes, bytes.Length - 4));
+    }
+
+    [Theory]
+    [InlineData(31216u, 0x30u)]
+    [InlineData(1234u, 0x20u)]
+    public void Flags2_WotLK_KeepsTheMirrorImageBitOnlyForTheMagesImages(uint entry, uint expectedFlags2)
+    {
+        var update = ImageWithFlags2(entry, out var session);
+
+        using var data = new WorldPacket(1u);
+        new ObjectUpdateBuilderWotLK(update, session).WriteUpdateUnitData(data);
+        byte[] bytes = data.GetData();
+
+        Assert.Equal(expectedFlags2, BitConverter.ToUInt32(bytes, bytes.Length - 4));
+    }
+
+    private static ObjectUpdate ImageWithFlags2(uint entry, out GameSessionData session)
+    {
+        session = (GameSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GameSessionData));
         typeof(GameSessionData).GetField(nameof(GameSessionData.OriginalObjectTypes))!
             .SetValue(session, new Dictionary<WowGuid128, ObjectType>());
         var globalSession = (GlobalSessionData)RuntimeHelpers.GetUninitializedObject(typeof(GlobalSessionData));
@@ -38,12 +64,7 @@ public sealed class MirrorImageWriterTests
         var update = new ObjectUpdate(guid, UpdateTypeModern.Values, globalSession);
         update.UnitData ??= new UnitData();
         update.UnitData.Flags2 = MirrorImageFlag | 0x20u;
-
-        using var data = new WorldPacket(1u);
-        new ObjectUpdateBuilder(update, session).WriteUpdateUnitData(data);
-        byte[] bytes = data.GetData();
-
-        Assert.Equal(expectedFlags2, BitConverter.ToUInt32(bytes, bytes.Length - 4));
+        return update;
     }
 
     /// <summary>

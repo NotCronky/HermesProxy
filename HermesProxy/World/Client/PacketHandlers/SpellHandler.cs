@@ -1150,16 +1150,17 @@ public partial class WorldClient
     }
 
     /// <summary>
-    /// The answer to a mirror image's question (TrinityCore's SMSG_MIRRORIMAGE_DATA, 3.3.5a and
-    /// 4.3.4 alike): the caster's model, race, sex and class, then for a player caster skin, face,
-    /// hair style, hair colour, facial hair, the guild and eleven item displays (head, shoulders,
-    /// shirt, chest, waist, legs, feet, wrists, hands, back, tabard). A creature caster gets 53
-    /// zero bytes in their place, so the length tells the two apart.
+    /// The answer to a mirror image's question (TrinityCore's SMSG_MIRRORIMAGE_DATA): the caster's
+    /// model, race, sex and class, then for a player caster skin, face, hair style, hair colour,
+    /// facial hair, the guild and eleven item displays (head, shoulders, shirt, chest, waist, legs,
+    /// feet, wrists, hands, back, tabard). A creature caster gets 53 zero bytes in their place. A
+    /// 4.3.4 server sends the guild's GUID, so there the length tells the two apart; a 3.3.5a
+    /// server sends its id, four bytes, which makes a player's look 53 bytes as well.
     /// </summary>
     [HandlesSmsg(Opcode.SMSG_MIRROR_IMAGE_COMPONENTED_DATA)]
     internal void HandleMirrorImageData(WorldPacket packet)
     {
-        const int PlayerLookBytes = 5 + 8 + 11 * 4;
+        int playerLookBytes = 5 + (IsCataLegacy ? 8 : 4) + 11 * 4;
 
         MirrorImageComponentedData image = new();
         image.UnitGUID = packet.ReadGuid().To128(GetSession().GameState);
@@ -1167,7 +1168,7 @@ public partial class WorldClient
         image.RaceID = packet.ReadUInt8();
         image.Gender = packet.ReadUInt8();
         image.ClassID = packet.ReadUInt8();
-        if (packet.Remaining() >= PlayerLookBytes)
+        if (packet.Remaining() >= playerLookBytes)
         {
             byte skin = packet.ReadUInt8();
             byte face = packet.ReadUInt8();
@@ -1176,7 +1177,10 @@ public partial class WorldClient
             byte facialHair = packet.ReadUInt8();
             image.Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern(
                 (Race)image.RaceID, (Gender)image.Gender, skin, face, hairStyle, hairColor, facialHair);
-            packet.ReadUInt64(); // guild
+            if (IsCataLegacy)
+                packet.ReadUInt64(); // guild
+            else
+                packet.ReadUInt32(); // guild
             for (int i = 0; i < 11; i++)
                 image.ItemDisplayIDs.Add(packet.ReadInt32());
         }
