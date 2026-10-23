@@ -374,8 +374,8 @@ public sealed class GameSessionData
     public ClientCastRequest? CurrentClientAutoRepeatCast; // auto repeat spells (Auto Shot, Shoot, etc.)
     // SPELL_GO dequeues the pending cast. AC EffectDuel (and other hit-time
     // checks) then send SMSG_CAST_FAILED. Keep the last completed one so that
-    // fail can still be forwarded instead of disappearing. On 4.3.4 a cast that
-    // SMSG_CAST_FAILED refused is kept here too, for the failures sent after it.
+    // fail can still be forwarded instead of disappearing. On 3.3.5a and 4.3.4 a cast
+    // that SMSG_CAST_FAILED refused is kept here too, for the failures sent after it.
     public ClientCastRequest? LastCompletedNormalCast;
     // Set when the player's create goes to the client, cleared by the first movement packet the
     // client sends without Falling. See MovementHandler.SendOwnCanFlyChange.
