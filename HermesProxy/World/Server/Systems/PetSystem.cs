@@ -98,6 +98,13 @@ public static class PetSystem
         packet.WriteGuid(action.PetGUID.To64(ctx.GetSession().GameState));
         packet.WriteUInt32(action.Index);
         packet.WriteUInt32(legacyAction);
+        // A legacy server moves a command or a stance only as one packet with both slots and drops
+        // it on its own; without the slot it left, a moved Attack stayed where it was.
+        if (action.HasSecondSlot && ModernVersion.IsWotLKClassicOrLater)
+        {
+            packet.WriteUInt32(action.SecondIndex);
+            packet.WriteUInt32(TranslateV343PetActionToLegacy(action.SecondAction));
+        }
         ctx.SendPacketToServer(packet);
     }
 

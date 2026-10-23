@@ -206,7 +206,15 @@ public static class PetSetActionCodec
         WowGuid128 petGuid = r.ReadPackedGuid128();
         uint index = r.ReadUInt32();
         uint action = r.ReadUInt32();
-        packet = new PetSetAction(petGuid, index, action);
+        bool hasSecondSlot = r.ReadBit();
+        uint secondIndex = 0;
+        uint secondAction = 0;
+        if (hasSecondSlot)
+        {
+            secondIndex = r.ReadUInt32();
+            secondAction = r.ReadUInt32();
+        }
+        packet = new PetSetAction(petGuid, index, action, hasSecondSlot, secondIndex, secondAction);
     }
 }
 
