@@ -385,9 +385,9 @@ public partial class WorldClient
 
     // Both SMSG_SPELL_FAILURE (own cast failed) and SMSG_SPELL_FAILED_OTHER share the
     // same legacy wire layout (PackedGuid caster, [u8 castCount], u32 spellId, u8 reason).
-    // The proxy emits both modern packets unconditionally so the V3_4_3 client gets the
-    // failure for either path — without this, SMSG_SPELL_FAILURE was being silently
-    // dropped, leaving the client's cast-state UI hung waiting for a never-arriving
+    // From a server that sends only one of them the proxy emits both modern packets, so the
+    // client gets the failure for either path — without this, SMSG_SPELL_FAILURE was being
+    // silently dropped, leaving the client's cast-state UI hung waiting for a never-arriving
     // success/fail and accumulating in the suspect window for `reason=7` disconnects.
     [HandlesSmsg(Opcode.SMSG_SPELL_FAILURE)]
     [HandlesSmsg(Opcode.SMSG_SPELL_FAILED_OTHER)]
@@ -407,6 +407,10 @@ public partial class WorldClient
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             reason = (byte)LegacyVersion.ConvertSpellCastResult(packet.ReadUInt8());
 
+        // 3.3.5a and 4.3.4 servers send both packets themselves (Spell::SendInterrupted); a 1.12
+        // server sends SMSG_SPELL_FAILED_OTHER alone.
+        bool sentAsPair = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056);
+
         WowGuid128 castId;
         uint spellVisual;
         // Try to find pending cast info (peek, don't remove - this is informational).
@@ -422,7 +426,7 @@ public partial class WorldClient
         }
         // A channel stopped early fails after its SPELL_GO took it off the pending queue; the
         // client knows the channel by the cast id it started with.
-        else if (IsCataLegacy && GetSession().GameState.CurrentPlayerGuid == casterUnit &&
+        else if (sentAsPair && GetSession().GameState.CurrentPlayerGuid == casterUnit &&
                  GetSession().GameState.LastCompletedNormalCast is { } completed &&
                  (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)
                   || (completed.OverrideSpellId != 0 && completed.OverrideSpellId == spellId)))
@@ -446,10 +450,9 @@ public partial class WorldClient
             spellVisual = GameData.GetSpellVisual(spellId);
         }
 
-        // TrinityCore 4.3.4 sends both packets itself (Spell::SendInterrupted), so each one goes
-        // over once, as a native server sends them.
+        // A server that sends both has each one go over once, as a native server sends them.
         Opcode received = packet.GetUniversalOpcode(false);
-        if (!IsCataLegacy || received == Opcode.SMSG_SPELL_FAILURE)
+        if (!sentAsPair || received == Opcode.SMSG_SPELL_FAILURE)
         {
             SpellFailure spell = new SpellFailure();
             spell.CasterUnit = casterUnit;
@@ -460,7 +463,7 @@ public partial class WorldClient
             SendPacketToClient(spell);
         }
 
-        if (IsCataLegacy && received != Opcode.SMSG_SPELL_FAILED_OTHER)
+        if (sentAsPair && received != Opcode.SMSG_SPELL_FAILED_OTHER)
             return;
 
         SpellFailedOther spell2 = new SpellFailedOther();
