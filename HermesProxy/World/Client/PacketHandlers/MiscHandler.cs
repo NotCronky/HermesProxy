@@ -429,14 +429,11 @@ public partial class WorldClient
         SendPacketToClient(title);
     }
 
+    /// <summary>
+    /// 3.3.5a and 4.3.4 send the movie id alone, the u32 the 3.4.3 and 4.4.2 clients read.
+    /// </summary>
     [HandlesSmsg(Opcode.SMSG_TRIGGER_MOVIE)]
     internal void HandleTriggerMovie(WorldPacket packet)
-    {
-        if (IsCataLegacy)
-            HandleTriggerMovieCata(packet);
-    }
-
-    internal void HandleTriggerMovieCata(WorldPacket packet)
     {
         TriggerMovie movie = new();
         movie.MovieID = packet.ReadUInt32();
