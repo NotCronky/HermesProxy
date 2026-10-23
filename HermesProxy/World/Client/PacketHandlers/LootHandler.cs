@@ -32,10 +32,11 @@ public partial class WorldClient
         if (loot.AcquireReason == LootType.None)
         {
             loot.FailureReason = (LootError)packet.ReadUInt8();
-            // The 4.4.2 client says why from a response it did not acquire, as TrinityCore
-            // cata_classic sends one. Dropped, a second Pick Pocket on the same target ("already
-            // pickpocketed") or a corpse someone else may loot answered nothing at all.
-            if (IsCataLegacy)
+            // The 3.4.3 and 4.4.2 clients say why from a response they did not acquire, as
+            // TrinityCore wotlk_classic and cata_classic send one. Dropped, a second Pick Pocket on
+            // the same target ("already pickpocketed") or a corpse someone else may loot answered
+            // nothing at all.
+            if (ModernVersion.IsWotLKClassicOrLater)
             {
                 loot.Acquired = false;
                 SendPacketToClient(loot);
