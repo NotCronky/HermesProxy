@@ -662,7 +662,7 @@ public sealed class CataSmallPacketTests
     public void FourByteNotices_ArePassedOnAsTheyCame()
     {
         Assert.Equal(Convert.FromHexString(Ints(16)), Written(Deliver<TriggerMovie>(
-            Opcode.SMSG_TRIGGER_MOVIE, Ints(16), _harness.Client.HandleTriggerMovieCata)));
+            Opcode.SMSG_TRIGGER_MOVIE, Ints(16), _harness.Client.HandleTriggerMovie)));
         Assert.Equal(Convert.FromHexString(Ints(3)), Written(Deliver<MountResult>(
             Opcode.SMSG_MOUNT_RESULT, Ints(3), _harness.Client.HandleMountResultCata)));
         Assert.Equal(Convert.FromHexString(Ints(4989)), Written(Deliver<AchievementDeleted>(
