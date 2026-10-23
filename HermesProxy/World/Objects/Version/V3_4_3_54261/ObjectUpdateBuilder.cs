@@ -573,11 +573,14 @@ public partial class ObjectUpdateBuilder
 
     internal void WriteCreateUnitOwnerFloatPairs(WorldPacket data, UnitData src)
     {
-        // IF IsOwner: 10× (Float 0, Float 0). Generator wraps the call in if (IsOwner).
+        // IF IsOwner: 10× (PowerRegenFlatModifier, PowerRegenInterruptedFlatModifier). Generator
+        // wraps the call in if (IsOwner).
+        var flat = src.PowerRegenFlatModifier;
+        var interrupted = src.PowerRegenInterruptedFlatModifier;
         for (int j = 0; j < 10; j++)
         {
-            data.WriteFloat(0f);
-            data.WriteFloat(0f);
+            data.WriteFloat(j < flat.Length ? flat[j].GetValueOrDefault() : 0f);
+            data.WriteFloat(j < interrupted.Length ? interrupted[j].GetValueOrDefault() : 0f);
         }
     }
 
@@ -743,6 +746,10 @@ public partial class ObjectUpdateBuilder
         if (src.MaxPower.Length > maxLen) maxLen = src.MaxPower.Length;
         for (int pi = 0; pi < maxLen; pi++)
         {
+            if (pi < src.PowerRegenFlatModifier.Length && src.PowerRegenFlatModifier[pi].HasValue)
+                data.WriteFloat(src.PowerRegenFlatModifier[pi].Value);
+            if (pi < src.PowerRegenInterruptedFlatModifier.Length && src.PowerRegenInterruptedFlatModifier[pi].HasValue)
+                data.WriteFloat(src.PowerRegenInterruptedFlatModifier[pi].Value);
             if (pi < src.Power.Length && src.Power[pi].HasValue)
                 data.WriteInt32(src.Power[pi].Value);
             if (pi < src.MaxPower.Length && src.MaxPower[pi].HasValue)
