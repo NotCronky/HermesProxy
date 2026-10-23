@@ -739,6 +739,11 @@ public partial class WorldClient
             GetSession().GameState.IsWaitingForNewWorld = false;
             GetSession().GameState.IsWaitingForWorldPortAck = true;
 
+            // Every unit's auras go with the old map, as they do with a destroyed unit (see
+            // ForgetAurasOfDroppedObject): a unit met again on a later visit gets its list again.
+            // The server sends the player's own list after the player's create on the new map.
+            GetSession().GameState.KnownAuras.Clear();
+
             // SMSG_NEW_WORLD tears down the client's entire world model, the player object
             // included, and the server re-sends a CreateObject for everything on the new map.
             // ClientKnownGuids has to follow or it stays stale across the transition: the

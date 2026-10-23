@@ -199,6 +199,7 @@ public partial class WorldClient
         }
         GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
         GetSession().GameState.VehicleRecIds.Remove(guid);
+        ForgetAurasOfDroppedObject(guid);
         // The client is about to drop this object, so it must stop counting as "known".
         // ClientKnownGuids gates Values forwarding in FilterV3_4_3Values; leaving a
         // destroyed guid in the set lets later Values deltas through for an object the
@@ -1394,6 +1395,7 @@ public partial class WorldClient
             // as HandleDestroyObject above.
             bool wasKnown = GetSession().GameState.ClientKnownGuids.Remove(guid);
             ForgetPetObjectIfLost(guid, wasKnown);
+            ForgetAurasOfDroppedObject(guid);
             World.Logging.ObjectLifecycleLogMessages.KnownGuidRemoved(
                 _melObjLifeClient, guid.Low, guid.High, "out-of-range", wasKnown);
         }
@@ -1408,6 +1410,15 @@ public partial class WorldClient
         if (wasKnown && guid == GetSession().GameState.CurrentPetGuid)
             GetSession().GameState.ClientHasPetObject = false;
     }
+
+    /// <summary>
+    /// The client drops a unit's auras with the unit. When the unit comes back into view the
+    /// server sends its whole aura list again, and while the old list is still remembered
+    /// HandleAuraUpdate takes that list for a repeat of what the client has and drops it: a unit
+    /// that left and came back showed none of its permanent auras.
+    /// </summary>
+    private void ForgetAurasOfDroppedObject(WowGuid128 guid)
+        => GetSession().GameState.KnownAuras.Remove(guid);
 
     private static bool ContainsPetCreateObject(UpdateObject obj)
     {
