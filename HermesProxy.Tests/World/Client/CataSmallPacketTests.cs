@@ -652,7 +652,7 @@ public sealed class CataSmallPacketTests
     [InlineData(0, Opcode.SMSG_TITLE_LOST)]
     public void HandleTitleEarned_PicksThePacketByTheSecondNumber(int earned, Opcode expected)
     {
-        var title = Deliver<TitleEarned>(Opcode.SMSG_TITLE_EARNED, Ints(43, earned), _harness.Client.HandleTitleEarnedCata);
+        var title = Deliver<TitleEarned>(Opcode.SMSG_TITLE_EARNED, Ints(43, earned), _harness.Client.HandleTitleEarnedOrLost);
 
         Assert.Equal(expected, _harness.ClientWire.Sent[^1].Opcode);
         Assert.Equal(Convert.FromHexString(Ints(43)), Written(title));

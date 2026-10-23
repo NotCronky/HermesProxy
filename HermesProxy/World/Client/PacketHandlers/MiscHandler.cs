@@ -412,15 +412,15 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_TITLE_EARNED)]
     internal void HandleTitleEarned(WorldPacket packet)
     {
-        if (IsCataLegacy)
-            HandleTitleEarnedCata(packet);
+        if (IsCataLegacy || ModernVersion.IsWotLKClassicOrLater)
+            HandleTitleEarnedOrLost(packet);
     }
 
     /// <summary>
-    /// TrinityCore 4.3.4 <c>Player::SetTitle</c>: the title's bit, then 1 for earned and 0 for lost.
-    /// The 4.4.2 client has a packet for each.
+    /// <c>Player::SetTitle</c> on 3.3.5a and 4.3.4: the title's bit, then 1 for earned and 0 for
+    /// lost. The 3.4.3 and 4.4.2 clients have a packet for each.
     /// </summary>
-    internal void HandleTitleEarnedCata(WorldPacket packet)
+    internal void HandleTitleEarnedOrLost(WorldPacket packet)
     {
         uint index = packet.ReadUInt32();
         bool earned = packet.ReadUInt32() != 0;
