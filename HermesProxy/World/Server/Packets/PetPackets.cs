@@ -160,7 +160,11 @@ public readonly record struct PetAction(WowGuid128 PetGUID, uint Action, WowGuid
 
 public readonly record struct PetStopAttack(WowGuid128 PetGUID);
 
-public readonly record struct PetSetAction(WowGuid128 PetGUID, uint Index, uint Action);
+/// <param name="HasSecondSlot">
+/// A command or stance dropped on another slot comes as one packet with both slots: the second is
+/// the slot it left, with what it displaced.
+/// </param>
+public readonly record struct PetSetAction(WowGuid128 PetGUID, uint Index, uint Action, bool HasSecondSlot, uint SecondIndex, uint SecondAction);
 
 class PetActionSound : ServerPacket, ISpanWritable
 {

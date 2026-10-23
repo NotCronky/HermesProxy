@@ -335,13 +335,34 @@ public class SpellCodecEquivalenceTests
     [Fact]
     public void PetSetAction_Matches()
     {
-        var (o, f) = Build(w => { w.WritePackedGuid128(Guid); w.WriteUInt32(3); w.WriteUInt32(0x81_0000); });
+        var (o, f) = Build(w => { w.WritePackedGuid128(Guid); w.WriteUInt32(3); w.WriteUInt32(0x81_0000); w.WriteBit(false); w.FlushBits(); });
         var e = new Frozen.PetSetAction(); e.Read(o);
         var r = ReaderOver(f); PetSetActionCodec.Read(ref r, out var a);
         Assert.Equal(e.PetGUID, a.PetGUID);
         Assert.Equal(e.Index, a.Index);
         Assert.Equal(e.Action, a.Action);
-        Assert.Equal(o.Remaining(), r.Remaining);
+        Assert.False(a.HasSecondSlot);
+        // The frozen reader left the flag byte of the optional second slot unread.
+        Assert.Equal(1, o.Remaining());
+        Assert.Equal(0, r.Remaining);
+    }
+
+    /// <summary>
+    /// The 3.4.3 client dropping Attack (slot 1) on Growl (slot 4) of a hunter's pet bar: one
+    /// packet, Attack at its new slot, then the slot it left with Growl (autocast). From a capture
+    /// on AzerothCore.
+    /// </summary>
+    [Fact]
+    public void PetSetAction_ReadsTheSecondSlot()
+    {
+        byte[] framed = [0, 0, .. Convert.FromHexString("03a74e0180fe01042803000000020080038000000000590a80c0")];
+        var r = ReaderOver(framed); PetSetActionCodec.Read(ref r, out var a);
+        Assert.Equal(3u, a.Index);
+        Assert.Equal(0x0380_0002u, a.Action);
+        Assert.True(a.HasSecondSlot);
+        Assert.Equal(0u, a.SecondIndex);
+        Assert.Equal(0xC080_0A59u, a.SecondAction);
+        Assert.Equal(0, r.Remaining);
     }
 
     [Fact]
