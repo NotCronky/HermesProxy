@@ -941,25 +941,7 @@ public partial class WorldClient
                     }
                 }
             }
-            int PLAYER_VISIBLE_ITEM_1_ENTRYID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_ENTRYID);
-            if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0 && !IsCataLegacy) // wotlk; 4.3.4 lists the items itself
-            {
-                int offset = 2;
-                for (byte i = 0; i < 19; i++)
-                {
-                    if (updates.ContainsKey(PLAYER_VISIBLE_ITEM_1_ENTRYID + i * offset))
-                    {
-                        uint itemId = updates[PLAYER_VISIBLE_ITEM_1_ENTRYID + i * offset].UInt32Value;
-                        if (itemId != 0)
-                        {
-                            InspectItemData itemData = new InspectItemData();
-                            itemData.Index = i;
-                            itemData.Item.ItemID = itemId;
-                            inspect.DisplayInfo.Items.Add(itemData);
-                        }
-                    }
-                }
-            }
+            // 3.3.5a and 4.3.4 list the items after the talents (ReadInspectedEquipment)
             int PLAYER_GUILDID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILDID);
             if (PLAYER_GUILDID >= 0 && updates.ContainsKey(PLAYER_GUILDID))
             {
@@ -1015,19 +997,19 @@ public partial class WorldClient
             WorldClientLogMessages.InspectTalents(
                 _melLog, _sourceFile, _netDirRecv, unspent, specsCount, activeSpec, totalTalents);
 
-            if (IsCataLegacy)
-                ReadInspectedEquipmentCata(packet, inspect);
+            if (LegacyVersion.ExpansionVersion >= 3)
+                ReadInspectedEquipment(packet, inspect);
         }
 
         SendPacketToClient(inspect);
     }
 
-    // TrinityCore 4.3.4 Player::BuildEnchantmentsInfoData, after the talents: what each equipment
-    // slot really holds. The visible items name a transmogrification's look instead and carry no
-    // gems, so the inspect window showed that item, without its enchantment, gems or random suffix.
-    // TrinityCore cata_classic fills the 4.4.2 list from the items themselves, and the item level
-    // from them too.
-    private void ReadInspectedEquipmentCata(WorldPacket packet, InspectResult inspect)
+    // Player::BuildEnchantmentsInfoData, after the talents (TrinityCore 4.3.4, and AzerothCore,
+    // TrinityCore and cmangos on 3.3.5a): what each equipment slot really holds. The visible items
+    // carry no gems and name a transmogrification's look instead, so the inspect window showed that
+    // item without its enchantment, gems or random suffix. TrinityCore cata_classic fills the 4.4.2
+    // list from the items themselves, and the item level from them too.
+    private void ReadInspectedEquipment(WorldPacket packet, InspectResult inspect)
     {
         uint usedSlots = packet.ReadUInt32();
         Span<(InventoryType Type, uint Level)> worn = stackalloc (InventoryType, uint)[EquipmentSlots];
@@ -1042,18 +1024,18 @@ public partial class WorldClient
             item.Usable = true;
             item.Item.ItemID = packet.ReadUInt32();
             ushort enchanted = packet.ReadUInt16();
-            for (int cataSlot = 0; cataSlot < 16; cataSlot++)
+            for (int legacySlot = 0; legacySlot < 16; legacySlot++)
             {
-                if ((enchanted & (1 << cataSlot)) == 0)
+                if ((enchanted & (1 << legacySlot)) == 0)
                     continue;
 
                 uint enchantId = packet.ReadUInt16();
-                int modernSlot = ModernEnchantmentSlot(cataSlot);
+                int modernSlot = ModernEnchantmentSlot(legacySlot);
                 if (modernSlot < 0)
                     continue;
                 item.Enchants.Add(new InspectEnchantData(enchantId, (byte)modernSlot));
 
-                int socket = cataSlot - Enums.Cata.EnchantmentSlot.Sock1;
+                int socket = legacySlot - Enums.Classic.EnchantmentSlot.Sock1;
                 uint gem = socket is >= 0 and < ItemConst.MaxGemSockets ? GameData.GetGemFromEnchantId(enchantId) : 0;
                 if (gem != 0)
                 {
@@ -1076,14 +1058,18 @@ public partial class WorldClient
         inspect.ItemLevel = (int)AverageItemLevel.OfEquipped(inspect.DisplayInfo.ClassId, worn[..count]);
     }
 
-    // A 4.3.4 enchantment slot as the 4.4.2 client numbers it. Its reforge and transmogrification
-    // are item modifiers there, not enchantments.
-    private static int ModernEnchantmentSlot(int cataSlot)
+    // A legacy enchantment slot as the modern client numbers it. 4.3.4's reforge and
+    // transmogrification are item modifiers there, not enchantments; 3.3.5a has no engineering
+    // slot, so its random property slots start one earlier than the modern client's.
+    private static int ModernEnchantmentSlot(int legacySlot)
     {
-        if (cataSlot <= Enums.Cata.EnchantmentSlot.Engineering)
-            return cataSlot;
-        if (cataSlot >= Enums.Cata.EnchantmentSlot.Prop0 && cataSlot <= Enums.Cata.EnchantmentSlot.Prop4)
-            return cataSlot - Enums.Cata.EnchantmentSlot.Prop0 + Enums.Classic.EnchantmentSlot.Prop0;
+        int lastShared = IsCataLegacy ? Enums.Cata.EnchantmentSlot.Engineering : Enums.WotLK.EnchantmentSlot.Prismatic;
+        int prop0 = IsCataLegacy ? Enums.Cata.EnchantmentSlot.Prop0 : Enums.WotLK.EnchantmentSlot.Prop0;
+        int prop4 = IsCataLegacy ? Enums.Cata.EnchantmentSlot.Prop4 : Enums.WotLK.EnchantmentSlot.Prop4;
+        if (legacySlot <= lastShared)
+            return legacySlot;
+        if (legacySlot >= prop0 && legacySlot <= prop4)
+            return legacySlot - prop0 + Enums.Classic.EnchantmentSlot.Prop0;
         return -1;
     }
 

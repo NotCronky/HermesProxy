@@ -153,7 +153,7 @@ def wpp_signals(wpp: Path | None) -> dict[str, str]:
 NO_LEGACY_MAP = re.compile(r'No ' + LEGACY_BUILD + r' opcode mapping for ([A-Z0-9_]+)')
 def read_logs(dirs: list[Path], names: dict[int, list[str]]) -> LogEvidence:
     ev = LogEvidence()
-    client_names = client_opcode_names('4.4.2.60895')
+    client_names = client_opcode_names('4.4.2.60895', 'V4_4_2_60895')
     files = sorted({f for d in dirs for f in d.glob('hermes-*.log')}, key=lambda p: p.name)
     for f in files:
         with f.open(encoding='utf-8', errors='ignore') as fh:
