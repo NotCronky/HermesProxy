@@ -867,6 +867,10 @@ public partial class WorldClient
     // TrinityCore and AzerothCore send this to the player that moves the unit, and a player moves
     // itself: every combo point change of a player comes twice, once as SMSG_UPDATE_COMBO_POINTS,
     // which the proxy translates, and once here. CMaNGOS sends it for other units only.
+    // A modern client keeps a vehicle's combo points on the vehicle, and its combo frame reads them
+    // there while the player rides (GetComboPoints("vehicle", "target")). Pets, charmed units and
+    // NPCBots' bots are left out: no frame shows theirs, and the class table already gives a bot
+    // druid's energy the slot they would take.
     [HandlesSmsg(Opcode.SMSG_PET_UPDATE_COMBO_POINTS)]
     internal void HandlePetUpdateComboPoints(WorldPacket packet)
     {
@@ -874,8 +878,24 @@ public partial class WorldClient
         if (unit == GetSession().GameState.CurrentPlayerGuid)
             return;
 
-        packet.ReadPackedGuid();
-        WorldClientLogMessages.PetComboPointsNotTranslated(_melLog, _sourceFile, _netDirRecv, packet.ReadUInt8());
+        var comboTarget = packet.ReadPackedGuid().To128(GetSession().GameState);
+        byte comboPoints = packet.ReadUInt8();
+        if (!ModernVersion.IsWotLKClassicOrLater || GetSession().GameState.GetVehicleRecId(unit) == 0)
+        {
+            WorldClientLogMessages.PetComboPointsNotTranslated(_melLog, _sourceFile, _netDirRecv, comboPoints);
+            return;
+        }
+
+        ObjectUpdate updateData = new ObjectUpdate(unit, UpdateTypeModern.Values, GetSession());
+        updateData.UnitData.ComboTarget = comboTarget;
+        updateData.UnitData.EnsurePower()[ClassPowerTypes.CreatureComboPointsSlot] = comboPoints;
+        // A native server has set this max since the vehicle's create; a legacy one has no field
+        // for it, and without it the frame shows no points at all.
+        updateData.UnitData.EnsureMaxPower()[ClassPowerTypes.CreatureComboPointsSlot] = 5;
+
+        UpdateObject updatePacket = new UpdateObject(GetSession().GameState);
+        updatePacket.ObjectUpdates.Add(updateData);
+        SendPacketToClient(updatePacket);
     }
 
     [HandlesSmsg(Opcode.SMSG_INSPECT_RESULT)]
