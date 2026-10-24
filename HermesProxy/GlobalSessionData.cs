@@ -362,6 +362,11 @@ public sealed class GameSessionData
     // slot-translation table for TC 3.3.5 master's auto-loot, which echoes the *clicked*
     // slot byte for every drained item rather than the real per-item slot.
     public bool ExpectingLootReleaseResponse;
+    // Whether the client took part in the current loot session (asked for it with CMSG_LOOT_UNIT, took an item or
+    // the money, or released it). A session it didn't (opened server-side, e.g. by a self-bot looting for the
+    // player) gets no client release, so the server's SMSG_LOOT_RELEASE is the only close it will see: forwarded.
+    public bool LootUnitRequested;
+    public bool LootClientActed;
     public List<byte> RemainingLootSlots = new();
     public uint RemainingLootCoins;
     // V3_4_3 only: set when HandleLootItem pre-claims coins via an injected CMSG_LOOT_MONEY
