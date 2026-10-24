@@ -23,6 +23,7 @@ public static class LootSystem
     public static void HandleLootRelease(in LootRelease loot, in SessionContext ctx)
     {
         ctx.GetSession().GameState.ExpectingLootReleaseResponse = true;
+        ctx.GetSession().GameState.LootClientActed = true;
         WorldPacket packet = new WorldPacket(Opcode.CMSG_LOOT_RELEASE);
         packet.WriteGuid(loot.Owner.To64());
         ctx.SendPacketToServer(packet);
@@ -32,6 +33,7 @@ public static class LootSystem
     public static void HandleLootItem(in LootItemPkt loot, in SessionContext ctx)
     {
         var state = ctx.GetSession().GameState;
+        state.LootClientActed = true;
 
         // TC 3.3.5 master auto-loots all items + closes the loot session on the FIRST
         // CMSG_AUTOSTORE_LOOT_ITEM. Any unclaimed coins are orphaned (subsequent
@@ -62,12 +64,14 @@ public static class LootSystem
         packet.WriteGuid(loot.Unit.To64());
         ctx.SendPacketToServer(packet);
         ctx.GetSession().GameState.LastLootTargetGuid = loot.Unit.To64();
+        ctx.GetSession().GameState.LootUnitRequested = true;
     }
 
     [HandlesCmsg(Opcode.CMSG_LOOT_MONEY)]
     public static void HandleLootMoney(in LootMoney loot, in SessionContext ctx)
     {
         var state = ctx.GetSession().GameState;
+        state.LootClientActed = true;
         // V3_4_3 auto-loot pair: HandleLootItem already pre-claimed the gold to dodge
         // TC 3.3.5 master's session-close-on-item race. The client's matching
         // CMSG_LOOT_MONEY would now land on a closed legacy loot and produce

@@ -23,6 +23,10 @@ public partial class WorldClient
         state.RemainingLootCoins = 0;
         state.ExpectingLootReleaseResponse = false;
         state.LootMoneyPreClaimed = false;
+        // A session the client asked for counts as its own from the start; one opened server-side only once the
+        // client takes something from it (an auto-loot)
+        state.LootClientActed = state.LootUnitRequested;
+        state.LootUnitRequested = false;
 
         state.LastLootTargetGuid = packet.ReadGuid();
         loot.Owner = state.LastLootTargetGuid.To128(state);
@@ -69,11 +73,14 @@ public partial class WorldClient
         // Legacy 3.3.5a sends an unsolicited SMSG_LOOT_RELEASE after each auto-looted item,
         // which the V3_4_3 client treats as "close the session." That makes subsequent
         // SMSG_LOOT_REMOVED packets for the remaining slots no-ops on the UI side.
-        // Only forward when (a) gate is inactive, (b) client itself requested release, or
-        // (c) the loot is genuinely drained.
+        // Only forward when (a) gate is inactive, (b) client itself requested release, (c) the
+        // loot is genuinely drained, or (d) the client never took part in the session: it was
+        // opened server-side (a self-bot looting for the player), no auto-loot drain is under
+        // way, and this release is the only close the client will get.
         bool gateActive = ModernVersion.IsWotLKClassicOrLater;
         bool clientAsked = state.ExpectingLootReleaseResponse;
         bool drained = state.RemainingLootSlots.Count == 0 && state.RemainingLootCoins == 0;
+        bool serverOpened = !state.LootClientActed;
 
         // V3_4_3 client expects Owner = the looting player's own GUID (see TC's
         // Player::SendLootRelease in HermesProxy-WOTLK/tmp_certs/tc_player.cpp:8700-8705).
@@ -81,7 +88,7 @@ public partial class WorldClient
         // which is why the modern UI silently ignored every close on this version.
         loot.Owner = gateActive ? state.CurrentPlayerGuid : owner.To128(state);
 
-        if (!gateActive || clientAsked || drained)
+        if (!gateActive || clientAsked || drained || serverOpened)
         {
             SendPacketToClient(loot);
             state.LastMasterLootSentTarget = default;
