@@ -454,6 +454,23 @@ def build_map_difficulty(build: str) -> tuple[list[str], list[list[str]]]:
     return header, rows
 
 
+def build_cooldown_on_event_spells(build: str) -> tuple[list[str], list[list[str]]]:
+    """Spells whose cooldown starts on an event, not when they are cast.
+
+    Stealth and Prowl start theirs when the aura goes, a combat potion when combat ends:
+    the client holds the spell until the server's SMSG_COOLDOWN_EVENT. A spell carries it
+    itself (SpellMisc Attributes_0 COOLDOWN_ON_EVENT, 0x02000000) or through its category
+    (SpellCategory Flags COOLDOWN_STARTS_ON_EVENT, 0x04).
+    """
+    ids = {int(r["SpellID"]) for r in read_csv(fetch_client_csv("SpellMisc", build))
+           if r["DifficultyID"] == "0" and int(r["Attributes_0"]) & 0x02000000}
+    categories = {r["ID"] for r in read_csv(fetch_client_csv("SpellCategory", build))
+                  if int(r["Flags"]) & 0x04}
+    ids |= {int(r["SpellID"]) for r in read_csv(fetch_client_csv("SpellCategories", build))
+            if r["Category"] in categories}
+    return ["SpellId"], [[str(i)] for i in sorted(ids)]
+
+
 RECIPES: dict[str, Recipe] = {
     "Item3.csv": Recipe(source="Item", columns=ITEM_COLUMNS),
     "ItemSparse3.csv": Recipe(source="ItemSparse", columns=ITEM_SPARSE_COLUMNS, quote_all=True),
@@ -569,6 +586,27 @@ def carry(relative: str, checks: Sequence[tuple[str, str, str]] = ()):
     return builder
 
 
+def build_gems_with_cataclysm(build: str) -> tuple[str, list[str]]:
+    """Gems3's rows carried over, then the gems Cataclysm added.
+
+    The enchantment column is the server's. A 3.3.5a server knows none of Cataclysm's, so the
+    carried rows are left as they are. A 4.3.4 server socketing a Cataclysm gem names it by the
+    enchantment the 4.4.2 client's GemProperties gives it (Brilliant Inferno Ruby, 52207: 3995 on
+    both); without these rows the gem was not shown.
+    """
+    header, body = carry("Gems3.csv", [("ItemId", "Item", "ID")])(build)
+    known = {next(csv.reader([line]))[0] for line in body}
+    enchant_of = {r["ID"]: r["Enchant_ID"] for r in read_csv(fetch_client_csv("GemProperties", build))}
+    added: dict[int, int] = {}
+    for row in read_csv(fetch_client_csv("ItemSparse", build)):
+        enchant = enchant_of.get(row["Gem_properties"], "0")
+        if enchant in ("", "0") or enchant in known:
+            continue
+        item = int(row["ID"])
+        added[int(enchant)] = min(added.get(int(enchant), item), item)
+    return header, body + [f"{enchant},{item}" for enchant, item in sorted(added.items())]
+
+
 # Hotfix/ files the loaders read as client data. The verbatim ones keep the committed header;
 # BattlePetSpecies, Mount and SpellVisualMissile are projections of one table.
 HOTFIX_EXPORTS: dict[str, Recipe] = {
@@ -612,6 +650,10 @@ RECIPES.update({
     "TaxiPath4.csv": RECIPES["TaxiPath3.csv"],
     "TaxiPathNode4.csv": RECIPES["TaxiPathNode3.csv"],
     "MapDifficulty4.csv": RECIPES["MapDifficulty3.csv"],
+    "CooldownOnEventSpells4.csv": Recipe(
+        builder=build_cooldown_on_event_spells,
+        note="SpellMisc COOLDOWN_ON_EVENT + SpellCategory COOLDOWN_STARTS_ON_EVENT",
+    ),
     # The *3 recipes read these from committed 3.4.3 exports; for 4.4.2 they come from wago.
     "ItemEffect4.csv": Recipe(source="ItemEffect", columns=RECIPES["ItemEffect3.csv"].columns),
     "SpellVisuals4.csv": Recipe(
@@ -630,7 +672,7 @@ RECIPES.update({
     "MeleeSpells4.csv": Recipe(builder=carry("MeleeSpells3.csv"), raw=True),
     "AutoRepeatSpells4.csv": Recipe(builder=carry("AutoRepeatSpells3.csv"), raw=True),
     "AreaTriggerProximity4.csv": Recipe(builder=carry("AreaTriggerProximity3.csv"), raw=True),
-    "Gems4.csv": Recipe(builder=carry("Gems3.csv", [("ItemId", "Item", "ID")]), raw=True),
+    "Gems4.csv": Recipe(builder=build_gems_with_cataclysm, raw=True),
     "AreaTriggerRemap4.csv": Recipe(
         builder=carry("AreaTriggerRemap3.csv", [("ModernId", "AreaTrigger", "ID")]), raw=True),
     "AuraSpellRemap4.csv": Recipe(
@@ -640,6 +682,13 @@ RECIPES.update({
     "WorldMapAreaIDToUiMapID4.csv": Recipe(
         builder=carry("WorldMapAreaIDToUiMapID3.csv", [("UiMapID", "UiMap", "ID")]), raw=True),
     "Hotfix/AreaTrigger4.csv": Recipe(builder=carry("Hotfix/AreaTrigger3.csv"), raw=True),
+    # 4.4.2 names a reputation by its faction id where legacy servers send the reputation list
+    # index, so SMSG_INITIALIZE_FACTIONS and SMSG_SET_FACTION_STANDING need the one from the other.
+    "FactionReputation4.csv": Recipe(
+        source="Faction",
+        columns=[("Id", "ID"), "ReputationIndex"],
+        where=lambda r: r["ReputationIndex"] not in ("", "-1"),
+    ),
 })
 
 

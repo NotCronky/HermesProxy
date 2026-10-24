@@ -4,6 +4,7 @@ using System.Linq;
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Logging;
@@ -241,7 +242,7 @@ public static class SpellSystem
             packet.WriteUInt8(0); // cast count
         packet.WriteUInt32(cast.Cast.SpellID);
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
-            packet.WriteUInt8((byte)cast.Cast.SendCastFlags);
+            packet.WriteUInt8(LegacyCastFlags(cast.Cast.SendCastFlags));
         WriteSpellTargets(cast.Cast.Target, targetFlags, packet, ctx.GetSession().GameState);
         WriteClientCastFlagsTrailer(cast.Cast.SendCastFlags, cast.Cast.MissileTrajectory, packet);
         ctx.SendPacketToServer(packet);
@@ -301,7 +302,7 @@ public static class SpellSystem
             // when investigating glyph-apply rejections (iter-16).
             Log.Print(LogType.Network,
                 $"[Glyphs] CMSG_USE_ITEM glyphIndex={use.Cast.Misc[0]} itemSpellID={use.Cast.SpellID} itemGUID={use.CastItem}");
-            packet.WriteUInt8((byte)use.Cast.SendCastFlags);
+            packet.WriteUInt8(LegacyCastFlags(use.Cast.SendCastFlags));
         }
         SpellCastTargetFlags targetFlags = ConvertSpellTargetFlags(use.Cast.Target);
         WriteSpellTargets(use.Cast.Target, targetFlags, packet, ctx.GetSession().GameState);
@@ -337,6 +338,20 @@ public static class SpellSystem
         ctx.GetSession().GameState.CurrentClientAutoRepeatCast = null;
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_AUTO_REPEAT_SPELL);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A mirror image asks what it looks like. TrinityCore 4.3.4 reads the display id after the
+    /// GUID and skips it; 3.3.5a takes the GUID alone.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GET_MIRROR_IMAGE_DATA)]
+    public static void HandleGetMirrorImageData(in GetMirrorImageData request, in SessionContext ctx)
+    {
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GET_MIRROR_IMAGE_DATA);
+        packet.WriteGuid(request.UnitGUID.To64());
+        if (WorldClient.IsCataLegacy)
+            packet.WriteUInt32(request.DisplayID);
         ctx.SendPacketToServer(packet);
     }
 
@@ -394,6 +409,16 @@ public static class SpellSystem
 
         WorldPacket packet = new WorldPacket(Opcode.CMSG_TOTEM_DESTROYED);
         packet.WriteUInt8(totem.Slot);
+        // TrinityCore 4.3.4 TotemDestroyed::Read: the totem's GUID follows the slot, and only the totem
+        // it names is destroyed. The 4.4.2 client names none when the totem frame destroys one (a
+        // native server takes the slot's totem then), so the server kept it.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WowGuid64[] totems = ctx.GetSession().GameState.TotemGuids;
+            packet.WriteGuid(totem.Guid.IsEmpty() && totem.Slot < totems.Length
+                ? totems[totem.Slot]
+                : totem.Guid.To64(ctx.GetSession().GameState));
+        }
         ctx.SendPacketToServer(packet);
     }
 
@@ -509,12 +534,44 @@ public static class SpellSystem
         {
             packet.WriteUInt8(0); // cast count
             packet.WriteUInt32(spellId);
-            packet.WriteUInt8((byte)cast.SendCastFlags);
+            // 4.3.4 sends the glyph slot here (TrinityCore 4.3.4 SpellCastRequest.Misc).
+            if (WorldClient.IsCataLegacy)
+                packet.WriteUInt32(cast.Misc[0]);
+            byte legacyFlags = LegacyCastFlags(cast.SendCastFlags);
+            if (HasArchaeologyCostsCata(cast, legacyFlags))
+                legacyFlags |= LegacyCastFlagArchaeology;
+            packet.WriteUInt8(legacyFlags);
         }
         WriteSpellTargets(cast.Target, targetFlags, packet, ctx.GetSession().GameState);
         WriteClientCastFlagsTrailer(cast.SendCastFlags, cast.MissileTrajectory, packet);
+        if (HasArchaeologyCostsCata(cast, LegacyCastFlags(cast.SendCastFlags)))
+        {
+            // TrinityCore 4.3.4 HandleClientCastFlags: what solving an archaeology project spends,
+            // each a type (1 fragments, a currency; 2 keystones, an item), the id and the count.
+            // The 4.4.2 client sends the same as the cast's weights.
+            packet.WriteUInt32((uint)cast.Weight.Count);
+            foreach (SpellWeight weight in cast.Weight)
+            {
+                packet.WriteUInt8((byte)weight.Type);
+                packet.WriteInt32(weight.ID);
+                packet.WriteUInt32(weight.Quantity);
+            }
+        }
         ctx.SendPacketToServer(packet);
     }
+
+    const byte LegacyCastFlagArchaeology = 0x08;
+
+    // TrinityCore 4.3.4 reads either a trajectory or archaeology costs after the targets, not both.
+    static bool HasArchaeologyCostsCata(SpellCastRequest cast, byte legacyFlags)
+        => WorldClient.IsCataLegacy && cast.Weight.Count > 0 && (legacyFlags & (byte)CastFlag.HasTrajectory) == 0;
+
+    /// <summary>
+    /// The client's cast flags as a legacy server reads them. Legacy servers only know the
+    /// trajectory bit; TrinityCore 4.3.4 also reads 0x08 as archaeology and then expects data
+    /// after the targets, so the 0x08 a 4.4.2 client sets on ordinary casts made it drop them.
+    /// </summary>
+    static byte LegacyCastFlags(uint sendCastFlags) => (byte)(sendCastFlags & (uint)CastFlag.HasTrajectory);
 
     static void WriteClientCastFlagsTrailer(uint castFlags, MissileTrajectoryRequest trajectory, WorldPacket packet)
     {
@@ -552,7 +609,7 @@ public static class SpellSystem
         packet.WriteUInt32(resolvedSpellId);
         packet.WriteGuid(itemGuid.To64());
         packet.WriteUInt32(0); // glyphIndex — Misc[0] is the toy item id on CMSG_USE_TOY
-        packet.WriteUInt8((byte)cast.SendCastFlags);
+        packet.WriteUInt8(LegacyCastFlags(cast.SendCastFlags));
         SpellCastTargetFlags targetFlags = ConvertSpellTargetFlags(cast.Target);
         WriteSpellTargets(cast.Target, targetFlags, packet, ctx.GetSession().GameState);
         WriteClientCastFlagsTrailer(cast.SendCastFlags, cast.MissileTrajectory, packet);

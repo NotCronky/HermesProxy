@@ -67,6 +67,41 @@ public class LegacyHandlerWireTests
     }
 
     /// <summary>
+    /// SetPower sends SMSG_POWER_UPDATE and puts the same value in the next Values block, which
+    /// gave the client every such change twice. A field-only change after it still goes out.
+    /// </summary>
+    [Fact]
+    public void OwnPowerUpdate_RepeatedByTheNextValuesBlock_IsSentOnce()
+    {
+        DeliverPowerUpdate(_scenario.BuildOwnLegacyPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(110));
+
+        Assert.Equal([100, 110], SentOwnPowers());
+    }
+
+    /// <summary>
+    /// The power moved again before the Values block went out, so the block is news and the value
+    /// forwarded before it is spent: a later block that comes back to it is sent as well.
+    /// </summary>
+    [Fact]
+    public void OwnPowerUpdate_FollowedByAnotherValue_IsNotHeldForLater()
+    {
+        DeliverPowerUpdate(_scenario.BuildOwnLegacyPowerUpdate(100));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(97));
+        DeliverUpdate(_scenario.BuildOwnPowerUpdate(100));
+
+        Assert.Equal([100, 97, 100], SentOwnPowers());
+    }
+
+    private void DeliverPowerUpdate(byte[] wire)
+        => _harness.Deliver(Opcode.SMSG_POWER_UPDATE, wire, _harness.Client.HandlePowerUpdate);
+
+    private int[] SentOwnPowers()
+        => [.. _harness.ClientWire.Sent.Select(s => s.Packet).OfType<PowerUpdate>()
+            .Where(p => p.Guid == _scenario.Player).Select(p => Assert.Single(p.Powers).Power)];
+
+    /// <summary>
     /// Bit 31 is negative as an int, and PlayerFlagsLegacy was int-backed, so a player flags value
     /// with it set threw OverflowException and took every block of the packet down with it.
     /// </summary>
@@ -104,6 +139,25 @@ public class LegacyHandlerWireTests
         var go = Assert.IsType<SpellGo>(sent.Packet);
         Assert.Equal(52150, go.Cast.SpellID);
         Assert.Empty(go.Cast.HitTargets);
+    }
+
+    // The fake summon cast as a second 4.3.4 core writes it: the two target counts, both zero,
+    // and no target flags (#407). Read on, the flags came from past the end of the packet: a
+    // received packet sits in a pooled buffer longer than itself, here filled with 0xFF.
+    [Fact]
+    public void SpellGo_WithEmptyCountsAndNoTargetFlags_IsForwardedWithNoTargets()
+    {
+        byte[] wire = [.. _scenario.BuildPetSummonSpellGo(), 0, 0];
+        byte[] buffer = [.. wire, .. Enumerable.Repeat((byte)0xFF, 16)];
+
+        using (var packet = new WorldPacket(buffer, wire.Length, isPooled: false))
+            _harness.Client.HandleSpellGo(packet);
+
+        var go = Assert.IsType<SpellGo>(Assert.Single(_harness.ClientWire.Sent).Packet);
+        Assert.Equal(52150, go.Cast.SpellID);
+        Assert.Empty(go.Cast.HitTargets);
+        Assert.Empty(go.Cast.MissTargets);
+        Assert.Equal((SpellCastTargetFlags)0, go.Cast.Target.Flags);
     }
 
     private static readonly string[] ValuesBatchGolden =

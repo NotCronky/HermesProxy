@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Framework.Constants;
 using Framework.Logging;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Logging;
@@ -154,6 +155,10 @@ public static class QuestSystem
     public static void HandleCloseInteraction(in CloseInteraction close, in SessionContext ctx)
     {
         var state = ctx.GetSession().GameState;
+        // The stable window the proxy opened is closed: its stable master's next list opens it again.
+        if (close.Guid == state.OpenStableMaster)
+            state.OpenStableMaster = default;
+
         if (state.AwaitingQuestRewardId != 0)
         {
             if (ModernVersion.Build != HermesProxy.Enums.ClientVersionBuild.V3_4_3_54261)
@@ -288,6 +293,10 @@ public static class QuestSystem
         WorldPacket packet = new WorldPacket(opcode);
         packet.WriteGuid(quest.QuestGiverGUID.To64());
         packet.WriteUInt32(quest.QuestID);
+        // 4.3.4 reads FromScript after the quest (TrinityCore 4.3.4 QuestGiverCompleteQuest::Read);
+        // without it the read runs short and the turn-in click does nothing.
+        if (WorldClient.IsCataLegacy && opcode == Opcode.CMSG_QUEST_GIVER_COMPLETE_QUEST)
+            packet.WriteBool(quest.FromScript);
         ctx.SendPacketToServer(packet);
     }
 
@@ -364,5 +373,22 @@ public static class QuestSystem
             ctx.SendPacket(list);
 
         WorldSocketLogMessages.QuestClose(_melLog, _sourceFile, _netDirRecv, (int)questId, action);
+    }
+    /// <summary>
+    /// Asked for the quests in the log: whom can each be handed in to? Only a 4.x server knows the
+    /// request (TrinityCore 4.3.4 <c>HandleQuestNPCQuery</c>: a 24-bit count, then the quest ids).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_QUERY_QUEST_COMPLETION_NPCS)]
+    public static void HandleQueryQuestCompletionNPCs(in QueryQuestCompletionNPCs query, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_QUERY_QUEST_COMPLETION_NPCS);
+        packet.WriteBits(query.QuestIds.Length, 24);
+        packet.FlushBits();
+        foreach (int questId in query.QuestIds)
+            packet.WriteInt32(questId);
+        ctx.SendPacketToServer(packet);
     }
 }

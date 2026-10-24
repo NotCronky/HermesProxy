@@ -8,6 +8,7 @@ using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
 using System;
 using System.Globalization;
+using System.Text;
 using Framework.Logging;
 using Microsoft.Extensions.Logging;
 using static HermesProxy.World.Server.Packets.ChannelListResponse;
@@ -16,6 +17,52 @@ namespace HermesProxy.World.Client;
 
 public partial class WorldClient
 {
+    // Who joins, changes in and leaves a channel that announces its members (the layout has been the
+    // same since 2.x). Only the 4.4.2 opcode table has the client's side of the three, so they are
+    // passed on for a 4.3.4 server and dropped for the others, as before.
+    uint UserlistChannelId(string channelName)
+        => GetSession().GameState.ChannelIds.TryGetValue(channelName, out int id)
+            ? (uint)id
+            : GameData.GetChatChannelIdFromName(channelName);
+
+    [HandlesSmsg(Opcode.SMSG_USERLIST_ADD)]
+    [HandlesSmsg(Opcode.SMSG_USERLIST_UPDATE)]
+    internal void HandleUserlistAdd(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            HandleUserlistAddCata(packet);
+    }
+
+    internal void HandleUserlistAddCata(WorldPacket packet)
+    {
+        UserlistAdd user = new(update: packet.GetUniversalOpcode(false) == Opcode.SMSG_USERLIST_UPDATE);
+        user.UserGUID = packet.ReadGuid().To128(GetSession().GameState);
+        user.UserFlags = packet.ReadUInt8();
+        user.ChannelFlags = packet.ReadUInt8();
+        packet.ReadUInt32(); // members now in the channel
+        user.ChannelName = packet.ReadCString();
+        user.ChannelID = UserlistChannelId(user.ChannelName);
+        SendPacketToClient(user);
+    }
+
+    [HandlesSmsg(Opcode.SMSG_USERLIST_REMOVE)]
+    internal void HandleUserlistRemove(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            HandleUserlistRemoveCata(packet);
+    }
+
+    internal void HandleUserlistRemoveCata(WorldPacket packet)
+    {
+        UserlistRemove user = new();
+        user.UserGUID = packet.ReadGuid().To128(GetSession().GameState);
+        user.ChannelFlags = packet.ReadUInt8();
+        packet.ReadUInt32(); // members now in the channel
+        user.ChannelName = packet.ReadCString();
+        user.ChannelID = UserlistChannelId(user.ChannelName);
+        SendPacketToClient(user);
+    }
+
     // Handlers for SMSG opcodes coming the legacy world server
     [HandlesSmsg(Opcode.SMSG_CHANNEL_NOTIFY)]
     internal void HandleChannelNotify(WorldPacket packet)
@@ -371,9 +418,17 @@ public partial class WorldClient
         {
             case ChatMessageTypeWotLK.BattlegroundAlliance:
             case ChatMessageTypeWotLK.BattlegroundHorde:
-                Utility.Swap(ref sender, ref receiver);
+                if (!ModernVersion.BattlegroundAnnouncementNamesTarget)
+                    Utility.Swap(ref sender, ref receiver);
                 break;
         }
+
+        // TrinityCore 4.3.4 BuildChatPacket: an addon message carries its prefix here, on its
+        // own; 3.3.5a has it at the front of the text, before a tab. Left unread, its first four
+        // bytes were taken for the length of the text.
+        string? cataAddonPrefix = null;
+        if (IsCataLegacy && language == (uint)Language.Addon)
+            cataAddonPrefix = packet.ReadCString();
 
         uint textLength = packet.ReadUInt32();
         string text = packet.ReadString(textLength);
@@ -402,15 +457,33 @@ public partial class WorldClient
             if (chatType == ChatMessageTypeWotLK.Whisper)
             { // In legacy versions the client handled the ignore itself and also sends a "You are ignored" message back.
                 WorldPacket ignoreResponsePacket = new WorldPacket(Opcode.CMSG_CHAT_REPORT_IGNORED);
-                ignoreResponsePacket.WriteGuid(sender!.To64());
-                ignoreResponsePacket.WriteUInt8(0); // unk
+                if (IsCataLegacy)
+                {
+                    // TrinityCore 4.3.4 HandleChatIgnoredOpcode reads the byte first and the sender
+                    // as a masked GUID. Sent the 3.3.5a way it named no one, and the sender was
+                    // never told it is ignored.
+                    ignoreResponsePacket.WriteUInt8(0);
+                    MaskedGuid.Write(ignoreResponsePacket, sender!.To64().Low, [5, 2, 6, 4, 7, 0, 1, 3], [0, 6, 5, 1, 4, 3, 7, 2]);
+                }
+                else
+                {
+                    ignoreResponsePacket.WriteGuid(sender!.To64());
+                    ignoreResponsePacket.WriteUInt8(0); // unk
+                }
                 SendPacketToServer(ignoreResponsePacket);
             }
             return;
         }
 
         string addonPrefix = "";
-        if (!ChatPkt.CheckAddonPrefix(GetSession().GameState.AddonPrefixes, ref language, ref text, ref addonPrefix))
+        if (cataAddonPrefix != null)
+        {
+            if (!GetSession().GameState.AddonPrefixes.Contains(cataAddonPrefix))
+                return;
+            addonPrefix = cataAddonPrefix;
+            language = (uint)Language.AddonBfA;
+        }
+        else if (!ChatPkt.CheckAddonPrefix(GetSession().GameState.AddonPrefixes, ref language, ref text, ref addonPrefix))
             return;
 
         // Counterpart to the outbound rewrite: the server broadcasts links in the legacy
@@ -421,6 +494,16 @@ public partial class WorldClient
             text = ItemLinkTranslator.LegacyToModern(text);
 
         ChatMessageTypeModern chatTypeModern = chatType.CastEnum<ChatMessageTypeModern>();
+        // TrinityCore 4.3.4 has no instance chat: a dungeon finder group talks in party chat. The
+        // 4.4.2 client holds that group in its instance category and its talk as instance chat,
+        // which is what it sends itself there; as party chat it was shown as party talk, in a
+        // group the client says has no party. The modern client's instance chat has the numbers
+        // battleground chat had (CHAT_MSG_INSTANCE_CHAT 62, _LEADER 63).
+        if (IsCataLegacy && chatTypeModern is ChatMessageTypeModern.Party or ChatMessageTypeModern.PartyLeader
+            && GetSession().GameState.CurrentGroups[1]?.PartyFlags.HasFlag(GroupFlags.Lfg) == true)
+            chatTypeModern = chatTypeModern == ChatMessageTypeModern.Party
+                ? ChatMessageTypeModern.Battleground
+                : ChatMessageTypeModern.BattlegroundLeader;
         ChatPkt chat = new ChatPkt(GetSession(), chatTypeModern, text, language, sender, senderName, receiver, receiverName, channelName, chatFlags, addonPrefix, achievementId);
 
         if (_melLog.IsEnabled(LogLevel.Trace))
@@ -428,6 +511,8 @@ public partial class WorldClient
                 language, senderName, channelName, text.Length, ChatLogMessages.Preview(text));
 
         SendPacketToClient(chat);
+        if (addonPrefix.Length == 0 && chatTypeModern is ChatMessageTypeModern.Guild or ChatMessageTypeModern.Officer)
+            GetSession().GameState.GuildClub.ChatReceived(chatTypeModern == ChatMessageTypeModern.Officer, sender, text);
     }
 
     public void SendMessageChatVanilla(ChatMessageTypeVanilla type, uint lang, string msg, string channel, string to)
@@ -551,6 +636,12 @@ public partial class WorldClient
             return; // was handled by us
         }
 
+        if (IsCataLegacy)
+        {
+            SendMessageChatCata(type, lang, msg, channel, to);
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(Opcode.CMSG_MESSAGECHAT);
         packet.WriteUInt32((uint)type);
         packet.WriteUInt32(lang);
@@ -586,6 +677,148 @@ public partial class WorldClient
         SendPacket(packet);
     }
 
+    /// <summary>
+    /// 4.3.4 has one opcode per chat type, and the strings behind lengths in a bit section
+    /// (TrinityCore 4.3.4 WorldSession::HandleMessagechatOpcode). Emote, AFK and DND carry no
+    /// language. Leaders speak through the party, raid and battleground opcodes; the server
+    /// knows who leads.
+    /// </summary>
+    private void SendMessageChatCata(ChatMessageTypeWotLK type, uint lang, string msg, string channel, string to)
+    {
+        if (lang == (uint)Language.Addon)
+        {
+            SendAddonMessageCata(type, msg, to);
+            return;
+        }
+
+        Opcode opcode = type switch
+        {
+            ChatMessageTypeWotLK.Say => Opcode.CMSG_CHAT_MESSAGE_SAY,
+            ChatMessageTypeWotLK.Yell => Opcode.CMSG_CHAT_MESSAGE_YELL,
+            ChatMessageTypeWotLK.Emote => Opcode.CMSG_CHAT_MESSAGE_EMOTE,
+            ChatMessageTypeWotLK.Party or ChatMessageTypeWotLK.PartyLeader => Opcode.CMSG_CHAT_MESSAGE_PARTY,
+            ChatMessageTypeWotLK.Raid or ChatMessageTypeWotLK.RaidLeader => Opcode.CMSG_CHAT_MESSAGE_RAID,
+            ChatMessageTypeWotLK.RaidWarning => Opcode.CMSG_CHAT_MESSAGE_RAID_WARNING,
+            ChatMessageTypeWotLK.Battleground or ChatMessageTypeWotLK.BattlegroundLeader => Opcode.CMSG_CHAT_MESSAGE_BATTLEGROUND,
+            ChatMessageTypeWotLK.Guild => Opcode.CMSG_CHAT_MESSAGE_GUILD,
+            ChatMessageTypeWotLK.Officer => Opcode.CMSG_CHAT_MESSAGE_OFFICER,
+            ChatMessageTypeWotLK.Whisper => Opcode.CMSG_CHAT_MESSAGE_WHISPER,
+            ChatMessageTypeWotLK.Channel => Opcode.CMSG_CHAT_MESSAGE_CHANNEL,
+            ChatMessageTypeWotLK.Afk => Opcode.CMSG_CHAT_MESSAGE_AFK,
+            ChatMessageTypeWotLK.Dnd => Opcode.CMSG_CHAT_MESSAGE_DND,
+            _ => Opcode.MSG_NULL_ACTION,
+        };
+        if (opcode == Opcode.MSG_NULL_ACTION)
+            return;
+
+        WorldPacket packet = new WorldPacket(opcode);
+        if (type is not (ChatMessageTypeWotLK.Emote or ChatMessageTypeWotLK.Afk or ChatMessageTypeWotLK.Dnd))
+            packet.WriteUInt32(lang);
+
+        int textLength = System.Text.Encoding.UTF8.GetByteCount(msg);
+        switch (type)
+        {
+            case ChatMessageTypeWotLK.Whisper:
+                packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(to), 10);
+                packet.WriteBits(textLength, 9);
+                packet.FlushBits();
+                packet.WriteString(to);
+                packet.WriteString(msg);
+                break;
+            case ChatMessageTypeWotLK.Channel:
+                packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(channel), 10);
+                packet.WriteBits(textLength, 9);
+                packet.FlushBits();
+                packet.WriteString(msg);
+                packet.WriteString(channel);
+                break;
+            default:
+                packet.WriteBits(textLength, 9);
+                packet.FlushBits();
+                packet.WriteString(msg);
+                break;
+        }
+
+        SendPacket(packet);
+    }
+
+    /// <summary>
+    /// 4.3.4 sends addon messages through opcodes of their own, one per destination, with the
+    /// prefix apart from the text (TrinityCore 4.3.4 WorldSession::HandleAddonMessagechatOpcode);
+    /// each orders its two lengths and its strings its own way. Sent as chat in the addon
+    /// language, the server answers that it does not know the language. There is no addon
+    /// opcode for say, yell or a channel.
+    /// </summary>
+    private void SendAddonMessageCata(ChatMessageTypeWotLK type, string prefixedText, string to)
+    {
+        int tab = prefixedText.IndexOf('\t');
+        if (tab <= 0)
+            return;
+
+        string prefix = prefixedText[..tab];
+        string text = prefixedText[(tab + 1)..];
+        int prefixLength = System.Text.Encoding.UTF8.GetByteCount(prefix);
+        int textLength = System.Text.Encoding.UTF8.GetByteCount(text);
+        if (prefixLength > 16 || textLength > 511)
+            return; // the server drops a longer prefix, and nine bits hold no longer text
+
+        switch (type)
+        {
+            case ChatMessageTypeWotLK.Whisper:
+            {
+                WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_ADDON_MESSAGE_WHISPER);
+                packet.WriteBits(textLength, 9);
+                packet.WriteBits(prefixLength, 5);
+                packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(to), 10);
+                packet.FlushBits();
+                packet.WriteString(text);
+                packet.WriteString(prefix);
+                packet.WriteString(to);
+                SendPacket(packet);
+                break;
+            }
+            case ChatMessageTypeWotLK.Raid:
+            case ChatMessageTypeWotLK.RaidLeader:
+            case ChatMessageTypeWotLK.Battleground:
+            case ChatMessageTypeWotLK.BattlegroundLeader:
+            {
+                bool raid = type is ChatMessageTypeWotLK.Raid or ChatMessageTypeWotLK.RaidLeader;
+                WorldPacket packet = new WorldPacket(raid ? Opcode.CMSG_CHAT_ADDON_MESSAGE_RAID : Opcode.CMSG_CHAT_ADDON_MESSAGE_BATTLEGROUND);
+                packet.WriteBits(prefixLength, 5);
+                packet.WriteBits(textLength, 9);
+                packet.FlushBits();
+                packet.WriteString(prefix);
+                packet.WriteString(text);
+                SendPacket(packet);
+                break;
+            }
+            case ChatMessageTypeWotLK.Party:
+            case ChatMessageTypeWotLK.PartyLeader:
+            case ChatMessageTypeWotLK.Officer:
+            {
+                WorldPacket packet = new WorldPacket(type == ChatMessageTypeWotLK.Officer ? Opcode.CMSG_CHAT_ADDON_MESSAGE_OFFICER : Opcode.CMSG_CHAT_ADDON_MESSAGE_PARTY);
+                packet.WriteBits(prefixLength, 5);
+                packet.WriteBits(textLength, 9);
+                packet.FlushBits();
+                packet.WriteString(text);
+                packet.WriteString(prefix);
+                SendPacket(packet);
+                break;
+            }
+            case ChatMessageTypeWotLK.Guild:
+            {
+                WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_ADDON_MESSAGE_GUILD);
+                packet.WriteBits(textLength, 9);
+                packet.WriteBits(prefixLength, 5);
+                packet.FlushBits();
+                packet.WriteString(text);
+                packet.WriteString(prefix);
+                SendPacket(packet);
+                break;
+            }
+        }
+    }
+
     [HandlesSmsg(Opcode.SMSG_EMOTE)]
     internal void HandleEmote(WorldPacket packet)
     {
@@ -612,8 +845,34 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_PRINT_NOTIFICATION)]
     internal void HandlePrintNotification(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandlePrintNotificationCata(packet);
+            return;
+        }
+
         PrintNotification notify = new PrintNotification();
         notify.NotifyText = packet.ReadCString();
+        SendPacketToClient(notify);
+    }
+
+    // TrinityCore 4.3.4 sends the text after a 13-bit length and without a terminator
+    // (WorldSession::SendNotification). Only its .notify and .gmnotify commands still write a C
+    // string, and a length read from that text's first two characters is not what is left.
+    internal void HandlePrintNotificationCata(WorldPacket packet)
+    {
+        int start = packet.ReadPosition;
+        uint length = packet.ReadBits<uint>(13);
+        packet.ResetBitPos();
+
+        PrintNotification notify = new PrintNotification();
+        if (length == packet.Remaining())
+            notify.NotifyText = packet.ReadString(length);
+        else
+        {
+            packet.RewindTo(start);
+            notify.NotifyText = packet.ReadCString();
+        }
         SendPacketToClient(notify);
     }
 
@@ -647,6 +906,22 @@ public partial class WorldClient
     public void SendChatJoinChannel(int channelId, string channelName, string password)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_JOIN_CHANNEL);
+        if (WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleJoinChannel: two bits, then 8-bit lengths and the strings
+            // without terminators. Sent the 3.3.5a way the name read as empty and every join
+            // was refused.
+            packet.WriteInt32(channelId);
+            packet.WriteBit(false); // Has Voice
+            packet.WriteBit(false); // Joined by zone update
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(channelName), 8);
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(password), 8);
+            packet.FlushBits();
+            packet.WriteString(channelName);
+            packet.WriteString(password);
+            SendPacketToServer(packet);
+            return;
+        }
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
         {
             packet.WriteInt32(channelId);
@@ -661,6 +936,16 @@ public partial class WorldClient
     public void SendChatLeaveChannel(int channelId, string channelName)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_LEAVE_CHANNEL);
+        if (WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleLeaveChannel: an 8-bit length, then the unterminated name.
+            packet.WriteInt32(channelId);
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(channelName), 8);
+            packet.FlushBits();
+            packet.WriteString(channelName);
+            SendPacketToServer(packet);
+            return;
+        }
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             packet.WriteInt32(channelId);
         packet.WriteCString(channelName);

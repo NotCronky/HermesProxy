@@ -22,6 +22,7 @@ public partial class WorldClient
     {
         QueryTimeResponse response = new QueryTimeResponse();
         response.CurrentTime = packet.ReadInt32();
+        GetSession().GameState.LegacyServerClockOffset = response.CurrentTime - DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) && packet.CanRead())
             packet.ReadInt32(); // Next Daily Quest Reset Time
         SendPacketToClient(response);
@@ -113,6 +114,12 @@ public partial class WorldClient
         quest.StartItem = packet.ReadUInt32();
         quest.Flags = packet.ReadUInt32();
 
+        // 4.3.4 additions (TrinityCore 4.3.4 QueryQuestInfoResponse): the minimap mark here, the
+        // skill and portrait fields where 3.3.5a has one unknown, the required spell after the
+        // required items, and currencies, portrait texts and sound kits at the end.
+        if (IsCataLegacy)
+            packet.ReadUInt32();                // MinimapTargetMark
+
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_4_0_8089))
             quest.RewardTitle = packet.ReadUInt32();
 
@@ -136,7 +143,15 @@ public partial class WorldClient
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             quest.RewardArenaPoints = packet.ReadInt32();
 
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
+        if (IsCataLegacy)
+        {
+            quest.RewardSkillLineID = packet.ReadUInt32();
+            quest.RewardNumSkillUps = packet.ReadUInt32();
+            packet.ReadUInt32();                // RewardReputationMask
+            quest.PortraitGiver = packet.ReadUInt32();
+            quest.PortraitTurnIn = packet.ReadUInt32();
+        }
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             packet.ReadInt32(); // Unk
 
         for (int i = 0; i < 4; i++)
@@ -258,11 +273,53 @@ public partial class WorldClient
             }
         }
 
+        if (IsCataLegacy)
+            packet.ReadUInt32();                // RequiredSpell
+
         for (int i = 0; i < 4; i++)
         {
             string objectiveText = packet.ReadCString();
             if (quest.Objectives.Count > i)
                 quest.Objectives[i].Description = objectiveText;
+        }
+
+        uint acceptedSoundKit = 890;
+        uint completeSoundKit = 878;
+        if (IsCataLegacy)
+        {
+            // The server's ids and whole points; the client's ids and, for the currencies it keeps
+            // in hundredths, hundredths (10 Justice Points sent as they are read as 0).
+            for (int i = 0; i < 4; i++)
+            {
+                quest.RewardCurrencyID[i] = ModernCurrencyId(packet.ReadUInt32());
+                quest.RewardCurrencyQty[i] = packet.ReadUInt32() * ModernCurrencyScale(quest.RewardCurrencyID[i]);
+            }
+
+            // A required currency is an objective of its own to the client, which counts it from
+            // the currency the player holds; it keeps no progress in the quest log.
+            for (int i = 0; i < 4; i++)
+            {
+                uint currencyId = ModernCurrencyId(packet.ReadUInt32());
+                uint currencyQty = packet.ReadUInt32() * ModernCurrencyScale(currencyId);
+                if (currencyId == 0 || currencyQty == 0)
+                    continue;
+
+                QuestObjective objective = new QuestObjective();
+                objective.QuestID = response.QuestID;
+                objective.Id = QuestObjective.QuestObjectiveCounter++;
+                objective.StorageIndex = -1;
+                objective.Type = QuestObjectiveType.Currency;
+                objective.ObjectID = (int)currencyId;
+                objective.Amount = (int)currencyQty;
+                quest.Objectives.Add(objective);
+            }
+
+            quest.PortraitGiverText = packet.ReadCString();
+            quest.PortraitGiverName = packet.ReadCString();
+            quest.PortraitTurnInText = packet.ReadCString();
+            quest.PortraitTurnInName = packet.ReadCString();
+            acceptedSoundKit = packet.ReadUInt32();
+            completeSoundKit = packet.ReadUInt32();
         }
 
         // Placeholders
@@ -273,8 +330,8 @@ public partial class WorldClient
         for (int i = 0; i < QuestConst.QuestRewardReputationsCount; i++)
             quest.RewardFactionCapIn[i] = 7;
         quest.AllowableRaces = 511;
-        quest.AcceptedSoundKitID = 890;
-        quest.CompleteSoundKitID = 878;
+        quest.AcceptedSoundKitID = acceptedSoundKit;
+        quest.CompleteSoundKitID = completeSoundKit;
 
         GameData.StoreQuestTemplate(response.QuestID, quest);
 
@@ -324,12 +381,22 @@ public partial class WorldClient
         for (int i = 0; i < 4; i++)
             creature.Name[i] = packet.ReadCString();
 
+        // 4.3.4 adds the alternate (female) names and a second flags word (TrinityCore 4.3.4
+        // QueryCreatureResponse), and RequiredExpansion at the end.
+        if (IsCataLegacy)
+        {
+            for (int i = 0; i < 4; i++)
+                creature.NameAlt[i] = packet.ReadCString();
+        }
+
         creature.Title = packet.ReadCString();
 
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             creature.CursorName = packet.ReadCString();
 
         creature.Flags[0] = packet.ReadUInt32(); // Type Flags
+        if (IsCataLegacy)
+            creature.Flags[1] = packet.ReadUInt32();
         creature.Type = packet.ReadInt32();
         creature.Family = packet.ReadInt32();
         creature.Classification = packet.ReadInt32();
@@ -382,6 +449,9 @@ public partial class WorldClient
             packet.ReadUInt32(); // Movement ID
         }
 
+        if (IsCataLegacy)
+            creature.RequiredExpansion = packet.ReadUInt32();
+
         // Placeholders
         creature.MovementInfoID = 1693;
         creature.Class = 1;
@@ -428,7 +498,9 @@ public partial class WorldClient
             gameObject.UnkString = packet.ReadCString();
         }
 
-        for (int i = 0; i < 24; i++)
+        // 4.3.4 has 32 data fields (TrinityCore 4.3.4 MAX_GAMEOBJECT_DATA), and RequiredLevel at the end.
+        int dataCount = IsCataLegacy ? 32 : 24;
+        for (int i = 0; i < dataCount; i++)
             gameObject.Data[i] = packet.ReadInt32();
 
         // A V3_4_3 client takes a destructible building's model from DestructibleModelData
@@ -470,6 +542,9 @@ public partial class WorldClient
                     gameObject.QuestItems.Add(itemId);
             }
         }
+
+        if (IsCataLegacy)
+            packet.ReadInt32();                 // RequiredLevel
 
         SendPacketToClient(response);
     }
@@ -697,14 +772,18 @@ public partial class WorldClient
         if (entry.UpdateObject.ObjectUpdates.Count != 0 ||
             entry.UpdateObject.DestroyedGuids.Count != 0 ||
             entry.UpdateObject.OutOfRangeGuids.Count != 0)
+        {
             SendPacketToClient(entry.UpdateObject);
+            MarkPlayerCreateQueued(entry.UpdateObject);
+        }
 
         // Player Values that landed while this batch was held (issue #300): the stance a warrior
         // logs in with, a mount's display id. They are claimed and sent inline rather than left to
         // the GuidKnown notify, which would only run them after this method returns — a nested
         // release appends to the running release run — and so after the world-ready handshake
         // below. Claimed in registration order, and only ever after the create above.
-        if (ModernVersion.IsWotLKClassicOrLater && session.ToClient.HasPending)
+        if (ModernVersion.IsWotLKClassicOrLater &&
+            session.GameState.ClientHasPlayerObject && session.ToClient.HasPending)
         {
             foreach (var playerValues in ClaimHeldPlayerValues(session))
             {

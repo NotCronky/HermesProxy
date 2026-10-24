@@ -54,6 +54,9 @@ public static class ModernMovementCodec
             case ModernMovementLayout.WotLKClassic:
                 ReadCore<WotLKClassicMovementLayout>(ref data, out info);
                 break;
+            case ModernMovementLayout.CataClassic:
+                ReadCore<CataClassicMovementLayout>(ref data, out info);
+                break;
             case ModernMovementLayout.WordFlags:
                 ReadCore<WordFlagsMovementLayout>(ref data, out info);
                 break;
@@ -173,6 +176,7 @@ public static class ModernMovementCodec
     public static int Write(ModernMovementLayout layout, Span<byte> buffer, WowGuid128 mover, in MovementInfo info) => layout switch
     {
         ModernMovementLayout.WotLKClassic => WriteCore<WotLKClassicMovementLayout>(buffer, mover, in info),
+        ModernMovementLayout.CataClassic => WriteCore<CataClassicMovementLayout>(buffer, mover, in info),
         ModernMovementLayout.WordFlags => WriteCore<WordFlagsMovementLayout>(buffer, mover, in info),
         _ => WriteCore<BitFlagsMovementLayout>(buffer, mover, in info),
     };

@@ -169,6 +169,33 @@ public static class AutoEquipItemCodec
     }
 }
 
+[PacketCodec(typeof(AutoBankItem), RemovedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class AutoBankItemCodec
+{
+    public static void Read(ref SpanPacketReader r, out AutoBankItem packet)
+    {
+        InvUpdateCodec.Read(ref r, out var inv);
+        byte packSlot = r.ReadUInt8();
+        byte slot = r.ReadUInt8();
+        packet = new AutoBankItem(inv, packSlot, slot);
+    }
+}
+
+// 4.4.2 (TrinityCore cata_classic, and the client's writer): a BankType byte comes first. Read
+// the 3.4.3 way, the bank type became the bag and the bag the slot.
+[PacketCodec(typeof(AutoBankItem), AddedIn = ClientVersionBuild.V4_4_2_60895)]
+public static class AutoBankItemCodecCataClassic
+{
+    public static void Read(ref SpanPacketReader r, out AutoBankItem packet)
+    {
+        InvUpdateCodec.Read(ref r, out var inv);
+        r.ReadUInt8();                          // BankType
+        byte packSlot = r.ReadUInt8();
+        byte slot = r.ReadUInt8();
+        packet = new AutoBankItem(inv, packSlot, slot);
+    }
+}
+
 public static class AutoEquipItemSlotCodec
 {
     public static void Read(ref SpanPacketReader r, out AutoEquipItemSlot packet)
@@ -255,4 +282,68 @@ public static class CancelTempEnchantmentCodec
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Read(ref SpanPacketReader r, out CancelTempEnchantment packet)
         => packet = new CancelTempEnchantment(r.ReadUInt32());
+}
+
+public static class GetItemPurchaseDataCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out GetItemPurchaseData packet)
+        => packet = new GetItemPurchaseData(r.ReadPackedGuid128());
+}
+
+public static class ItemPurchaseRefundCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out ItemPurchaseRefund packet)
+        => packet = new ItemPurchaseRefund(r.ReadPackedGuid128());
+}
+
+/// <summary>
+/// The reforger, the bag, the slot and the ItemReforge row (docs/protocol/4.4.2.60895; TrinityCore
+/// cata_classic ReforgeItem::Read). Only the 4.4.2 client has the opcode.
+/// </summary>
+/// <summary>
+/// The 4.4.2 client's layout (docs/protocol/4.4.2.60895; TrinityCore cata_classic reads the same):
+/// the count, the transmogrifier, per slot the appearance, the slot, an illusion and a second
+/// appearance (shoulders), then one bit.
+/// </summary>
+public static class TransmogrifyItemsCodec
+{
+    private const int ItemBytes = 16;
+
+    public static void Read(ref SpanPacketReader r, out TransmogrifyItems packet)
+    {
+        uint count = r.ReadUInt32();
+        WowGuid128 npc = r.ReadPackedGuid128();
+
+        // The count is wire data: what is left of the packet bounds how many can follow.
+        if (count > r.Remaining / ItemBytes)
+            throw new System.ArgumentOutOfRangeException(nameof(count), count,
+                $"CMSG_TRANSMOGRIFY_ITEMS claims {count} slots but only {r.Remaining} bytes remain.");
+
+        var items = new TransmogrifyItem[count];
+        for (int i = 0; i < count; i++)
+        {
+            int appearance = r.ReadInt32();
+            uint slot = r.ReadUInt32();
+            int enchantment = r.ReadInt32();
+            int secondaryAppearance = r.ReadInt32();
+            items[i] = new TransmogrifyItem(appearance, slot, enchantment, secondaryAppearance);
+        }
+        bool currentSpecOnly = r.HasBit();
+        packet = new TransmogrifyItems(npc, items, currentSpecOnly);
+    }
+}
+
+public static class ReforgeItemCodec
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Read(ref SpanPacketReader r, out ReforgeItem packet)
+    {
+        WowGuid128 reforger = r.ReadPackedGuid128();
+        uint containerId = r.ReadUInt32();
+        uint slotNum = r.ReadUInt32();
+        uint itemReforgeRecId = r.ReadUInt32();
+        packet = new ReforgeItem(reforger, containerId, slotNum, itemReforgeRecId);
+    }
 }

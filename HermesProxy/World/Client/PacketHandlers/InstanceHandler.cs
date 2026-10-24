@@ -25,7 +25,8 @@ public partial class WorldClient
         pending.TimeUntilLock = (int)packet.ReadUInt32();
         pending.CompletedMask = packet.ReadUInt32();
         pending.Extending = packet.ReadUInt8() != 0;
-        pending.WarningOnly = false; // legacy has no equivalent; it only asks when a bind is pending
+        // 3.3.5a has no equivalent, it only asks when a bind is pending; 4.3.4 PendingRaidLock says.
+        pending.WarningOnly = IsCataLegacy && packet.ReadBool();
         SendPacketToClient(pending);
     }
 
@@ -39,12 +40,39 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_INSTANCE_DIFFICULTY)]
     internal void HandleInstanceDifficulty(WorldPacket packet)
     {
-        uint difficulty = packet.ReadUInt32();
+        SendInstanceDifficulty(packet.ReadUInt32());
+    }
+
+    /// <summary>
+    /// A 4.3.4 server has no SMSG_INSTANCE_DIFFICULTY: it reports the instance's difficulty in a
+    /// server info of its own, at the same point (TrinityCore 4.3.4
+    /// <c>Player::SendInitialPacketsBeforeAddToMap</c>). Only the difficulty is taken from it; the
+    /// rest of the client's server info stays the proxy's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_WORLD_SERVER_INFO)]
+    internal void HandleWorldServerInfo(WorldPacket packet)
+    {
+        bool hasRestrictedLevel = packet.HasBit();
+        bool hasRestrictedMoney = packet.HasBit();
+        bool hasIneligibleForLootMask = packet.HasBit();
+        if (hasIneligibleForLootMask)
+            packet.ReadUInt32();
+        packet.ReadUInt8(); // IsTournamentRealm
+        if (hasRestrictedMoney)
+            packet.ReadUInt32();
+        if (hasRestrictedLevel)
+            packet.ReadUInt32();
+        packet.ReadUInt32(); // WeeklyReset
+        SendInstanceDifficulty(packet.ReadUInt32());
+    }
+
+    private void SendInstanceDifficulty(uint legacyDifficulty)
+    {
         uint? mapId = GetSession().GameState.CurrentMapId;
-        if (difficulty == 0 || mapId is null || !WorldServerInfo.FollowsInstanceDifficulty)
+        if (legacyDifficulty == 0 || mapId is null || !WorldServerInfo.FollowsInstanceDifficulty)
             return;
 
-        SendPacketToClient(WorldServerInfo.ForMap(mapId.Value, difficulty));
+        SendPacketToClient(WorldServerInfo.ForMap(mapId.Value, legacyDifficulty));
     }
 
     [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_OWNERSHIP)]
@@ -98,7 +126,18 @@ public partial class WorldClient
             InstanceLock instance = new InstanceLock();
             instance.MapID = packet.ReadUInt32();
 
-            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+            if (IsCataLegacy)
+            {
+                // TrinityCore 4.3.4 Player::SendRaidInfo: a heroic raid's lock as its size (0 for
+                // 10, 1 for 25) with the heroic flag after it; a heroic dungeon is 1 without the
+                // flag. Turned into one number of 3.3.5a's, the map's rows in the client's data
+                // tell a raid from a dungeon. Passed on as it came, a 10-player raid was "no
+                // difficulty" and a 25-player one "normal".
+                uint size = packet.ReadUInt32();
+                bool heroic = packet.ReadUInt32() != 0;
+                instance.DifficultyID = (DifficultyModern)GameData.ModernInstanceDifficulty(instance.MapID, heroic ? size + 2 : size).DifficultyId;
+            }
+            else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
                 instance.DifficultyID = (DifficultyModern)packet.ReadUInt32();
             else
             {
@@ -110,10 +149,15 @@ public partial class WorldClient
 
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             {
+                // TrinityCore 4.3.4 InstanceLock: the bosses killed after the time. Without them
+                // (and the heroic flag) every lock after the first is read from the middle of the
+                // one before.
                 instance.InstanceID = packet.ReadUInt64();
                 instance.Locked = packet.ReadBool();
                 instance.Extended = packet.ReadBool();
                 instance.TimeRemaining = packet.ReadInt32();
+                if (IsCataLegacy)
+                    instance.CompletedMask = packet.ReadUInt32();
             }
             else
             {
@@ -162,7 +206,7 @@ public partial class WorldClient
                 instance.DifficultyID = DifficultyModern.Raid25N;
         }
 
-        packet.ReadUInt32(); // time
+        instance.TimeLeft = packet.ReadInt32();
 
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056) &&
             instance.Type == InstanceResetWarningType.Welcome)
@@ -172,5 +216,82 @@ public partial class WorldClient
         }
 
         SendPacketToClient(instance);
+    }
+
+    /// <summary>
+    /// A boss's unit frame. A legacy server sends one opcode with a frame type first, a modern
+    /// client has a packet for each type. The three that put a boss frame up, move it among the
+    /// others and take it down are passed on; the timer and objective types are not.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT, RemovedIn = ClientVersionBuild.V4_0_1_13164)]
+    internal void HandleUpdateInstanceEncounterUnit(WorldPacket packet)
+    {
+        switch ((EncounterFrameType)packet.ReadUInt32())
+        {
+            case EncounterFrameType.Engage:
+                SendEncounterEngageUnit(packet);
+                break;
+            case EncounterFrameType.Disengage:
+                SendEncounterDisengageUnit(packet);
+                break;
+            case EncounterFrameType.UpdatePriority:
+                SendEncounterChangePriority(packet);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The same on a 4.3.4 server, whose frame types are numbered differently. Its combat
+    /// resurrection limit types are not passed on either.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT, AddedIn = ClientVersionBuild.V4_0_1_13164)]
+    internal void HandleUpdateInstanceEncounterUnitCata(WorldPacket packet)
+    {
+        switch ((EncounterFrameTypeCata)packet.ReadUInt32())
+        {
+            case EncounterFrameTypeCata.Engage:
+                SendEncounterEngageUnit(packet);
+                break;
+            case EncounterFrameTypeCata.Disengage:
+                SendEncounterDisengageUnit(packet);
+                break;
+            case EncounterFrameTypeCata.UpdatePriority:
+                SendEncounterChangePriority(packet);
+                break;
+        }
+    }
+
+    // Both legacy layouts follow the type with the boss's packed GUID and a frame priority byte,
+    // the disengage one included; the modern disengage packet has no priority.
+    private void SendEncounterEngageUnit(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_ENGAGE_UNIT) == 0)
+            return;
+
+        InstanceEncounterEngageUnit engage = new();
+        engage.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        engage.TargetFramePriority = packet.ReadUInt8();
+        SendPacketToClient(engage);
+    }
+
+    private void SendEncounterDisengageUnit(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_DISENGAGE_UNIT) == 0)
+            return;
+
+        InstanceEncounterDisengageUnit disengage = new();
+        disengage.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        SendPacketToClient(disengage);
+    }
+
+    private void SendEncounterChangePriority(WorldPacket packet)
+    {
+        if (ModernVersion.GetCurrentOpcode(Opcode.SMSG_INSTANCE_ENCOUNTER_CHANGE_PRIORITY) == 0)
+            return;
+
+        InstanceEncounterChangePriority priority = new();
+        priority.Unit = packet.ReadPackedGuid().To128(GetSession().GameState);
+        priority.TargetFramePriority = packet.ReadUInt8();
+        SendPacketToClient(priority);
     }
 }

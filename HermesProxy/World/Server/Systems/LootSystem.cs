@@ -1,5 +1,6 @@
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
@@ -51,7 +52,12 @@ public static class LootSystem
 
         foreach (var item in loot.Loot)
         {
-            WorldPacket packet = new WorldPacket(Opcode.CMSG_AUTOSTORE_LOOT_ITEM);
+            // The client takes a currency slot as it takes an item; a 4.3.4 server refuses the
+            // item request for it ("The item was not found") and has a request of its own.
+            Opcode opcode = WorldClient.IsCataLegacy && state.RemainingLootCurrencySlots.Contains(item.LootListID)
+                ? Opcode.CMSG_LOOT_CURRENCY
+                : Opcode.CMSG_AUTOSTORE_LOOT_ITEM;
+            WorldPacket packet = new WorldPacket(opcode);
             packet.WriteUInt8(item.LootListID);
             ctx.SendPacketToServer(packet);
         }
@@ -102,7 +108,11 @@ public static class LootSystem
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_OPT_OUT_OF_LOOT);
-            packet.WriteInt32(loot.PassOnLoot ? 1 : 0);
+            // TrinityCore 4.3.4 HandleOptOutOfLootOpcode reads one byte; 3.3.5a reads four.
+            if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+                packet.WriteUInt8((byte)(loot.PassOnLoot ? 1 : 0));
+            else
+                packet.WriteInt32(loot.PassOnLoot ? 1 : 0);
             ctx.SendPacketToServer(packet);
         }
         else

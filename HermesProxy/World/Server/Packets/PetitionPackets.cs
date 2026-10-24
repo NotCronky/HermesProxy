@@ -22,6 +22,7 @@ using System.Text;
 using Framework.Constants;
 using Framework.GameMath;
 using Framework.IO;
+using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 
@@ -29,77 +30,99 @@ namespace HermesProxy.World.Server.Packets;
 
 public readonly record struct QueryPetition(uint PetitionID, WowGuid128 ItemGUID);
 
-public class QueryPetitionResponse : ServerPacket, ISpanWritable
+public sealed class QueryPetitionResponse : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<QueryPetitionResponse>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new InfoLayout(titleBits: 7, choiceBits: 6)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new InfoLayout(titleBits: 8, choiceBits: 7)));
+
+    private static readonly ServerPacketLayout<QueryPetitionResponse> Layout = Layouts.ForRunningClient();
+
     public QueryPetitionResponse() : base(Opcode.SMSG_QUERY_PETITION_RESPONSE) { }
 
-    public override void Write()
-    {
-        _worldPacket.WriteUInt32(PetitionID);
-        _worldPacket.WriteBit(Allow);
-        _worldPacket.FlushBits();
-
-        if (Allow)
-            Info.Write(_worldPacket);
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     // MaxSize: uint(4) + bit(1) + PetitionInfo
-    // PetitionInfo: uint(4) + GUID(18) + 11 fixed fields(46) + bits(7+12+10*6=79->10) + title(48) + body(256) + 10 choice texts(64 each) = 1022
+    // PetitionInfo: uint(4) + GUID(18) + 11 fixed fields(46) + bits(at most 8+12+10*7=90->12) + title(48) + body(256) + 10 choice texts(64 each) = 1024
     private const int MaxTitleBytes = 48;
     private const int MaxBodyBytes = 256;
     private const int MaxChoiceBytes = 64;
     private const int MaxChoices = 10;
-    public int MaxSize => 5 + 4 + PackedGuidHelper.MaxPackedGuid128Size + 46 + 10 + MaxTitleBytes + MaxBodyBytes + MaxChoices * MaxChoiceBytes;
+    public int MaxSize => Layout.MaxSize;
 
-    public int WriteToSpan(Span<byte> buffer)
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    /// <summary>
+    /// The petition's title and its choice texts are sized in 7 and 6 bits up to 3.4.3, and in 8
+    /// and 7 from 4.4.2 (TrinityCore cata_classic, and WowPacketParser's readers from 3.4.4 on;
+    /// its 4.4 module still has 7 and 6). Read with the old widths, the 4.4.2 client took the
+    /// strings from two bytes too early and showed the charter without its name.
+    /// </summary>
+    internal sealed class InfoLayout(int titleBits, int choiceBits) : ServerPacketLayout<QueryPetitionResponse>
     {
-        var writer = new SpanPacketWriter(buffer);
-        writer.WriteUInt32(PetitionID);
-        writer.WriteBit(Allow);
-        writer.FlushBits();
+        public override int MaxSize => 5 + 4 + PackedGuidHelper.MaxPackedGuid128Size + 46 + (titleBits + 12 + MaxChoices * choiceBits + 7) / 8 + MaxTitleBytes + MaxBodyBytes + MaxChoices * MaxChoiceBytes;
 
-        if (Allow && Info != null)
+        public override void Write(QueryPetitionResponse packet, WorldPacket data)
         {
-            // Validate string lengths
-            int titleBytes = Encoding.UTF8.GetByteCount(Info.Title ?? "");
-            int bodyBytes = Encoding.UTF8.GetByteCount(Info.BodyText ?? "");
-            if (titleBytes > 127 || bodyBytes > 4095) // 7 bits and 12 bits max
-                return -1;
+            data.WriteUInt32(packet.PetitionID);
+            data.WriteBit(packet.Allow);
+            data.FlushBits();
 
-            writer.WriteUInt32(Info.PetitionID);
-            writer.WritePackedGuid128(Info.Petitioner.Low, Info.Petitioner.High);
-            writer.WriteUInt32(Info.MinSignatures);
-            writer.WriteUInt32(Info.MaxSignatures);
-            writer.WriteInt32(Info.DeadLine);
-            writer.WriteInt32(Info.IssueDate);
-            writer.WriteInt32(Info.AllowedGuildID);
-            writer.WriteInt32(Info.AllowedClasses);
-            writer.WriteInt32(Info.AllowedRaces);
-            writer.WriteInt16(Info.AllowedGender);
-            writer.WriteInt32(Info.AllowedMinLevel);
-            writer.WriteInt32(Info.AllowedMaxLevel);
-            writer.WriteInt32(Info.NumChoices);
-            writer.WriteInt32(Info.StaticType);
-            writer.WriteUInt32(Info.Muid);
+            if (packet.Allow)
+                packet.Info.Write(data, titleBits, choiceBits);
+        }
 
-            writer.WriteBits((uint)titleBytes, 7);
-            writer.WriteBits((uint)bodyBytes, 12);
-
-            for (int i = 0; i < Info.Choicetext.Length; i++)
-            {
-                string choice = Info.Choicetext[i] ?? "";
-                writer.WriteBits((uint)Encoding.UTF8.GetByteCount(choice), 6);
-            }
-
+        public override int WriteToSpan(QueryPetitionResponse packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteUInt32(packet.PetitionID);
+            writer.WriteBit(packet.Allow);
             writer.FlushBits();
 
-            for (int i = 0; i < Info.Choicetext.Length; i++)
-                writer.WriteString(Info.Choicetext[i] ?? "");
+            var info = packet.Info;
+            if (packet.Allow && info != null)
+            {
+                // Validate string lengths
+                int titleBytes = Encoding.UTF8.GetByteCount(info.Title ?? "");
+                int bodyBytes = Encoding.UTF8.GetByteCount(info.BodyText ?? "");
+                if (titleBytes >= 1 << titleBits || bodyBytes > 4095) // 12 bits max
+                    return -1;
 
-            writer.WriteString(Info.Title ?? "");
-            writer.WriteString(Info.BodyText ?? "");
+                writer.WriteUInt32(info.PetitionID);
+                writer.WritePackedGuid128(info.Petitioner.Low, info.Petitioner.High);
+                writer.WriteUInt32(info.MinSignatures);
+                writer.WriteUInt32(info.MaxSignatures);
+                writer.WriteInt32(info.DeadLine);
+                writer.WriteInt32(info.IssueDate);
+                writer.WriteInt32(info.AllowedGuildID);
+                writer.WriteInt32(info.AllowedClasses);
+                writer.WriteInt32(info.AllowedRaces);
+                writer.WriteInt16(info.AllowedGender);
+                writer.WriteInt32(info.AllowedMinLevel);
+                writer.WriteInt32(info.AllowedMaxLevel);
+                writer.WriteInt32(info.NumChoices);
+                writer.WriteInt32(info.StaticType);
+                writer.WriteUInt32(info.Muid);
+
+                writer.WriteBits((uint)titleBytes, titleBits);
+                writer.WriteBits((uint)bodyBytes, 12);
+
+                for (int i = 0; i < info.Choicetext.Length; i++)
+                {
+                    string choice = info.Choicetext[i] ?? "";
+                    writer.WriteBits((uint)Encoding.UTF8.GetByteCount(choice), choiceBits);
+                }
+
+                writer.FlushBits();
+
+                for (int i = 0; i < info.Choicetext.Length; i++)
+                    writer.WriteString(info.Choicetext[i] ?? "");
+
+                writer.WriteString(info.Title ?? "");
+                writer.WriteString(info.BodyText ?? "");
+            }
+            return writer.Position;
         }
-        return writer.Position;
     }
 
     public uint PetitionID = 0;
@@ -114,7 +137,7 @@ public class PetitionInfo
         Array.Fill(Choicetext, string.Empty);
     }
 
-    public void Write(WorldPacket data)
+    public void Write(WorldPacket data, int titleBits, int choiceBits)
     {
         data.WriteUInt32(PetitionID);
         data.WritePackedGuid128(Petitioner);
@@ -133,11 +156,11 @@ public class PetitionInfo
         data.WriteInt32(StaticType);
         data.WriteUInt32(Muid);
 
-        data.WriteBits(Title.GetByteCount(), 7);
+        data.WriteBits(Title.GetByteCount(), titleBits);
         data.WriteBits(BodyText.GetByteCount(), 12);
 
         for (byte i = 0; i < Choicetext.Length; i++)
-            data.WriteBits(Choicetext[i].GetByteCount(), 6);
+            data.WriteBits(Choicetext[i].GetByteCount(), choiceBits);
 
         data.FlushBits();
 

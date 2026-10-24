@@ -93,7 +93,11 @@ public partial class WorldClient
                     break;
             }
 
-            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
+            // TrinityCore 4.3.4 writes COD and money as uint64. Read as uint32, everything from
+            // the stationery on came out eight bytes early and the subject was garbage.
+            if (IsCataLegacy)
+                mail.Cod = packet.ReadUInt64();
+            else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
                 mail.Cod = packet.ReadUInt32();
             else
                 mail.Subject = packet.ReadCString();
@@ -125,7 +129,7 @@ public partial class WorldClient
                 }   
             }
 
-            mail.SentMoney = packet.ReadUInt32();
+            mail.SentMoney = IsCataLegacy ? packet.ReadUInt64() : packet.ReadUInt32();
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
                 mail.Cod = packet.ReadUInt32();
 
@@ -138,6 +142,12 @@ public partial class WorldClient
 
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
                 mail.Body = packet.ReadCString();
+
+            if (mail.SenderType == MailType.Calendar && LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+                mail.Subject = CalendarMailSubject.ToClient(mail.Subject, guid => guid.To128(GetSession().GameState));
+
+            if (mail.SenderType == MailType.Auction)
+                mail.Auction = AuctionMailRecord.FromLegacy(mail.Subject, mail.Body, guid => guid.To128(GetSession().GameState));
 
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
@@ -231,7 +241,9 @@ public partial class WorldClient
         mailItem.Item.ItemID = packet.ReadUInt32();
 
         byte enchantmentCount;
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        if (IsCataLegacy)
+            enchantmentCount = 10;
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             enchantmentCount = 7;
         else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             enchantmentCount = 6;
@@ -242,6 +254,16 @@ public partial class WorldClient
         {
             ItemEnchantData enchant = new ItemEnchantData();
             enchant.Slot = k;
+            if (IsCataLegacy)
+            {
+                // TrinityCore 4.3.4 HandleGetMailList: (id, duration, charges) per slot.
+                enchant.ID = packet.ReadUInt32();
+                enchant.Expiration = packet.ReadUInt32();
+                enchant.Charges = packet.ReadInt32();
+                if (enchant.ID != 0)
+                    mailItem.Enchants.Add(enchant);
+                continue;
+            }
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
                 enchant.Charges = packet.ReadInt32();

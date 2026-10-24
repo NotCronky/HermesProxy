@@ -53,14 +53,46 @@ public static class ChatSystem
     public static void HandleChatChannelCommand(Opcode opcode, in ChannelCommand command, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(opcode);
-        packet.WriteCString(command.ChannelName);
+        WriteChannelName(packet, command.ChannelName);
         ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// The channel's name: terminated, or for a 4.3.4 server its length as 8 bits and the name
+    /// without a terminator (TrinityCore 4.3.4 HandleChannelOwner, HandleChannelAnnouncements,
+    /// HandleChannelList).
+    /// </summary>
+    static void WriteChannelName(WorldPacket packet, string channelName)
+    {
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            WriteChannelNameCata(packet, channelName);
+        else
+            packet.WriteCString(channelName);
+    }
+
+    internal static void WriteChannelNameCata(WorldPacket packet, string channelName)
+    {
+        packet.WriteBits((uint)Encoding.UTF8.GetByteCount(channelName), 8);
+        packet.FlushBits();
+        packet.WriteString(channelName);
     }
 
     [HandlesCmsg(Opcode.CMSG_CHAT_CHANNEL_PASSWORD)]
     public static void HandleChatChannelPassword(in ChannelPassword command, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_CHANNEL_PASSWORD);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleChannelPassword: an 8-bit and a 7-bit length, then the
+            // two strings without terminators.
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(command.ChannelName), 8);
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(command.Password), 7);
+            packet.FlushBits();
+            packet.WriteString(command.ChannelName);
+            packet.WriteString(command.Password);
+            ctx.SendPacketToServer(packet);
+            return;
+        }
         packet.WriteCString(command.ChannelName);
         packet.WriteCString(command.Password);
         ctx.SendPacketToServer(packet);
@@ -81,16 +113,72 @@ public static class ChatSystem
     public static void HandleChatChannelPlayerCommand(Opcode opcode, in ChannelPlayerCommand command, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(opcode);
+        string name = LegacyPlayerName.StripRealmSuffixToString(command.Name);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WritePlayerCommandCata(packet, opcode, command.ChannelName, name);
+            ctx.SendPacketToServer(packet);
+            return;
+        }
         packet.WriteCString(command.ChannelName);
-        packet.WriteCString(LegacyPlayerName.StripRealmSuffixToString(command.Name));
+        packet.WriteCString(name);
         ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 reads each of these in an order of its own: the two lengths as bits, then
+    /// the two strings without terminators. The channel's length is 8 bits and the player's 7,
+    /// except in the unban, which has them the other way round.
+    /// </summary>
+    internal static void WritePlayerCommandCata(WorldPacket packet, Opcode opcode, string channel, string name)
+    {
+        uint channelLength = (uint)Encoding.UTF8.GetByteCount(channel);
+        uint nameLength = (uint)Encoding.UTF8.GetByteCount(name);
+        switch (opcode)
+        {
+            case Opcode.CMSG_CHAT_CHANNEL_UNMODERATOR:      // HandleChannelUnmoderator
+                packet.WriteBits(nameLength, 7);
+                packet.WriteBits(channelLength, 8);
+                packet.FlushBits();
+                packet.WriteString(channel);
+                packet.WriteString(name);
+                break;
+            case Opcode.CMSG_CHAT_CHANNEL_INVITE:           // HandleChannelInvite
+                packet.WriteBits(nameLength, 7);
+                packet.WriteBits(channelLength, 8);
+                packet.FlushBits();
+                packet.WriteString(name);
+                packet.WriteString(channel);
+                break;
+            case Opcode.CMSG_CHAT_CHANNEL_KICK:             // HandleChannelKick
+                packet.WriteBits(channelLength, 8);
+                packet.WriteBits(nameLength, 7);
+                packet.FlushBits();
+                packet.WriteString(channel);
+                packet.WriteString(name);
+                break;
+            case Opcode.CMSG_CHAT_CHANNEL_UNBAN:            // HandleChannelUnban
+                packet.WriteBits(channelLength, 7);
+                packet.WriteBits(nameLength, 8);
+                packet.FlushBits();
+                packet.WriteString(name);
+                packet.WriteString(channel);
+                break;
+            default:                                        // set owner, moderator, ban
+                packet.WriteBits(channelLength, 8);
+                packet.WriteBits(nameLength, 7);
+                packet.FlushBits();
+                packet.WriteString(name);
+                packet.WriteString(channel);
+                break;
+        }
     }
 
     [HandlesCmsg(Opcode.CMSG_CHAT_CHANNEL_LIST)]
     public static void HandleChatChannelList(in ChannelCommand command, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_CHANNEL_LIST);
-        packet.WriteCString(command.ChannelName);
+        WriteChannelName(packet, command.ChannelName);
         ctx.SendPacketToServer(packet);
         ctx.GetSession().GameState.ChannelDisplayList = false;
     }
@@ -107,7 +195,7 @@ public static class ChatSystem
         else
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CHAT_CHANNEL_DISPLAY_LIST);
-            packet.WriteCString(command.ChannelName);
+            WriteChannelName(packet, command.ChannelName);
             ctx.SendPacketToServer(packet);
         }
         ctx.GetSession().GameState.ChannelDisplayList = true;
@@ -167,6 +255,8 @@ public static class ChatSystem
     public static void HandleChatMessageWhisper(in ChatMessageWhisper whisper, in SessionContext ctx)
     {
         string target = LegacyPlayerName.StripRealmSuffixToString(whisper.Target);
+        if (target.Length == 0 && !whisper.TargetGUID.IsEmpty())
+            target = ctx.GameState.GetPlayerName(whisper.TargetGUID);
         var toBeSentTextParts = ConvertTextMessageIntoMaxLengthParts(whisper.Text);
         foreach (string text in toBeSentTextParts)
         {
@@ -256,18 +346,27 @@ public static class ChatSystem
                 return;
         }
 
-        var toBeSentTextParts = ConvertTextMessageIntoMaxLengthParts(packet.Text);
+        SendToLegacy(ctx.GetSession(), type, packet.Language, packet.Text);
+    }
+
+    /// <summary>
+    /// A chat line to the legacy server, split where it is longer than a legacy message may be.
+    /// Also how a line typed into the 4.4.2 guild window's chat reaches the guild (<see cref="GuildClub"/>).
+    /// </summary>
+    internal static void SendToLegacy(GlobalSessionData session, ChatMessageTypeModern type, uint language, string message)
+    {
+        var toBeSentTextParts = ConvertTextMessageIntoMaxLengthParts(message);
         foreach (string text in toBeSentTextParts)
         {
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
                 ChatMessageTypeWotLK chatMsg = type.CastEnum<ChatMessageTypeWotLK>();
-                ctx.GetSession().WorldClient!.SendMessageChatWotLK(chatMsg, packet.Language, text, "", "");
+                session.WorldClient!.SendMessageChatWotLK(chatMsg, language, text, "", "");
             }
             else
             {
                 ChatMessageTypeVanilla chatMsg = type.CastEnum<ChatMessageTypeVanilla>();
-                ctx.GetSession().WorldClient!.SendMessageChatVanilla(chatMsg, packet.Language, text, "", "");
+                session.WorldClient!.SendMessageChatVanilla(chatMsg, language, text, "", "");
             }
         }
     }
@@ -338,6 +437,22 @@ public static class ChatSystem
     {
         foreach (var prefix in addons.Prefixes)
             ctx.GetSession().GameState.AddonPrefixes.Add(prefix);
+
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy || addons.Prefixes.Count == 0)
+            return;
+
+        // A 4.3.4 server delivers an addon message only to sessions that registered its prefix
+        // (TrinityCore 4.3.4 HandleAddonRegisteredPrefixesOpcode: a 25-bit count, a 5-bit length
+        // each, then the prefixes without terminators). Kept to the proxy alone, a server that
+        // filters from the start sent this client no addon message at all.
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_ADDON_REGISTERED_PREFIXES);
+        packet.WriteBits((uint)addons.Prefixes.Count, 25);
+        foreach (var prefix in addons.Prefixes)
+            packet.WriteBits((uint)Encoding.UTF8.GetByteCount(prefix), 5);
+        packet.FlushBits();
+        foreach (var prefix in addons.Prefixes)
+            packet.WriteString(prefix);
+        ctx.SendPacketToServer(packet);
     }
 
     /// <summary>
@@ -394,5 +509,8 @@ public static class ChatSystem
     public static void HandleChatUnregisterAllAddonPrefixes(in EmptyClientPacket addons, in SessionContext ctx)
     {
         ctx.GetSession().GameState.AddonPrefixes.Clear();
+
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_CHAT_UNREGISTER_ALL_ADDON_PREFIXES));
     }
 }

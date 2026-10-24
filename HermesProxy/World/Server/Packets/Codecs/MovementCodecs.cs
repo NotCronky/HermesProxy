@@ -75,10 +75,11 @@ public static class MoveSetCollisionHeightAckCodec
     public static void Read(ref SpanPacketReader r, out MoveSetCollisionHeightAck packet)
     {
         WowGuid128 mover = r.ReadPackedGuid128();
+        MovementAckCodec.Read(ref r, out var ack);
         float height = r.ReadFloat();
         uint mountDisplayId = r.ReadUInt32();
         byte reason = r.ReadUInt8();
-        packet = new MoveSetCollisionHeightAck(mover, height, mountDisplayId, reason);
+        packet = new MoveSetCollisionHeightAck(mover, ack, height, mountDisplayId, reason);
     }
 }
 
@@ -114,6 +115,18 @@ public static class MoveSplineDoneCodec
         ModernMovementCodec.Read(ref r, out MovementInfo moveInfo);
         int splineId = r.ReadInt32();
         packet = new MoveSplineDone(guid, moveInfo, splineId);
+    }
+}
+
+public static class MoveChangeVehicleSeatsCodec
+{
+    public static void Read(ref SpanPacketReader r, out MoveChangeVehicleSeats packet)
+    {
+        WowGuid128 mover = r.ReadPackedGuid128();
+        ModernMovementCodec.Read(ref r, out MovementInfo moveInfo);
+        WowGuid128 dstVehicle = r.ReadPackedGuid128();
+        byte dstSeatIndex = r.ReadUInt8();
+        packet = new MoveChangeVehicleSeats(mover, moveInfo, dstVehicle, dstSeatIndex);
     }
 }
 

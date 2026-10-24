@@ -171,7 +171,7 @@ Every client-to-server opcode the client sends. Layouts are in [cmsg-structures]
 | CMSG_PET_STOP_ATTACK | 0x348c | 13452 | 746 (0x2ea) | fixed, 0 bytes | matches |
 | CMSG_PET_ABANDON | 0x348d | 13453 | 374 (0x176) | fixed, 0 bytes | matches |
 | CMSG_PET_CANCEL_AURA | 0x348e | 13454 | 619 (0x26b) | fixed, 4 bytes | matches |
-| — | 0x348f | 13455 | — | variable | — |
+| CMSG_PET_SPELL_AUTOCAST | 0x348f | 13455 | 755 (0x2f3) | variable | matches |
 | CMSG_REQUEST_PET_INFO | 0x3490 | 13456 | 633 (0x279) | empty | matches |
 | CMSG_REQUEST_STABLED_PETS | 0x3491 | 13457 | — | fixed, 0 bytes | matches |
 | CMSG_TALK_TO_GOSSIP | 0x3492 | 13458 | 379 (0x17b) | fixed, 0 bytes | matches |

@@ -160,7 +160,11 @@ public readonly record struct PetAction(WowGuid128 PetGUID, uint Action, WowGuid
 
 public readonly record struct PetStopAttack(WowGuid128 PetGUID);
 
-public readonly record struct PetSetAction(WowGuid128 PetGUID, uint Index, uint Action);
+/// <param name="HasSecondSlot">
+/// A command or stance dropped on another slot comes as one packet with both slots: the second is
+/// the slot it left, with what it displaced.
+/// </param>
+public readonly record struct PetSetAction(WowGuid128 PetGUID, uint Index, uint Action, bool HasSecondSlot, uint SecondIndex, uint SecondAction);
 
 class PetActionSound : ServerPacket, ISpanWritable
 {
@@ -195,6 +199,32 @@ public struct PetRenameData
     public string NewName;
     public bool HasDeclinedNames;
     public DeclinedName DeclinedNames;
+}
+
+/// <summary>
+/// A pet rename refused (TrinityCore cata_classic PetNameInvalid::Write): the reason (the same
+/// numbers as 3.3.5a and 4.3.4 send), the pet, its number and the name asked for. Declined names
+/// are left out: a legacy server sends them only for a Russian client.
+/// </summary>
+public sealed class PetNameInvalid : ServerPacket
+{
+    public PetNameInvalid() : base(Opcode.SMSG_PET_NAME_INVALID, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt8(Result);
+        _worldPacket.WritePackedGuid128(PetGUID);
+        _worldPacket.WriteInt32(PetNumber);
+        _worldPacket.WriteUInt8((byte)Encoding.UTF8.GetByteCount(NewName));
+        _worldPacket.WriteBit(false);
+        _worldPacket.FlushBits();
+        _worldPacket.WriteString(NewName);
+    }
+
+    public byte Result;
+    public WowGuid128 PetGUID;
+    public int PetNumber;
+    public string NewName = string.Empty;
 }
 
 public readonly record struct PetAbandon(WowGuid128 PetGUID);
@@ -385,7 +415,22 @@ class PetStableInfo
     public string PetName = string.Empty;
 }
 
+/// <summary>
+/// 4.4.2's ActivePlayerData.PetStable: every pet the hunter has, active (Call Pet 1 to 5, slots
+/// 0 to 4) or stabled (slot 5 on), and the stable master whose window is open. The client takes
+/// the Call Pet flyout's pets and the stable window from it.
+/// </summary>
+sealed class PetStableData
+{
+    public List<PetStableInfo> Pets = new();
+    public WowGuid128 StableMaster;
+}
+
 public readonly record struct BuyStableSlot(WowGuid128 StableMaster);
+
+// The 4.x stable's one move: a pet to a Call Pet slot (0-4) or a stable slot (5 on), swapping
+// with the pet already there.
+public readonly record struct SetPetSlot(uint PetNumber, byte DestSlot, WowGuid128 StableMaster);
 
 public class PetGuids : ServerPacket, ISpanWritable
 {
@@ -467,4 +512,6 @@ public readonly record struct UnstablePet(uint PetNumber, WowGuid128 StableMaste
 public readonly record struct StableSwapPet(uint PetNumber, WowGuid128 StableMaster);
 
 public readonly record struct PetCancelAura(WowGuid128 PetGUID, uint SpellID);
+
+public readonly record struct PetSpellAutocast(WowGuid128 PetGUID, uint SpellID, bool AutocastEnabled);
 

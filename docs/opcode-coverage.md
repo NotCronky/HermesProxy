@@ -27,18 +27,18 @@ the proxy has no reason to translate.
 
 | build | defined | handled | gap |
 |---|---:|---:|---:|
-| `V1_14_1_40688` | 692 | 394 | 298 |
-| `V2_5_2_39570` | 691 | 395 | 296 |
-| `V2_5_3_41750` | 694 | 396 | 298 |
-| `V3_4_3_54261` | 456 | 400 | 56 |
+| `V1_14_1_40688` | 692 | 435 | 257 |
+| `V2_5_2_39570` | 691 | 435 | 256 |
+| `V2_5_3_41750` | 694 | 437 | 257 |
+| `V3_4_3_54261` | 475 | 430 | 45 |
 
 ### Server to proxy (SMSG), by emulator build
 
 | build | defined | handled | gap |
 |---|---:|---:|---:|
-| `V1_12_1_5875` | 363 | 268 | 95 |
-| `V2_4_3_8606` | 460 | 301 | 159 |
-| `V3_3_5a_12340` | 583 | 357 | 226 |
+| `V1_12_1_5875` | 363 | 271 | 92 |
+| `V2_4_3_8606` | 460 | 311 | 149 |
+| `V3_3_5a_12340` | 583 | 393 | 190 |
 
 ## 2. Version-ranged handlers
 
@@ -47,7 +47,7 @@ the dispatch table is constructed, not per packet. All of these are on the legac
 there are no ranged `[HandlesCmsg]` sites yet, which is itself the finding: every per-build
 difference on the modern side currently hides inside a handler body instead (see section 4).
 
-28 ranged handler declarations.
+30 ranged handler declarations.
 
 | opcode | added in | removed in | handler |
 |---|---|---|---|
@@ -79,6 +79,8 @@ difference on the modern side currently hides inside a handler body instead (see
 | `SMSG_PARTY_MEMBER_PARTIAL_STATE` | `V2_0_1_6180` | — | `WorldClient.HandlePartyMemberStatsTbc` |
 | `SMSG_PET_CAST_FAILED` | — | `V2_0_1_6180` | `WorldClient.HandlePetCastFailed` |
 | `SMSG_PET_CAST_FAILED` | `V2_0_1_6180` | — | `WorldClient.HandlePetCastFailedTBC` |
+| `SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT` | — | `V4_0_1_13164` | `WorldClient.HandleUpdateInstanceEncounterUnit` |
+| `SMSG_UPDATE_INSTANCE_ENCOUNTER_UNIT` | `V4_0_1_13164` | — | `WorldClient.HandleUpdateInstanceEncounterUnitCata` |
 
 ## 3. Packets whose wire layout changes between builds
 
@@ -86,16 +88,32 @@ Each of these has more than one codec, chosen by build range at table-build time
 anyone adding a client this is the short list worth checking first: a layout that already
 changed once is the most likely to have changed again.
 
-27 packets across 54 codecs.
+47 packets across 96 codecs.
 
 | packet | codec | axis | added in | removed in |
 |---|---|---|---|---|
+| `AlterAppearance` | `AlterAppearanceCodec` | modern | — | `V4_4_2_60895` |
+| `AlterAppearance` | `AlterAppearanceCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `AuctionListBidderItems` | `AuctionListBidderItemsCodec` | modern | — | `V4_4_2_60895` |
+| `AuctionListBidderItems` | `AuctionListBidderItemsCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `AuctionListItems` | `AuctionListItemsCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `AuctionListItems` | `AuctionListItemsCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `AuctionListOwnerItems` | `AuctionListOwnerItemsCodec` | modern | — | `V4_4_2_60895` |
+| `AuctionListOwnerItems` | `AuctionListOwnerItemsCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `AuctionRemoveItem` | `AuctionRemoveItemCodec` | modern | — | `V4_4_2_60895` |
+| `AuctionRemoveItem` | `AuctionRemoveItemCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `AutoBankItem` | `AutoBankItemCodec` | modern | — | `V4_4_2_60895` |
+| `AutoBankItem` | `AutoBankItemCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `BuyItem` | `BuyItemCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `BuyItem` | `BuyItemCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `CalendarUpdateEvent` | `CalendarUpdateEventCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `CalendarUpdateEvent` | `CalendarUpdateEventCodecPreCataClassic` | modern | — | `V4_4_2_60895` |
+| `CastSpell` | `CastSpellCodec` | modern | — | `V4_4_2_60895` |
+| `CastSpell` | `CastSpellCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `ChangeSubGroup` | `ChangeSubGroupCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `ChangeSubGroup` | `ChangeSubGroupCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `ChatAddonMessageTargeted` | `ChatAddonMessageTargetedCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `ChatAddonMessageTargeted` | `ChatAddonMessageTargetedCodecPreCataClassic` | modern | — | `V4_4_2_60895` |
 | `ChatMessage` | `ChatMessageCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `ChatMessage` | `ChatMessageCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `ChatMessageAFK` | `ChatMessageAFKCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
@@ -106,12 +124,17 @@ changed once is the most likely to have changed again.
 | `ChatMessageDND` | `ChatMessageDNDCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `ChatMessageEmote` | `ChatMessageEmoteCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `ChatMessageEmote` | `ChatMessageEmoteCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `ChatMessageWhisper` | `ChatMessageWhisperCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `ChatMessageWhisper` | `ChatMessageWhisperCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
-| `ChatMessageWhisper` | `ChatMessageWhisperCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `ChatMessageWhisper` | `ChatMessageWhisperCodecWotLKClassic` | modern | `V3_4_3_54261` | `V4_4_2_60895` |
+| `CreateCharacter` | `CreateCharacterCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `CreateCharacter` | `CreateCharacterCodecPreCataClassic` | modern | — | `V4_4_2_60895` |
 | `DFSetRolesPkt` | `DFSetRolesPktCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `DFSetRolesPkt` | `DFSetRolesPktCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `DoReadyCheck` | `DoReadyCheckCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `DoReadyCheck` | `DoReadyCheckCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `GuildSetRankPermissions` | `GuildSetRankPermissionsCodec` | modern | — | `V4_4_2_60895` |
+| `GuildSetRankPermissions` | `GuildSetRankPermissionsCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `JoinChannel` | `JoinChannelCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `JoinChannel` | `JoinChannelCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `MailCreateTextItem` | `MailCreateTextItemCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
@@ -130,20 +153,41 @@ changed once is the most likely to have changed again.
 | `MinimapPingClient` | `MinimapPingClientCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `PartyInviteResponse` | `PartyInviteResponseCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `PartyInviteResponse` | `PartyInviteResponseCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `PartyUninvite` | `PartyUninviteCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `PartyUninvite` | `PartyUninviteCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
-| `PartyUninvite` | `PartyUninviteCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `PartyUninvite` | `PartyUninviteCodecWotLKClassic` | modern | `V3_4_3_54261` | `V4_4_2_60895` |
+| `PetCastSpell` | `PetCastSpellCodec` | modern | — | `V4_4_2_60895` |
+| `PetCastSpell` | `PetCastSpellCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `PetitionBuy` | `PetitionBuyCodec` | modern | — | `V4_4_2_60895` |
+| `PetitionBuy` | `PetitionBuyCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `RandomRollClient` | `RandomRollClientCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `RandomRollClient` | `RandomRollClientCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `ReadyCheckResponseClient` | `ReadyCheckResponseClientCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `ReadyCheckResponseClient` | `ReadyCheckResponseClientCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `RequestAccountData` | `RequestAccountDataCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `RequestAccountData` | `RequestAccountDataCodecPreCataClassic` | modern | — | `V4_4_2_60895` |
 | `SetAssistantLeader` | `SetAssistantLeaderCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `SetAssistantLeader` | `SetAssistantLeaderCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 | `SetEveryoneIsAssistant` | `SetEveryoneIsAssistantCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `SetEveryoneIsAssistant` | `SetEveryoneIsAssistantCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `SetFactionAtWar` | `SetFactionAtWarCodec` | modern | — | `V4_4_2_60895` |
+| `SetFactionAtWar` | `SetFactionAtWarCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `SetFactionNotAtWar` | `SetFactionNotAtWarCodec` | modern | — | `V4_4_2_60895` |
+| `SetFactionNotAtWar` | `SetFactionNotAtWarCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `SetRole` | `SetRoleCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `SetRole` | `SetRoleCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `StandStateChange` | `StandStateChangeCodec` | modern | — | `V4_4_2_60895` |
+| `StandStateChange` | `StandStateChangeCodecCataClassic` | modern | `V4_4_2_60895` | — |
 | `SwapSubGroups` | `SwapSubGroupsCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
 | `SwapSubGroups` | `SwapSubGroupsCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
+| `UseItem` | `UseItemCodec` | modern | — | `V4_4_2_60895` |
+| `UseItem` | `UseItemCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `UseToy` | `UseToyCodec` | modern | — | `V4_4_2_60895` |
+| `UseToy` | `UseToyCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `UserClientUpdateAccountData` | `UserClientUpdateAccountDataCodecCataClassic` | modern | `V4_4_2_60895` | — |
+| `UserClientUpdateAccountData` | `UserClientUpdateAccountDataCodecPreCataClassic` | modern | — | `V4_4_2_60895` |
+| `WhoRequestPkt` | `WhoRequestPktCodecPreWotLKClassic` | modern | — | `V3_4_3_54261` |
+| `WhoRequestPkt` | `WhoRequestPktCodecWotLKClassic` | modern | `V3_4_3_54261` | — |
 
 ## 4. Exact-equality version checks — the new-client work list
 
@@ -160,7 +204,13 @@ kept every supported build's behaviour; that judgement is still owed per site th
 
 Counts per file rather than line numbers, so unrelated edits do not churn this file.
 
-0 sites across 0 files.
+1 sites across 1 files.
+
+### `ModernVersion.Build` compared by equality — 1 sites
+
+| file | build compared | sites |
+|---|---|---:|
+| `HermesProxy/World/Client/PacketHandlers/NPCHandler.cs` | `V3_4_3_54261` | 1 |
 
 ## 5. Inherited 3.4.3 behaviour — the 4.4.2 review list
 
@@ -171,41 +221,37 @@ silently wrong wherever it does not. Check each against the 4.4.2 client
 (`docs/protocol/4.4.2.60895`) before 4.4.2 becomes a supported build; where it differs, the
 site gets a layout of its own (`World/Server/Packets/CLAUDE.md`) rather than a narrower check.
 
-217 sites across 57 files.
+205 sites across 57 files.
 
 | file | sites |
 |---|---:|
-| `HermesProxy/World/Client/PacketHandlers/UpdateHandler.cs` | 21 |
-| `HermesProxy/World/Server/Packets/SpellPackets.cs` | 16 |
+| `HermesProxy/World/Client/PacketHandlers/UpdateHandler.cs` | 27 |
 | `HermesProxy/World/GameData.cs` | 15 |
-| `HermesProxy/World/Server/Packets/NPCPackets.cs` | 14 |
+| `HermesProxy/World/Server/Packets/NPCPackets.cs` | 11 |
+| `HermesProxy/World/Client/PacketHandlers/MovementHandler.cs` | 8 |
 | `HermesProxy/World/Client/PacketHandlers/PetHandler.cs` | 8 |
-| `HermesProxy/World/Server/Packets/QuestPackets.cs` | 8 |
-| `HermesProxy/World/Client/PacketHandlers/MovementHandler.cs` | 7 |
 | `HermesProxy/World/Client/PacketHandlers/QueryHandler.cs` | 7 |
 | `HermesProxy/World/Client/PacketHandlers/SpellHandler.cs` | 7 |
-| `HermesProxy/World/Client/PacketHandlers/CharacterHandler.cs` | 5 |
+| `HermesProxy/World/Client/PacketHandlers/CharacterHandler.cs` | 6 |
+| `HermesProxy/World/Server/Packets/SpellPackets.cs` | 6 |
+| `HermesProxy/World/Client/PacketHandlers/LootHandler.cs` | 5 |
+| `HermesProxy/World/Client/PacketHandlers/QuestHandler.cs` | 5 |
 | `HermesProxy/World/Server/Packets/BattleGroundPackets.cs` | 5 |
 | `HermesProxy/World/Server/Packets/GroupPackets.cs` | 5 |
 | `HermesProxy/World/Server/Packets/MailPackets.cs` | 5 |
-| `HermesProxy/World/Client/PacketHandlers/QuestHandler.cs` | 4 |
+| `HermesProxy/World/Server/Systems/BattlePetSystem.cs` | 5 |
 | `HermesProxy/World/Server/Packets/GuildPackets.cs` | 4 |
-| `HermesProxy/World/Server/Packets/QueryPackets.cs` | 4 |
-| `HermesProxy/World/Server/Systems/BattlePetSystem.cs` | 4 |
+| `HermesProxy/World/Server/Systems/PetSystem.cs` | 4 |
 | `HermesProxy/World/Server/Systems/ToySystem.cs` | 4 |
 | `HermesProxy/VersionChecker.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/CombatHandler.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/EquipmentSetHandler.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/GroupHandler.cs` | 3 |
-| `HermesProxy/World/Client/PacketHandlers/LootHandler.cs` | 3 |
-| `HermesProxy/World/Server/Packets/ChatPackets.cs` | 3 |
+| `HermesProxy/World/Client/PacketHandlers/MiscHandler.cs` | 3 |
 | `HermesProxy/World/Server/Packets/UpdatePackets.cs` | 3 |
 | `HermesProxy/World/Server/Systems/BattlegroundSystem.cs` | 3 |
 | `HermesProxy/World/Server/Systems/EquipmentSetSystem.cs` | 3 |
-| `HermesProxy/World/Server/Systems/PetSystem.cs` | 3 |
 | `HermesProxy/World/Client/PacketHandlers/LFGHandler.cs` | 2 |
-| `HermesProxy/World/Client/PacketHandlers/MiscHandler.cs` | 2 |
-| `HermesProxy/World/Client/PacketHandlers/NPCHandler.cs` | 2 |
 | `HermesProxy/World/Client/PacketHandlers/TalentHandler.cs` | 2 |
 | `HermesProxy/World/Server/CollectionSync.cs` | 2 |
 | `HermesProxy/World/Server/Packets/AuctionPackets.cs` | 2 |
@@ -218,14 +264,18 @@ site gets a layout of its own (`World/Server/Packets/CLAUDE.md`) rather than a n
 | `HermesProxy/World/Server/Systems/MiscSystem.cs` | 2 |
 | `HermesProxy/World/Server/Systems/SpellSystem.cs` | 2 |
 | `HermesProxy/World/Server/WorldSocket.cs` | 2 |
+| `HermesProxy/World/Client/PacketHandlers/NPCHandler.cs` | 1 |
 | `HermesProxy/World/Client/PacketHandlers/PetitionHandler.cs` | 1 |
 | `HermesProxy/World/Client/PacketHandlers/TaxiHandler.cs` | 1 |
 | `HermesProxy/World/Client/PacketHandlers/TradeHandler.cs` | 1 |
+| `HermesProxy/World/Client/PacketHandlers/UpdateHandlerCata.cs` | 1 |
 | `HermesProxy/World/Client/SeatGravity.cs` | 1 |
 | `HermesProxy/World/Server/Packets/ArenaPackets.cs` | 1 |
+| `HermesProxy/World/Server/Packets/ChatPackets.cs` | 1 |
 | `HermesProxy/World/Server/Packets/Codecs/SupportTicketCodecs.cs` | 1 |
 | `HermesProxy/World/Server/Packets/LFG/SMSG/LFGPlayerReward.cs` | 1 |
 | `HermesProxy/World/Server/Packets/MiscPackets.cs` | 1 |
+| `HermesProxy/World/Server/Packets/QueryPackets.cs` | 1 |
 | `HermesProxy/World/Server/Packets/ReputationPackets.cs` | 1 |
 | `HermesProxy/World/Server/Systems/CharacterSystem.cs` | 1 |
 | `HermesProxy/World/Server/Systems/GuildSystem.cs` | 1 |

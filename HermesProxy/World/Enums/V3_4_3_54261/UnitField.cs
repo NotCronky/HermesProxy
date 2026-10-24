@@ -514,6 +514,13 @@ public enum UnitField
     // ============================================================
 
     // -------- Power group at bit 116 --------
+    // The two regeneration modifiers are owner-only; only the player's own fields fill them.
+    [DescriptorUpdateField(nameof(UnitData.PowerRegenFlatModifier), DescriptorType.Float, bit: 117,
+                           ArrayCount = 7, ArrayMode = ArrayMode.PerElement, ParentBit = 116, MaskOnly = true)]
+    UNIT_POWER_REGEN_FLAT_MODIFIER_UPDATE_MASKONLY,
+    [DescriptorUpdateField(nameof(UnitData.PowerRegenInterruptedFlatModifier), DescriptorType.Float, bit: 127,
+                           ArrayCount = 7, ArrayMode = ArrayMode.PerElement, ParentBit = 116, MaskOnly = true)]
+    UNIT_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER_UPDATE_MASKONLY,
     [DescriptorUpdateField(nameof(UnitData.Power), DescriptorType.Int32, bit: 137,
                            ArrayCount = 7, ArrayMode = ArrayMode.PerElement, ParentBit = 116, MaskOnly = true)]
     UNIT_POWER_UPDATE_MASKONLY,

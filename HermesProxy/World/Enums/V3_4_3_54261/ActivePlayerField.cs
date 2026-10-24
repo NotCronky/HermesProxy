@@ -360,9 +360,10 @@ public enum ActivePlayerField
     [DescriptorCreatePlaceholder(DescriptorType.UInt32, Count = 7)]
     ACTIVEPLAYER_CREATE_BANK_BAG_SLOT_FLAGS_PLACEHOLDER,
 
-    // bit 637 (parent 636): QuestCompleted[875] — live property exists; TODO per-element read.
-    [DescriptorCreatePlaceholder(DescriptorType.UInt64, Count = 875)]
-    ACTIVEPLAYER_CREATE_QUEST_COMPLETED_PLACEHOLDER,
+    // bit 637 (parent 636): QuestCompleted[875]. A zero-filled run here left every quest the
+    // character had done looking undone after a login (C_QuestLog.IsQuestFlaggedCompleted).
+    [DescriptorCreateField(nameof(ActivePlayerData.QuestCompleted), DescriptorType.UInt64, ArrayCount = 875)]
+    ACTIVEPLAYER_CREATE_QUEST_COMPLETED,
 
     [DescriptorCreateField(nameof(ActivePlayerData.Honor), DescriptorType.Int32)]
     ACTIVEPLAYER_CREATE_HONOR,
@@ -520,10 +521,22 @@ public enum ActivePlayerField
         customWriter: nameof(HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.WriteUpdateActivePlayerToysPreamble))]
     ACTIVEPLAYER_TOYS_PREAMBLE,
 
+    // SelfResSpells (bit 12): what the death popup offers instead of releasing (Soulstone,
+    // Reincarnation), from a 3.3.5a server's PLAYER_SELF_RES_SPELL.
+    [DescriptorMaskPreamble(bit: 12,
+        customWriter: nameof(HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.WriteUpdateActivePlayerSelfResSpellsPreamble))]
+    ACTIVEPLAYER_SELF_RES_SPELLS_PREAMBLE,
+
     [DescriptorUpdateField(nameof(ActivePlayerData.Toys), DescriptorType.Int32, bit: 9, ParentBit = 0,
         CustomWriter = nameof(HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.WriteUpdateActivePlayerToysBody),
         CustomPredicate = "src.Toys != null && src.Toys.Count > 0")]
     ACTIVEPLAYER_TOYS,
+
+    // An empty list is a change too: it takes the offer away once the player is back up.
+    [DescriptorUpdateField(nameof(ActivePlayerData.SelfResSpells), DescriptorType.Int32, bit: 12, ParentBit = 0,
+        CustomWriter = nameof(HermesProxy.World.Objects.Version.V3_4_3_54261.ObjectUpdateBuilder.WriteUpdateActivePlayerSelfResSpellsBody),
+        CustomPredicate = "src.SelfResSpells != null")]
+    ACTIVEPLAYER_SELF_RES_SPELLS,
 
     // ===========================================================================
     // Update — Block 0 scalars (group bit 0, bits 26-37)

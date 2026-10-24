@@ -133,6 +133,8 @@ public partial class WorldClient
         WorldPacket cast = new WorldPacket(Opcode.CMSG_CAST_SPELL);
         cast.WriteUInt8(0);
         cast.WriteUInt32(spellId);
+        if (IsCataLegacy)
+            cast.WriteUInt32(0);                // Misc
         cast.WriteUInt8(0);
         cast.WriteUInt32(0);
         SendPacketToServer(cast);
@@ -145,7 +147,13 @@ public partial class WorldClient
         SupercededSpells spells = new SupercededSpells();
         uint spellId;
         uint supercededId;
-        if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+        if (IsCataLegacy)
+        {
+            // 4.3.4 names the new spell first, 3.3.5a the old one
+            spellId = packet.ReadUInt32();
+            supercededId = packet.ReadUInt32();
+        }
+        else if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
         {
             supercededId = packet.ReadUInt32();
             spellId = packet.ReadUInt32();
@@ -289,11 +297,18 @@ public partial class WorldClient
             failed.FailedArg1 = arg1;
             failed.FailedArg2 = arg2;
             SendPacketToClient(failed);
+
+            // A cast a 3.3.5a or 4.3.4 server refuses in Spell::cast, or stops in Spell::cancel, is
+            // followed by SMSG_SPELL_FAILURE and SMSG_SPELL_FAILED_OTHER (SendInterrupted); they
+            // name the same cast.
+            if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
+                GetSession().GameState.LastCompletedNormalCast = pendingCast;
         }
         // AC EffectDuel (SPELL_FAILED_NO_DUELING) and similar hit-time checks
         // send CAST_FAILED after SPELL_GO already dequeued the pending cast.
         else if (GetSession().GameState.LastCompletedNormalCast is { } completed &&
-                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)))
+                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)
+                  || (completed.OverrideSpellId != 0 && completed.OverrideSpellId == spellId)))
         {
             CastFailed failed = new();
             failed.SpellID = completed.SpellId;
@@ -371,9 +386,9 @@ public partial class WorldClient
 
     // Both SMSG_SPELL_FAILURE (own cast failed) and SMSG_SPELL_FAILED_OTHER share the
     // same legacy wire layout (PackedGuid caster, [u8 castCount], u32 spellId, u8 reason).
-    // The proxy emits both modern packets unconditionally so the V3_4_3 client gets the
-    // failure for either path — without this, SMSG_SPELL_FAILURE was being silently
-    // dropped, leaving the client's cast-state UI hung waiting for a never-arriving
+    // From a server that sends only one of them the proxy emits both modern packets, so the
+    // client gets the failure for either path — without this, SMSG_SPELL_FAILURE was being
+    // silently dropped, leaving the client's cast-state UI hung waiting for a never-arriving
     // success/fail and accumulating in the suspect window for `reason=7` disconnects.
     [HandlesSmsg(Opcode.SMSG_SPELL_FAILURE)]
     [HandlesSmsg(Opcode.SMSG_SPELL_FAILED_OTHER)]
@@ -393,17 +408,34 @@ public partial class WorldClient
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             reason = (byte)LegacyVersion.ConvertSpellCastResult(packet.ReadUInt8());
 
+        // 3.3.5a and 4.3.4 servers send both packets themselves (Spell::SendInterrupted); a 1.12
+        // server sends SMSG_SPELL_FAILED_OTHER alone.
+        bool sentAsPair = LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056);
+
         WowGuid128 castId;
         uint spellVisual;
         // Try to find pending cast info (peek, don't remove - this is informational).
         // Match by either modern SpellId or LegacySpellId for SoM-renumbered items.
         if (GetSession().GameState.CurrentPlayerGuid == casterUnit &&
-            GetSession().GameState.PendingNormalCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)) is { } pendingNormal)
+            GetSession().GameState.PendingNormalCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)
+                || (c.OverrideSpellId != 0 && c.OverrideSpellId == spellId)) is { } pendingNormal)
         {
             castId = pendingNormal.ServerGUID;
             spellVisual = pendingNormal.SpellXSpellVisualId;
             if (pendingNormal.LegacySpellId != 0)
                 spellId = pendingNormal.SpellId;
+        }
+        // A channel stopped early fails after its SPELL_GO took it off the pending queue; the
+        // client knows the channel by the cast id it started with.
+        else if (sentAsPair && GetSession().GameState.CurrentPlayerGuid == casterUnit &&
+                 GetSession().GameState.LastCompletedNormalCast is { } completed &&
+                 (completed.SpellId == spellId || (completed.LegacySpellId != 0 && completed.LegacySpellId == spellId)
+                  || (completed.OverrideSpellId != 0 && completed.OverrideSpellId == spellId)))
+        {
+            castId = completed.ServerGUID;
+            spellVisual = completed.SpellXSpellVisualId;
+            if (completed.LegacySpellId != 0)
+                spellId = completed.SpellId;
         }
         else if (GetSession().GameState.CurrentPetGuid == casterUnit &&
                  GetSession().GameState.PendingPetCasts.FirstOrDefault(c => c.SpellId == spellId || (c.LegacySpellId != 0 && c.LegacySpellId == spellId)) is { } pendingPet)
@@ -419,13 +451,21 @@ public partial class WorldClient
             spellVisual = GameData.GetSpellVisual(spellId);
         }
 
-        SpellFailure spell = new SpellFailure();
-        spell.CasterUnit = casterUnit;
-        spell.CastID = castId;
-        spell.SpellID = spellId;
-        spell.SpellXSpellVisualID = spellVisual;
-        spell.Reason = reason;
-        SendPacketToClient(spell);
+        // A server that sends both has each one go over once, as a native server sends them.
+        Opcode received = packet.GetUniversalOpcode(false);
+        if (!sentAsPair || received == Opcode.SMSG_SPELL_FAILURE)
+        {
+            SpellFailure spell = new SpellFailure();
+            spell.CasterUnit = casterUnit;
+            spell.CastID = castId;
+            spell.SpellID = spellId;
+            spell.SpellXSpellVisualID = spellVisual;
+            spell.Reason = reason;
+            SendPacketToClient(spell);
+        }
+
+        if (sentAsPair && received != Opcode.SMSG_SPELL_FAILED_OTHER)
+            return;
 
         SpellFailedOther spell2 = new SpellFailedOther();
         spell2.CasterUnit = casterUnit;
@@ -443,11 +483,12 @@ public partial class WorldClient
             return;
 
         SpellStart spell = new SpellStart();
-        spell.Cast = HandleSpellStartOrGo(packet, false);
+        spell.Cast = HandleSpellStartOrGo(packet, false, out _);
 
         // Mark pending cast as started (queue-based, FIFO order)
         if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
-            GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out var pendingCast))
+            (GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out var pendingCast) ||
+             ClaimOverriddenCast(spell.Cast) && GetSession().GameState.TryMarkPendingNormalCastStarted((uint)spell.Cast.SpellID, out pendingCast)))
         {
             spell.Cast.CastID = pendingCast!.ServerGUID;
             spell.Cast.SpellXSpellVisualID = pendingCast.SpellXSpellVisualId;
@@ -506,6 +547,21 @@ public partial class WorldClient
 
         ApplyV343NativeCastPolicy(spell.Cast, isSpellGo: false);
         SendPacketToClient(spell);
+    }
+
+    /// <summary>
+    /// A 4.3.4 SMSG_SPELL_START no pending cast has the id of: TrinityCore 4.3.4 cast the spell an
+    /// aura overrides the requested one with. Only a cast that is not triggered (4.3.4 marks those
+    /// CAST_FLAG_PENDING) and is not an auto-repeat or next-melee spell, which are tracked apart.
+    /// </summary>
+    bool ClaimOverriddenCast(SpellCastData cast)
+    {
+        uint spellId = (uint)cast.SpellID;
+        return IsCataLegacy
+            && (cast.CastFlags & (uint)CastFlag.PendingCast) == 0
+            && !GameData.AutoRepeatSpells.Contains(spellId)
+            && !GameData.NextMeleeSpells.Contains(spellId)
+            && GetSession().GameState.TryClaimOverriddenNormalCast(spellId);
     }
 
     private static readonly Microsoft.Extensions.Logging.ILogger _melSpellLog =
@@ -582,7 +638,7 @@ public partial class WorldClient
             return;
 
         SpellGo spell = new SpellGo();
-        spell.Cast = HandleSpellStartOrGo(packet, true);
+        spell.Cast = HandleSpellStartOrGo(packet, true, out byte runesMadeReady);
 
         // Dequeue completed cast (queue-based, FIFO order)
         if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
@@ -664,7 +720,12 @@ public partial class WorldClient
         }
 
         ApplyV343NativeCastPolicy(spell.Cast, isSpellGo: true);
-        SendPacketToClient(spell);
+        SendGuidSubjectPacket(spell, spell.Cast.CasterUnit);
+
+        // TrinityCore 3.4.3 tells of runes a spell made ready at once (Blood Tap, Empower Rune
+        // Weapon) with SMSG_ADD_RUNE_POWER after the cast; the 3.4.3 client goes by that alone.
+        if (runesMadeReady != 0)
+            SendPacketToClient(new AddRunePower { AddedRunesMask = runesMadeReady });
 
         if (ModernVersion.IsWotLKClassicOrLater
             && GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit
@@ -694,8 +755,9 @@ public partial class WorldClient
             cast.CastFlags &= ~(uint)CastFlag.HasTrajectory;
     }
 
-    SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo)
+    SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo, out byte runesMadeReady)
     {
+        runesMadeReady = 0;
         SpellCastData dbdata = new SpellCastData();
 
         dbdata.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
@@ -721,6 +783,24 @@ public partial class WorldClient
         else
             flags = packet.ReadUInt16();
         dbdata.CastFlags = flags;
+        if (IsCataLegacy)
+        {
+            packet.ReadUInt32();                // CastFlagsEx, which TrinityCore 4.3.4 leaves 0
+
+            // The 4.4.2 client starts the cooldown of a spell the player casts once it is told of
+            // it, triggered ones included, unless told not to; TrinityCore cata_classic tells it
+            // for the casts that ignore cooldowns, the triggered ones. 4.3.4 marks those with
+            // CAST_FLAG_PENDING. Without it Raise Dead's triggered summon (46585) put Raise Dead's
+            // category on a cooldown the server never had, which clearing Raise Dead's left.
+            // Not for a 3.3.5a server: AzerothCore takes Raise Dead's own cooldown off after the
+            // cast and leaves the lock to the client's category cooldown from that summon.
+            // Not for a spell whose cooldown starts on an event either: the flag also makes the
+            // client drop the server's SMSG_COOLDOWN_EVENT, so the Stealth Vanish casts came back
+            // ready when it went, while the server held it for its six seconds.
+            if ((flags & (uint)CastFlag.PendingCast) != 0
+                && !GameData.CooldownOnEventSpells.Contains((uint)dbdata.SpellID))
+                dbdata.CastFlagsEx |= (uint)CastFlagEx.IgnoreCooldown;
+        }
 
         if (!isSpellGo || LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             dbdata.CastTime = packet.ReadUInt32();
@@ -792,6 +872,12 @@ public partial class WorldClient
             }
         }
 
+        // The same fake summon cast from a second 4.3.4 core carries the two empty target counts
+        // and stops short of the target flags (#407): nothing more to read there either.
+        int targetFlagsSize = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ? 4 : 2;
+        if (!packet.CanRead(targetFlagsSize))
+            return dbdata;
+
         var targetFlags = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ?
             (SpellCastTargetFlags)packet.ReadUInt32() : (SpellCastTargetFlags)packet.ReadUInt16();
         dbdata.Target.Flags = targetFlags;
@@ -843,23 +929,52 @@ public partial class WorldClient
                 // u8 usableMask (= post-cast usable mask), then one u8 cooldown byte per rune
                 // consumed by THIS cast (i.e. set in rechargingMask AND cleared in usableMask).
                 // Cooldown byte semantics match V3_4_3: 255 = ready, 0 = full cooldown.
+                // TrinityCore 4.3.4 writes a byte for every rune instead, in slot order. Read the
+                // 3.3.5a way, the runes a cast used took the bytes of the slots in front of them.
                 var rechargingMask = packet.ReadUInt8();
                 var usableMask = packet.ReadUInt8();
 
                 var runeStateCache = GetSession().GameState.RuneState;
+                // Every player in sight gets a death knight's cast, with that player's runes in it.
+                if (IsCataLegacy && dbdata.CasterUnit != GetSession().GameState.CurrentPlayerGuid)
+                    runeStateCache = null;
+                bool everyRune = IsCataLegacy;
                 Span<byte> consumed = stackalloc byte[RuneStateData.MaxRunes];
                 for (var i = 0; i < RuneStateData.MaxRunes; i++)
                 {
                     var bit = 1 << i;
-                    if ((bit & rechargingMask) == 0)
-                        continue;
-                    if ((bit & usableMask) != 0)
+                    if (!everyRune && ((bit & rechargingMask) == 0 || (bit & usableMask) != 0))
                         continue;
                     consumed[i] = packet.ReadUInt8();
                 }
 
+                if (everyRune)
+                {
+                    // Its rune regeneration can leave a cooldown a sliver above zero, which it spends
+                    // as ready but never marks ready, so a cast can come with the same mask before
+                    // and after. The bytes ((1 - cooldown) * 255) are what it spends by: 254 and up
+                    // is ready, 0 is the rune this cast used.
+                    usableMask = 0;
+                    rechargingMask = 0;
+                    for (var i = 0; i < RuneStateData.MaxRunes; i++)
+                    {
+                        if (consumed[i] >= 254)
+                            usableMask |= (byte)(1 << i);
+                        else if (consumed[i] == 0)
+                            rechargingMask |= (byte)(1 << i);
+                    }
+                    rechargingMask |= usableMask;
+                }
+
                 if (runeStateCache != null)
                 {
+                    byte knownReady = 0;
+                    for (int i = 0; i < RuneStateData.MaxRunes; i++)
+                    {
+                        if (runeStateCache.Cooldowns[i] == 255)
+                            knownReady |= (byte)(1 << i);
+                    }
+
                     // Sync the cached RuneState so the next CREATE (zone change / mount)
                     // reflects the latest state, and emit a V3_4_3-shaped RemainingRunes
                     // (per CypherCore native sniff): Start always 0x3F, Count = post-cast
@@ -867,7 +982,9 @@ public partial class WorldClient
                     for (int i = 0; i < RuneStateData.MaxRunes; i++)
                     {
                         var bit = 1 << i;
-                        if ((bit & usableMask) != 0)
+                        if (everyRune)
+                            runeStateCache.Cooldowns[i] = consumed[i];
+                        else if ((bit & usableMask) != 0)
                             runeStateCache.Cooldowns[i] = 255;
                         else if ((bit & rechargingMask) != 0)
                             runeStateCache.Cooldowns[i] = consumed[i];
@@ -879,6 +996,15 @@ public partial class WorldClient
                         Start = (byte)((1 << RuneStateData.MaxRunes) - 1),
                         Count = usableMask,
                     };
+
+                    // A 3.3.5a server tells of runes a spell made ready at once only by the cast's
+                    // masks, and its mask before is no good for which: a triggered cast has none
+                    // ready before it, and AzerothCore takes it again at each rune effect, so it
+                    // shows only Empower Rune Weapon's last. When a cast shows any, the runes it
+                    // made ready are those ready after it that the last cast left recharging.
+                    if (!everyRune && dbdata.CasterUnit == GetSession().GameState.CurrentPlayerGuid
+                        && (usableMask & ~rechargingMask) != 0)
+                        runesMadeReady = (byte)(usableMask & ~knownReady);
                     for (int i = 0; i < RuneStateData.MaxRunes; i++)
                         runes.Cooldowns.Add(runeStateCache.Cooldowns[i]);
                     dbdata.RemainingRunes = runes;
@@ -1023,6 +1149,44 @@ public partial class WorldClient
         SendPacketToClient(cooldown);
     }
 
+    /// <summary>
+    /// The answer to a mirror image's question (TrinityCore's SMSG_MIRRORIMAGE_DATA): the caster's
+    /// model, race, sex and class, then for a player caster skin, face, hair style, hair colour,
+    /// facial hair, the guild and eleven item displays (head, shoulders, shirt, chest, waist, legs,
+    /// feet, wrists, hands, back, tabard). A creature caster gets 53 zero bytes in their place. A
+    /// 4.3.4 server sends the guild's GUID, so there the length tells the two apart; a 3.3.5a
+    /// server sends its id, four bytes, which makes a player's look 53 bytes as well.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_MIRROR_IMAGE_COMPONENTED_DATA)]
+    internal void HandleMirrorImageData(WorldPacket packet)
+    {
+        int playerLookBytes = 5 + (IsCataLegacy ? 8 : 4) + 11 * 4;
+
+        MirrorImageComponentedData image = new();
+        image.UnitGUID = packet.ReadGuid().To128(GetSession().GameState);
+        image.DisplayID = packet.ReadInt32();
+        image.RaceID = packet.ReadUInt8();
+        image.Gender = packet.ReadUInt8();
+        image.ClassID = packet.ReadUInt8();
+        if (packet.Remaining() >= playerLookBytes)
+        {
+            byte skin = packet.ReadUInt8();
+            byte face = packet.ReadUInt8();
+            byte hairStyle = packet.ReadUInt8();
+            byte hairColor = packet.ReadUInt8();
+            byte facialHair = packet.ReadUInt8();
+            image.Customizations = CharacterCustomizations.ConvertLegacyCustomizationsToModern(
+                (Race)image.RaceID, (Gender)image.Gender, skin, face, hairStyle, hairColor, facialHair);
+            if (IsCataLegacy)
+                packet.ReadUInt64(); // guild
+            else
+                packet.ReadUInt32(); // guild
+            for (int i = 0; i < 11; i++)
+                image.ItemDisplayIDs.Add(packet.ReadInt32());
+        }
+        SendPacketToClient(image);
+    }
+
     [HandlesSmsg(Opcode.SMSG_COOLDOWN_EVENT)]
     internal void HandleCooldownEvent(WorldPacket packet)
     {
@@ -1041,6 +1205,52 @@ public partial class WorldClient
         WowGuid64 guid = packet.ReadGuid();
         cooldown.IsPet = guid.GetHighType() == HighGuidType.Pet;
         SendPacketToClient(cooldown);
+    }
+
+    /// <summary>
+    /// A 4.3.4 server moves a running cooldown by a signed number of milliseconds (Whirlwind on
+    /// four targets, Restless Blades). Its packet names the unit by GUID where the 4.4.2 one only
+    /// says whether it is the pet's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_MODIFY_COOLDOWN)]
+    internal void HandleModifyCooldown(WorldPacket packet)
+    {
+        // A 3.3.5a server sends the same packet; no 3.3.5a session has been played with it.
+        if (!IsCataLegacy)
+            return;
+
+        ModifyCooldown cooldown = new();
+        cooldown.SpellID = (int)packet.ReadUInt32();
+        WowGuid64 guid = packet.ReadGuid();
+        cooldown.IsPet = guid.GetHighType() == HighGuidType.Pet;
+        cooldown.DeltaTime = packet.ReadInt32();
+        SendPacketToClient(cooldown);
+    }
+
+    /// <summary>
+    /// 4.3.4 clears a batch of cooldowns in one packet where 3.3.5a sent one SMSG_CLEAR_COOLDOWN
+    /// per spell (TrinityCore 4.3.4 ClearCooldowns::Write: a masked GUID with a 24-bit count in
+    /// its bit section, the spell ids between its bytes). Each spell goes on as its own clear.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_CLEAR_COOLDOWNS)]
+    internal void HandleClearCooldowns(WorldPacket packet)
+    {
+        Span<bool> mask = stackalloc bool[8];
+        Span<byte> guid = stackalloc byte[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [1, 3, 6]);
+        uint count = packet.ReadBits<uint>(24);
+        MaskedGuid.ReadMaskBits(packet, mask, [7, 5, 2, 4, 0]);
+        packet.ResetBitPos();
+        MaskedGuid.ReadBytes(packet, mask, guid, [7, 2, 4, 5, 1, 3]);
+
+        uint[] spells = new uint[Math.Min(count, (uint)packet.GetRemainingSpan().Length / sizeof(uint))];
+        for (int i = 0; i < spells.Length; i++)
+            spells[i] = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guid, [0, 6]);
+
+        bool isPet = new WowGuid64(MaskedGuid.ToUInt64(guid)).GetHighType() == HighGuidType.Pet;
+        foreach (uint spell in spells)
+            SendPacketToClient(new ClearCooldown { SpellID = spell, IsPet = isPet });
     }
 
     [HandlesSmsg(Opcode.SMSG_COOLDOWN_CHEAT)]
@@ -1252,7 +1462,7 @@ public partial class WorldClient
         spell.TargetGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
         spell.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
         spell.SpellID = packet.ReadUInt32();
-        spell.Type = (PowerType)packet.ReadUInt32();
+        spell.Type = ClassPowerTypes.ToModernPowerType((PowerType)packet.ReadUInt32());
         spell.Amount = packet.ReadInt32();
         SendPacketToClient(spell);
     }
@@ -1318,6 +1528,10 @@ public partial class WorldClient
             school = (1u << (byte)school);
 
         spell.SchoolMask = school;
+
+        // 4.x added what an absorb took off the damage (TrinityCore 4.3.4 SpellDamageShield::Write).
+        if (IsCataLegacy)
+            spell.LogAbsorbed = packet.ReadUInt32();
         SendPacketToClient(spell);
     }
 
@@ -1346,6 +1560,48 @@ public partial class WorldClient
             spell.CasterGUID = spell.TargetGUID = packet.ReadGuid().To128(GetSession().GameState);
         spell.SpellID = packet.ReadUInt32();
         SendPacketToClient(spell);
+    }
+
+    /// <summary>
+    /// A cast cut short by another spell, for the combat log. TrinityCore 4.3.4 never sends it; a
+    /// second 4.3.4 core does, in the retail order WowPacketParser read from sniffs: both GUIDs
+    /// masked, their bits and bytes interleaved, the interrupting spell among the victim's bytes
+    /// and the interrupted one after the caster's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_SPELL_INTERRUPT_LOG)]
+    internal void HandleSpellInterruptLog(WorldPacket packet)
+    {
+        Span<bool> casterMask = stackalloc bool[8];
+        Span<bool> victimMask = stackalloc bool[8];
+        Span<byte> caster = stackalloc byte[8];
+        Span<byte> victim = stackalloc byte[8];
+
+        MaskedGuid.ReadMaskBits(packet, victimMask, [4]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [5, 6, 1, 3, 0]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [3, 5, 1]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [4, 7]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [7, 6]);
+        MaskedGuid.ReadMaskBits(packet, casterMask, [2]);
+        MaskedGuid.ReadMaskBits(packet, victimMask, [2, 0]);
+
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [7, 6, 3, 2]);
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [3, 6, 2, 4, 7, 0]);
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [4]);
+        int spellId = packet.ReadInt32();
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [1]);
+        MaskedGuid.ReadBytes(packet, casterMask, caster, [0, 5, 1]);
+        int interruptedSpellId = packet.ReadInt32();
+        MaskedGuid.ReadBytes(packet, victimMask, victim, [5]);
+
+        var gameState = GetSession().GameState;
+        SpellInterruptLog log = new SpellInterruptLog
+        {
+            Caster = new WowGuid64(MaskedGuid.ToUInt64(caster)).To128(gameState),
+            Victim = new WowGuid64(MaskedGuid.ToUInt64(victim)).To128(gameState),
+            InterruptedSpellID = interruptedSpellId,
+            SpellID = spellId,
+        };
+        SendPacketToClient(log);
     }
 
     [HandlesSmsg(Opcode.SMSG_SPELL_DISPELL_LOG)]
@@ -1416,9 +1672,31 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_PLAY_SPELL_VISUAL)]
     internal void HandlePlaySpellVisualKit(WorldPacket packet)
     {
+        // On 4.3.4 this opcode is the missile visual between two units, a different packet;
+        // the kit on a unit that 3.3.5a sends here has its own opcode there (below).
+        if (IsCataLegacy)
+            return;
+
         PlaySpellVisualKit spell = new();
         spell.Unit = packet.ReadGuid().To128(GetSession().GameState);
         spell.KitRecID = packet.ReadUInt32();
+        SendPacketToClient(spell);
+    }
+
+    /// <summary>TrinityCore 4.3.4 PlaySpellVisualKit::Write: three ints, then the masked unit GUID.</summary>
+    [HandlesSmsg(Opcode.SMSG_PLAY_SPELL_VISUAL_KIT)]
+    internal void HandlePlaySpellVisualKitCata(WorldPacket packet)
+    {
+        PlaySpellVisualKit spell = new();
+        spell.Duration = packet.ReadUInt32();
+        spell.KitRecID = packet.ReadUInt32();
+        spell.KitType = packet.ReadUInt32();
+
+        Span<bool> mask = stackalloc bool[8];
+        Span<byte> guid = stackalloc byte[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [4, 7, 5, 3, 1, 2, 0, 6]);
+        MaskedGuid.ReadBytes(packet, mask, guid, [0, 4, 1, 6, 7, 2, 3, 5]);
+        spell.Unit = new WowGuid64(MaskedGuid.ToUInt64(guid)).To128(GetSession().GameState);
         SendPacketToClient(spell);
     }
 
@@ -1643,7 +1921,8 @@ public partial class WorldClient
             SpellXSpellVisualID = GameData.GetSpellVisual(spellId),
         };
 
-        var legacyFlags = (AuraFlagsWotLK)packet.ReadUInt8();
+        // 4.3.4 widened the flags to 16 bits; the 3.3.5a ones keep their values.
+        var legacyFlags = (AuraFlagsWotLK)(IsCataLegacy ? packet.ReadUInt16() : packet.ReadUInt8());
         data.CastLevel = packet.ReadUInt8();
         data.Applications = packet.ReadUInt8();
 
@@ -1696,15 +1975,18 @@ public partial class WorldClient
         if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.Scalable))
         {
             var points = ImmutableArray.CreateBuilder<float>(3);
-            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex0)) points.Add(packet.ReadFloat());
-            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex1)) points.Add(packet.ReadFloat());
-            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex2)) points.Add(packet.ReadFloat());
+            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex0)) points.Add(ReadAuraPoints(packet));
+            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex1)) points.Add(ReadAuraPoints(packet));
+            if (legacyFlags.HasAnyFlag(AuraFlagsWotLK.EffectIndex2)) points.Add(ReadAuraPoints(packet));
             data.Points = points.ToImmutable();
         }
 
         aura.AuraData = data;
         update.Auras.Add(aura);
     }
+
+    // 4.3.4 sends an effect's amount as an int32.
+    private static float ReadAuraPoints(WorldPacket packet) => IsCataLegacy ? packet.ReadInt32() : packet.ReadFloat();
 
     // Legacy 3.3.5a SMSG_HEALTH_UPDATE wire format: PackedGuid + uint32 health.
     // Modern V3_4_3 expects: PackedGuid128 + int64 health.
@@ -1722,6 +2004,17 @@ public partial class WorldClient
         World.Logging.SpellLogMessages.HealthUpdate(_melSpellLog, guid.Low, health);
     }
 
+    // 3.3.5 SetPower sends SMSG_POWER_UPDATE at once and the same value again in the next
+    // SMSG_UPDATE_OBJECT, whose Values block builds a POWER_UPDATE of its own for the player and
+    // the pet, so the client got each of these changes twice. A value forwarded here waits for
+    // the next Values entry of its power, which drops it if it only repeats the value. A power the
+    // server changes in the field alone (regeneration, rage decay) still goes out from there.
+    private readonly Dictionary<(WowGuid128 Guid, byte PowerType), int> _forwardedPowerUpdates = [];
+
+    // Either way the forwarded value is used up: only the next entry for that power repeats it.
+    private bool RepeatsForwardedPowerUpdate(WowGuid128 guid, byte powerType, int value) =>
+        _forwardedPowerUpdates.Remove((guid, powerType), out int forwarded) && forwarded == value;
+
     // Legacy 3.3.5a SMSG_POWER_UPDATE wire format: PackedGuid + uint8 powerType + uint32 power.
     // Modern V3_4_3 expects: PackedGuid128 + int32 count + (int32 power, uint8 type)*.
     // The `type` byte is forwarded as-is — the V3_4_3 client interprets it as the
@@ -1731,13 +2024,23 @@ public partial class WorldClient
     internal void HandlePowerUpdate(WorldPacket packet)
     {
         WowGuid128 guid = packet.ReadPackedGuid().To128(GetSession().GameState);
+        if (IsCataLegacy)
+        {
+            HandlePowerUpdateCata(packet, guid);
+            return;
+        }
+
         byte powerType = packet.ReadUInt8();
         int power = (int)packet.ReadUInt32();
 
         PowerUpdate update = new PowerUpdate(guid);
         update.Powers.Add(new PowerUpdatePower(power, powerType));
-        SendPacketToClient(update);
+        SendGuidSubjectPacket(update, guid);
         World.Logging.SpellLogMessages.PowerUpdate(_melSpellLog, guid.Low, (PowerType)powerType, power);
+
+        var gameState = GetSession().GameState;
+        if (guid == gameState.CurrentPlayerGuid || guid == gameState.CurrentPetGuid)
+            _forwardedPowerUpdates[(guid, powerType)] = power;
 
         // Cache RunicPower for the local player so SpellGo can embed a RemainingPower
         // entry with the post-cast value (V3_4_3 wire shape — see CastFlag.RuneInfo branch).
@@ -1749,15 +2052,42 @@ public partial class WorldClient
         }
     }
 
+    // 4.3.4 sends a count and a list of (type, value) pairs (TrinityCore 4.3.4 PowerUpdate),
+    // which is the modern shape. Read the 3.3.5a way, the count's low byte came out as the power
+    // type, so every unit's update named Rage with a garbage value.
+    void HandlePowerUpdateCata(WorldPacket packet, WowGuid128 guid)
+    {
+        PowerUpdate update = new PowerUpdate(guid);
+        var runeState = guid == GetSession().GameState.CurrentPlayerGuid ? GetSession().GameState.RuneState : null;
+        uint count = packet.ReadUInt32();
+        for (uint i = 0; i < count; i++)
+        {
+            var powerType = ClassPowerTypes.ToModernPowerType((PowerType)packet.ReadUInt8());
+            int power = packet.ReadInt32();
+            update.Powers.Add(new PowerUpdatePower(power, (byte)powerType));
+            // The death knight's next rune cast tells the client this runic power in its
+            // SMSG_SPELL_GO. Left at 0, every rune spell emptied the client's runic power, which
+            // only the next change put back: at full, Frost Strike showed nothing to spend.
+            if (runeState != null && powerType == PowerType.RunicPower)
+                runeState.LastRunicPower = power;
+        }
+        SendPacketToClient(update);
+    }
+
     // V3_4_3 DK rune-state legacy handlers. Older modern targets (V1_14 / V2_5) pre-date
     // Death Knights and never allocate RuneState, so the null-guard makes these no-ops.
-    // None of these forward to the V3_4_3 client — TC fires the rune opcodes thousands of
-    // times per session (especially RESYNC_RUNES with constantly-decaying cooldown values),
-    // and forwarding overwhelmed the client (observed: WoW #132 ACCESS_VIOLATION crash).
-    // SpellGo's embedded RemainingRunes carries the per-cast snapshot, and the V3_4_3
-    // client manages the visual cooldown swirl from that snapshot — that's the dominant
-    // path. We only mutate the cached RuneState here so the next CREATE block reflects
-    // authoritative state on zone change / mount.
+    // RESYNC_RUNES and ADD_RUNE_POWER don't go on to the V3_4_3 client — TC fires the rune
+    // opcodes thousands of times per session (especially RESYNC_RUNES with constantly-decaying
+    // cooldown values), and forwarding overwhelmed the client (observed: WoW #132
+    // ACCESS_VIOLATION crash). SpellGo's embedded RemainingRunes carries the per-cast snapshot,
+    // and the V3_4_3 client manages the visual cooldown swirl from that snapshot — that's the
+    // dominant path. The cached RuneState feeds the next CREATE block on zone change / mount.
+    // CONVERT_RUNE comes only when a rune changes kind and is the client's only word of a death
+    // rune, so it goes on to the 3.4.3 client too. Runes a spell made ready at once come from a
+    // 3.3.5a server only in the cast's SPELL_GO, and HandleSpellGo sends ADD_RUNE_POWER for them.
+    // TrinityCore 4.3.4 sends RESYNC_RUNES only at login, and the other two only when a spell or
+    // an aura changes a rune, as TrinityCore cata_classic does; those two go on to the 4.4.2
+    // client, which has no other way to learn of a death rune or of runes made ready at once.
 
     [HandlesSmsg(Opcode.SMSG_RESYNC_RUNES)]
     internal void HandleResyncRunes(WorldPacket packet)
@@ -1785,8 +2115,11 @@ public partial class WorldClient
 
         byte index = packet.ReadUInt8();
         byte newType = packet.ReadUInt8();
-        if (index < RuneStateData.MaxRunes)
-            runeState.RuneTypes[index] = newType;
+        if (index >= RuneStateData.MaxRunes)
+            return;
+
+        runeState.RuneTypes[index] = newType;
+        SendPacketToClient(new ConvertRune { Index = index, Rune = RuneTypeToClient(newType) });
     }
 
     [HandlesSmsg(Opcode.SMSG_ADD_RUNE_POWER)]
@@ -1803,6 +2136,8 @@ public partial class WorldClient
             if ((mask & (1u << i)) != 0)
                 runeState.Cooldowns[i] = 255;
         }
+        if (IsCataLegacy)
+            SendPacketToClient(new AddRunePower { AddedRunesMask = mask });
     }
 
     // Map TC's per-slot rune type byte (Blood=0, Unholy=1, Frost=2, Death=3) to
@@ -1818,6 +2153,19 @@ public partial class WorldClient
             1 => PowerType.RuneUnholy,
             2 => PowerType.RuneFrost,
             _ => PowerType.Invalid,
+        };
+    }
+
+    // The 3.4.3 and 4.4.2 clients number rune types Blood 0, Frost 1, Unholy 2, Death 3
+    // (GetRuneType gives one more, RuneFrame.lua): sent TrinityCore's numbers, a Frost rune
+    // turned back from death showed Unholy.
+    private static uint RuneTypeToClient(byte runeType)
+    {
+        return runeType switch
+        {
+            1 => 2,
+            2 => 1,
+            _ => runeType,
         };
     }
 
@@ -1840,7 +2188,10 @@ public partial class WorldClient
     {
         TotemCreated totem = new();
         totem.Slot = packet.ReadUInt8();
-        totem.Totem = packet.ReadGuid().To128(GetSession().GameState);
+        WowGuid64 legacyTotem = packet.ReadGuid();
+        if (totem.Slot < GetSession().GameState.TotemGuids.Length)
+            GetSession().GameState.TotemGuids[totem.Slot] = legacyTotem;
+        totem.Totem = legacyTotem.To128(GetSession().GameState);
         totem.Duration = packet.ReadUInt32();
         totem.SpellId = packet.ReadUInt32();
         SendPacketToClient(totem);
@@ -1850,6 +2201,12 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_SET_PCT_SPELL_MODIFIER)]
     internal void HandleSetSpellModifier(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleSetSpellModifierCata(packet);
+            return;
+        }
+
         byte classIndex = packet.ReadUInt8();
         byte modIndex = packet.ReadUInt8();
         int modValue = packet.ReadInt32();
@@ -1871,6 +2228,41 @@ public partial class WorldClient
             GetSession().GameState.SetFlatSpellMod(modIndex, classIndex, modValue);
         else
             GetSession().GameState.SetPctSpellMod(modIndex, classIndex, modValue);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 SetSpellModifier::Write: every modifier of a kind in one packet, grouped
+    /// by modifier index, each value a float. That is the modern packet's own shape; 3.3.5a
+    /// sends one (class index, modifier index, int32) per packet.
+    /// </summary>
+    void HandleSetSpellModifierCata(WorldPacket packet)
+    {
+        Opcode opcode = packet.GetUniversalOpcode(false);
+        bool flat = opcode == Opcode.SMSG_SET_FLAT_SPELL_MODIFIER;
+        SetSpellModifier spell = new SetSpellModifier(opcode);
+
+        uint modifierCount = packet.ReadUInt32();
+        for (uint i = 0; i < modifierCount; i++)
+        {
+            uint dataCount = packet.ReadUInt32();
+            SpellModifierInfo mod = new SpellModifierInfo { ModIndex = packet.ReadUInt8() };
+            for (uint j = 0; j < dataCount; j++)
+            {
+                SpellModifierData data = new SpellModifierData();
+                data.ClassIndex = packet.ReadUInt8();
+                data.ModifierValue = (int)packet.ReadFloat();
+                mod.ModifierData.Add(data);
+
+                if (flat)
+                    GetSession().GameState.SetFlatSpellMod(mod.ModIndex, data.ClassIndex, data.ModifierValue);
+                else
+                    GetSession().GameState.SetPctSpellMod(mod.ModIndex, data.ClassIndex, data.ModifierValue);
+            }
+            spell.Modifiers.Add(mod);
+        }
+
+        if (GetSession().GameState.CurrentPlayerCreateTime != 0)
+            SendPacketToClient(spell);
     }
 
     /// <summary>
@@ -2097,5 +2489,18 @@ public partial class WorldClient
             packet.ReadUInt8();
         }
         SendPacketToClient(spell);
+    }
+    [HandlesSmsg(Opcode.SMSG_MOUNT_RESULT)]
+    internal void HandleMountResult(WorldPacket packet)
+    {
+        if (IsCataLegacy)
+            HandleMountResultCata(packet);
+    }
+
+    internal void HandleMountResultCata(WorldPacket packet)
+    {
+        MountResult mount = new();
+        mount.Result = packet.ReadUInt32();
+        SendPacketToClient(mount);
     }
 }

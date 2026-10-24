@@ -256,9 +256,13 @@ review into an 8694-line one.
 
 ## Building
 
-A running proxy or a live language server holds `HermesProxy.SourceGen.dll`, and MSBuild then
-fails the *copy* with MSB3021/3027 **while reporting no `error CS`**. Kill the holder
-(`csharp-ls`, `dotnet`) and rebuild; do not read the compiler text alone.
+MSBuild fails the *copy* of `HermesProxy.SourceGen.dll` into `bin` with MSB3021/3027 **while
+reporting no `error CS`** when another process has the file open at that moment: a language
+server or the compiler server reloading the generator. The copy only happens after the generator
+was recompiled, and the project keeps the commit out of its version and PDB so that a commit,
+checkout or rebase does not recompile it; an edit to the generator still does. When it happens,
+stop the holder the message names (`dotnet build-server shutdown` for the compiler server and
+MSBuild nodes) and rebuild; do not read the compiler text alone.
 
 ---
 

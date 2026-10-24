@@ -27,6 +27,17 @@ public static class LfgSystem
         if (!LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             return;
 
+        // 4.3.4 has one request for both, and one bit for which (TrinityCore 4.3.4
+        // LFGGetSystemInfo::Read); the two 3.3.5a requests are not in its table.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_DF_GET_SYSTEM_INFO);
+            cata.WriteBit(packet.Player);
+            cata.FlushBits();
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
         WorldPacket legacy = new WorldPacket(packet.Player
             ? Opcode.CMSG_LFG_PLAYER_LOCK_INFO_REQUEST
             : Opcode.CMSG_LFG_PARTY_LOCK_INFO_REQUEST);
@@ -72,6 +83,12 @@ public static class LfgSystem
             return;
         }
 
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            ctx.SendPacketToServer(BuildJoinCata(roles, packet.Slots));
+            return;
+        }
+
         WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_JOIN);
         legacy.WriteUInt32(roles);
         legacy.WriteUInt8(0); // NoPartialClear
@@ -85,6 +102,45 @@ public static class LfgSystem
         legacy.WriteUInt8(0);
         legacy.WriteCString(string.Empty);
         ctx.SendPacketToServer(legacy);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGJoin::Read</c>: the roles, three "needs" the client always sends
+    /// as 0, then the lengths of the comment and the dungeon list as bits, the comment and the
+    /// dungeons.
+    /// </summary>
+    internal static WorldPacket BuildJoinCata(byte roles, uint[] slots)
+    {
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_LFG_JOIN);
+        WriteJoinCata(packet, roles, slots);
+        return packet;
+    }
+
+    internal static void WriteJoinCata(WorldPacket packet, byte roles, uint[] slots)
+    {
+        packet.WriteUInt32(roles);
+        for (int i = 0; i < 3; i++)
+            packet.WriteUInt32(0);
+        packet.WriteBits(0, 9);
+        packet.WriteBits(slots.Length, 24);
+        packet.FlushBits();
+        foreach (uint slot in slots)
+            packet.WriteUInt32(slot);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGLeave::Read</c>: a number it does not use, then the queue's ticket
+    /// (time, type, id and the masked GUID of whoever queued). The ticket is the server's own,
+    /// as it came with the last queue packet.
+    /// </summary>
+    internal static void WriteLeaveCata(WorldPacket packet, RideTicket ticket)
+    {
+        ulong requester = ticket.RequesterGuid.To64().Low;
+        packet.WriteUInt32(0);
+        packet.WriteUInt32((uint)ticket.Time);
+        packet.WriteUInt32((uint)ticket.Type);
+        packet.WriteUInt32(ticket.Id);
+        MaskedGuid.Write(packet, requester, [4, 5, 0, 6, 2, 7, 1, 3], [7, 4, 3, 2, 6, 0, 1, 5]);
     }
 
     private static void SendDFJoinFailure(in SessionContext ctx, byte modernResult)
@@ -119,6 +175,11 @@ public static class LfgSystem
         // asking for it. Legacy LFGMgr::LeaveLfg has no LFG_STATE_DUNGEON case at all, so
         // leaving from inside is a server-side no-op — which is what a native client sees too.
         WorldPacket leave = new WorldPacket(Opcode.CMSG_LFG_LEAVE);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            var state = ctx.GetSession().GameState;
+            WriteLeaveCata(leave, state.LfgServerTicket ?? state.GetOrCreateLfgTicket(state.CurrentPlayerGuid, 0));
+        }
         ctx.SendPacketToServer(leave);
     }
 
@@ -139,6 +200,30 @@ public static class LfgSystem
         ctx.SendPacketToServer(legacy);
     }
 
+    /// <summary>
+    /// A member votes on removing someone from the group.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_DF_BOOT_PLAYER_VOTE)]
+    public static void HandleDFBootPlayerVote(in DFBootPlayerVotePkt packet, in SessionContext ctx)
+    {
+        // Only a 4.3.4 server's vote reaches the client, so only one is answered; a 3.3.5a server
+        // reads the same byte, but no 3.3.5a session has been played with it.
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(BuildSetBootVote(packet.Vote));
+    }
+
+    /// <summary>
+    /// The vote as one byte (TrinityCore 4.3.4 LFGBootPlayerVote::Read).
+    /// </summary>
+    internal static WorldPacket BuildSetBootVote(bool vote)
+    {
+        WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_BOOT_VOTE);
+        legacy.WriteUInt8((byte)(vote ? 1 : 0));
+        return legacy;
+    }
+
     [HandlesCmsg(Opcode.CMSG_DF_SET_ROLES)]
     public static void HandleDFSetRoles(in DFSetRolesPkt packet, in SessionContext ctx)
     {
@@ -148,12 +233,24 @@ public static class LfgSystem
         // No assigned role is laid over these: an answer without a role is the role check
         // declined, and an accepted one always carries the role the player picked.
         byte roles = packet.Roles;
-        WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_ROLES);
         Log.Print(LogType.Debug, $"LFG[diag]: CMSG_DF_SET_ROLES roles=0x{roles:X2}");
 
         ctx.GetSession().GameState.LfgRequestedRoles = roles;
-        legacy.WriteUInt8(roles);
-        ctx.SendPacketToServer(legacy);
+        ctx.SendPacketToServer(BuildSetRoles(roles));
+    }
+
+    /// <summary>
+    /// The player's roles: one byte to a 3.3.5a server, 32 bits to a 4.3.4 one (TrinityCore 4.3.4
+    /// LFGSetRoles::Read).
+    /// </summary>
+    internal static WorldPacket BuildSetRoles(byte roles)
+    {
+        WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_ROLES);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            legacy.WriteUInt32(roles);
+        else
+            legacy.WriteUInt8(roles);
+        return legacy;
     }
 
     static byte OverlayAssignedLfgRoles(in SessionContext ctx, byte roles)
@@ -177,9 +274,36 @@ public static class LfgSystem
             return;
 
         WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_PROPOSAL_RESULT);
-        legacy.WriteUInt32(packet.ProposalID);
-        legacy.WriteUInt8((byte)(packet.Accepted ? 1 : 0));
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            var state = ctx.GetSession().GameState;
+            WriteProposalResultCata(legacy, packet.ProposalID, packet.Accepted, state.LfgServerTicket ?? state.GetOrCreateLfgTicket(state.CurrentPlayerGuid, 0));
+        }
+        else
+        {
+            legacy.WriteUInt32(packet.ProposalID);
+            legacy.WriteUInt8((byte)(packet.Accepted ? 1 : 0));
+        }
         ctx.SendPacketToServer(legacy);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGProposalResponse::Read</c>: the proposal, the queue's ticket as the
+    /// server sent it, then the instance's masked GUID with the answer among its bits. The client
+    /// names no instance, and the server does not read the one it gets.
+    /// </summary>
+    internal static void WriteProposalResultCata(WorldPacket packet, uint proposalId, bool accepted, RideTicket ticket)
+    {
+        packet.WriteUInt32(proposalId);
+        packet.WriteUInt32((uint)ticket.Time);
+        packet.WriteUInt32((uint)ticket.Type);
+        packet.WriteUInt32(ticket.Id);
+        MaskedGuid.Write(packet, ticket.RequesterGuid.To64().Low, [4, 5, 0, 6, 2, 7, 1, 3], [7, 4, 3, 2, 6, 0, 1, 5]);
+        packet.WriteBit(false);
+        packet.WriteBit(accepted);
+        for (int i = 0; i < 7; i++)
+            packet.WriteBit(false);
+        packet.FlushBits();
     }
 
     [HandlesCmsg(Opcode.CMSG_LFG_LIST_GET_STATUS)]

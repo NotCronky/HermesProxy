@@ -36,6 +36,28 @@ public static class GroupSystem
     public static void HandlePartyInvite(in PartyInviteClient invite, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_PARTY_INVITE);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 PartyInviteClient::Read: the realm id and the roles, then the
+            // target's GUID masked around the two string lengths. Sent the 3.3.5a way, as a
+            // C string, the server could not read it and the invite went nowhere.
+            ulong target = invite.TargetGUID.IsEmpty() ? 0 : invite.TargetGUID.To64().Low;
+            packet.WriteUInt32(0);                  // TargetCfgRealmID
+            packet.WriteUInt32(0);                  // ProposedRoles
+            MaskedGuid.WriteMaskBits(packet, target, [2, 7]);
+            packet.WriteBits((uint)System.Text.Encoding.UTF8.GetByteCount(invite.TargetRealm), 9);
+            MaskedGuid.WriteMaskBits(packet, target, [3]);
+            packet.WriteBits((uint)System.Text.Encoding.UTF8.GetByteCount(invite.TargetName), 10);
+            MaskedGuid.WriteMaskBits(packet, target, [5, 4, 6, 0, 1]);
+            packet.FlushBits();
+            MaskedGuid.WriteBytes(packet, target, [4, 7, 6]);
+            packet.WriteString(invite.TargetName);
+            packet.WriteString(invite.TargetRealm);
+            MaskedGuid.WriteBytes(packet, target, [1, 0, 5, 3, 2]);
+            ctx.SendPacketToServer(packet);
+            return;
+        }
+
         packet.WriteCString(invite.TargetName);
         if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
             packet.WriteUInt32(0);
@@ -45,6 +67,20 @@ public static class GroupSystem
     [HandlesCmsg(Opcode.CMSG_PARTY_INVITE_RESPONSE)]
     public static void HandlePartyInviteResponse(in PartyInviteResponse invite, in SessionContext ctx)
     {
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // 4.3.4 answers an invite with one opcode, as the modern client does (TrinityCore
+            // 4.3.4 PartyInviteResponse::Read); the accept and decline opcodes of 3.3.5a are gone.
+            WorldPacket response = new WorldPacket(Opcode.CMSG_GROUP_INVITE_RESPONSE);
+            response.WriteBit(invite.RolesDesired.HasValue);
+            response.WriteBit(invite.Accept);
+            response.FlushBits();
+            if (invite.RolesDesired.HasValue)
+                response.WriteUInt32(invite.RolesDesired.Value);
+            ctx.SendPacketToServer(response);
+            return;
+        }
+
         if (invite.Accept)
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_GROUP_ACCEPT);
@@ -65,6 +101,37 @@ public static class GroupSystem
         ctx.GetSession().GameState.WeWantToLeaveGroup = true;
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GROUP_DISBAND);
         ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A world marker taken away: its index, the same one byte on both sides (TrinityCore 4.3.4
+    /// HandleGroupClearMarker, which clears <c>1 &lt;&lt; index</c>). 4.3.4 has no "all of them",
+    /// so that goes as one request per marker that is out. Only a 4.3.4 server has the markers.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_CLEAR_RAID_MARKER)]
+    public static void HandleClearRaidMarker(in ClearRaidMarker clear, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        if (clear.MarkerId < 8)
+        {
+            ctx.SendPacketToServer(BuildClearRaidMarker(clear.MarkerId));
+            return;
+        }
+        uint mask = ctx.GetSession().GameState.RaidMarkerMask;
+        for (byte slot = 0; slot < 8; slot++)
+        {
+            if ((mask & (1u << slot)) != 0)
+                ctx.SendPacketToServer(BuildClearRaidMarker(slot));
+        }
+    }
+
+    internal static WorldPacket BuildClearRaidMarker(byte slot)
+    {
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_CLEAR_RAID_MARKER);
+        packet.WriteUInt8(slot);
+        return packet;
     }
 
     [HandlesCmsg(Opcode.CMSG_PARTY_UNINVITE)]
@@ -126,6 +193,11 @@ public static class GroupSystem
             packet.WriteBit(raid.Raid);
             packet.FlushBits();
         }
+        // TrinityCore 4.3.4 reads a whole byte for it (HandleGroupRaidConvertOpcode: a raid of five
+        // or fewer may go back to a party since 4.x). Without the byte the read fails after the
+        // server has already answered "OK", and nothing converts.
+        else if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            packet.WriteUInt8((byte)(raid.Raid ? 1 : 0));
         ctx.SendPacketToServer(packet);
     }
 
@@ -256,9 +328,7 @@ public static class GroupSystem
             ctx.GetSession().GameState.LfgRequestedRoles = newRole;
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_3_0_10958))
             {
-                WorldPacket legacy = new WorldPacket(Opcode.CMSG_LFG_SET_ROLES);
-                legacy.WriteUInt8(newRole);
-                ctx.SendPacketToServer(legacy);
+                ctx.SendPacketToServer(LfgSystem.BuildSetRoles(newRole));
             }
         }
 

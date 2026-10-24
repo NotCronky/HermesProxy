@@ -62,17 +62,17 @@ public class ActivePlayerData
     /// <summary>Explored-zone bitmask words. 240 x 64 bits.</summary>
     public const int ExploredZoneWords = 240;
 
-    /// <summary>InvSlots length in the client's descriptor. equipped gear and bags</summary>
-    public const int InvSlotCount = 23;
-    /// <summary>PackSlots length in the client's descriptor. main bag 16 default + 8 vulpera racial</summary>
-    public const int PackSlotCount = 24;
-    /// <summary>BankSlots length in the client's descriptor. only 24 in vanilla</summary>
-    public const int BankSlotCount = 28;
-    /// <summary>BankBagSlots length in the client's descriptor. only 6 in vanilla</summary>
-    public const int BankBagSlotCount = 7;
-    /// <summary>BuyBackSlots length in the client's descriptor.</summary>
-    public const int BuyBackSlotCount = 12;
-    /// <summary>KeyringSlots length in the client's descriptor.</summary>
+    /// <summary>InvSlots length in the client's descriptor. equipped gear and bags</summary>
+    public const int InvSlotCount = 23;
+    /// <summary>PackSlots length in the client's descriptor. main bag 16 default + 8 vulpera racial</summary>
+    public const int PackSlotCount = 24;
+    /// <summary>BankSlots length in the client's descriptor. only 24 in vanilla</summary>
+    public const int BankSlotCount = 28;
+    /// <summary>BankBagSlots length in the client's descriptor. only 6 in vanilla</summary>
+    public const int BankBagSlotCount = 7;
+    /// <summary>BuyBackSlots length in the client's descriptor.</summary>
+    public const int BuyBackSlotCount = 12;
+    /// <summary>KeyringSlots length in the client's descriptor.</summary>
     public const int KeyringSlotCount = 32;
 
     /// <summary>Completed-quest bitmask words. The descriptor field is 1750 uint32s, so 875
@@ -94,6 +94,8 @@ public class ActivePlayerData
     // arrives inside MSG_LIST_STABLED_PETS — so the proxy pushes it as a Values update
     // once a stable master is visited, or the client renders every slot locked (#224).
     public byte? NumStableSlots;
+    // 4.4.2's pet list, sent whole whenever the legacy server sends its stable list.
+    internal HermesProxy.World.Server.Packets.PetStableData? PetStable;
     public int? XP;
     public int? NextLevelXP;
     public int? TrialXP;
@@ -194,11 +196,16 @@ public class ActivePlayerData
     public bool? InsertItemsLeftToRight;
     public byte? PvPRankProgress;
     public byte? GlyphsEnabled;
+    // The 4.4.2 client's GlyphsEnabled is 16 bits: a 4.x server's ninth slot needs the ninth bit.
+    public ushort? GlyphsEnabledWide;
 
     // Dynamic Fields
     public List<uint> SelfResSpells = null!;
     public bool HasDailyQuestsUpdate;
     public List<int>? Toys;
+    // The 4.4.2 wardrobe's appearances that are not collected but usable (ItemModifiedAppearance
+    // ids): those of the items the player carries, which a 4.3.4 server transmogrifies from.
+    public List<uint>? ConditionalTransmog;
 
     // These three are 25,224 of the ~29,720 bytes of arrays this class used to allocate up
     // front, and a delta that touches one scalar owner field needs none of them. They follow
@@ -211,15 +218,15 @@ public class ActivePlayerData
 
     public ulong?[] EnsureQuestCompleted() => QuestCompleted ??= new ulong?[QuestCompletedWords];
 
-    public WowGuid128?[] EnsureInvSlots() => InvSlots ??= new WowGuid128?[InvSlotCount];
-
-    public WowGuid128?[] EnsurePackSlots() => PackSlots ??= new WowGuid128?[PackSlotCount];
-
-    public WowGuid128?[] EnsureBankSlots() => BankSlots ??= new WowGuid128?[BankSlotCount];
-
-    public WowGuid128?[] EnsureBankBagSlots() => BankBagSlots ??= new WowGuid128?[BankBagSlotCount];
-
-    public WowGuid128?[] EnsureBuyBackSlots() => BuyBackSlots ??= new WowGuid128?[BuyBackSlotCount];
-
+    public WowGuid128?[] EnsureInvSlots() => InvSlots ??= new WowGuid128?[InvSlotCount];
+
+    public WowGuid128?[] EnsurePackSlots() => PackSlots ??= new WowGuid128?[PackSlotCount];
+
+    public WowGuid128?[] EnsureBankSlots() => BankSlots ??= new WowGuid128?[BankSlotCount];
+
+    public WowGuid128?[] EnsureBankBagSlots() => BankBagSlots ??= new WowGuid128?[BankBagSlotCount];
+
+    public WowGuid128?[] EnsureBuyBackSlots() => BuyBackSlots ??= new WowGuid128?[BuyBackSlotCount];
+
     public WowGuid128?[] EnsureKeyringSlots() => KeyringSlots ??= new WowGuid128?[KeyringSlotCount];
 }

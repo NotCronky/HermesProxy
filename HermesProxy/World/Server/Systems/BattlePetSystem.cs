@@ -2,6 +2,7 @@
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
@@ -36,6 +37,23 @@ public static class BattlePetSystem
         if (!ModernVersion.IsWotLKClassicOrLater)
             return;
 
+        EnsureCollectionFavorites(ctx.GetSession());
+        ctx.SendPacket(BattlePetJournal.FromSession(ctx.GetSession().GameState));
+        CollectionSync.SendSummonedBattlePet(ctx.GetSession());
+    }
+
+    /// <summary>
+    /// The journal's lock, which the client asks for again on every new map. A server of its own
+    /// grants it and sends the journal after it (TrinityCore, HandleBattlePetRequestJournalLock);
+    /// here nobody else could hold it, so it is always granted.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_BATTLE_PET_REQUEST_JOURNAL_LOCK)]
+    public static void HandleBattlePetRequestJournalLock(in EmptyClientPacket request, in SessionContext ctx)
+    {
+        if (!ModernVersion.IsWotLKClassicOrLater)
+            return;
+
+        ctx.SendPacket(new BattlePetJournalLockAcquired());
         EnsureCollectionFavorites(ctx.GetSession());
         ctx.SendPacket(BattlePetJournal.FromSession(ctx.GetSession().GameState));
         CollectionSync.SendSummonedBattlePet(ctx.GetSession());
@@ -109,6 +127,8 @@ public static class BattlePetSystem
         WorldPacket packet = new WorldPacket(Opcode.CMSG_CAST_SPELL);
         packet.WriteUInt8(0);
         packet.WriteUInt32(spellId);
+        if (WorldClient.IsCataLegacy)
+            packet.WriteUInt32(0);              // Misc
         packet.WriteUInt8(0);
         packet.WriteUInt32(0);
         ctx.SendPacketToServer(packet);

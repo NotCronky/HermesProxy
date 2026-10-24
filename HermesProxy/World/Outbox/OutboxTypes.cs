@@ -128,6 +128,14 @@ public enum HoldKeyKind : ushort
     PlayerMoveSpeed = 12,
     /// <summary>V3_4_3 can-fly changes aimed at the player, held while the client is in its spawn fall.</summary>
     PlayerSpawnCanFly = 13,
+    /// <summary>A = guid low, B = guid high. V3_4_3 another player's collision height, held for its next movement.</summary>
+    RemoteCollisionHeight = 14,
+    /// <summary>The next minute of a 4.3.4 battleground's clock, see <c>BattlegroundClock</c>.</summary>
+    BattlegroundClock = 15,
+    /// <summary>A = ticket id. A 4.3.4 battlefield entry invite the server lets run out without a word.</summary>
+    BattlefieldInviteExpiry = 16,
+    /// <summary>V3_4_3 packets whose subject is the player, held until its create is queued.</summary>
+    PlayerGuidSubject = 17,
 }
 
 /// <summary>How a hold behaves while it waits.</summary>

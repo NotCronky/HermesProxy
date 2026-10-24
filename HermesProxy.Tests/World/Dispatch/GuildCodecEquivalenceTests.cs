@@ -53,6 +53,52 @@ public class GuildCodecEquivalenceTests
         Assert.Equal(o.Remaining(), r.Remaining);
     }
 
+    // New with the codec, so there is no frozen Read() to compare with: the client's layout is the
+    // guild's GUID and nothing else (docs/protocol, 3.4.3 and 4.4.2).
+    [Fact]
+    public void GuildGetRanks_ReadsTheGuildGuid()
+    {
+        var (_, f) = Build(w => w.WritePackedGuid128(Guid));
+        var r = ReaderOver(f); GuildGetRanksCodec.Read(ref r, out var a);
+        Assert.Equal(Guid, a.GuildGuid);
+        Assert.Equal(0, r.Remaining);
+    }
+
+    // New with the codec too: the member and the rank order to give them (docs/protocol 4.4.2).
+    [Fact]
+    public void GuildAssignMemberRank_ReadsTheMemberAndTheRankOrder()
+    {
+        var (_, f) = Build(w => { w.WritePackedGuid128(Guid); w.WriteInt32(3); });
+        var r = ReaderOver(f); GuildAssignMemberRankCodec.Read(ref r, out var a);
+        Assert.Equal(Guid, a.Member);
+        Assert.Equal(3, a.RankOrder);
+        Assert.Equal(0, r.Remaining);
+    }
+
+    // New with their codecs as well: the guild's GUID, and for a pin the entry's id and one bit
+    // after it (docs/protocol 4.4.2).
+    [Fact]
+    public void GuildQueryNews_ReadsTheGuildGuid()
+    {
+        var (_, f) = Build(w => w.WritePackedGuid128(Guid));
+        var r = ReaderOver(f); GuildQueryNewsCodec.Read(ref r, out var a);
+        Assert.Equal(Guid, a.GuildGuid);
+        Assert.Equal(0, r.Remaining);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GuildNewsUpdateSticky_ReadsTheGuidTheIdAndTheBit(bool sticky)
+    {
+        var (_, f) = Build(w => { w.WritePackedGuid128(Guid); w.WriteInt32(250); w.WriteBit(sticky); w.FlushBits(); });
+        var r = ReaderOver(f); GuildNewsUpdateStickyCodec.Read(ref r, out var a);
+        Assert.Equal(Guid, a.GuildGuid);
+        Assert.Equal(250, a.NewsId);
+        Assert.Equal(sticky, a.Sticky);
+        Assert.Equal(0, r.Remaining);
+    }
+
     // ---- guild text: an 11-bit length then the bytes ----
 
     [Theory]

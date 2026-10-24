@@ -20,6 +20,7 @@ public partial class WorldClient
         var state = GetSession().GameState;
         // Reset before anything else so a failed loot doesn't leak stale counters.
         state.RemainingLootSlots.Clear();
+        state.RemainingLootCurrencySlots.Clear();
         state.RemainingLootCoins = 0;
         state.ExpectingLootReleaseResponse = false;
         state.LootMoneyPreClaimed = false;
@@ -35,6 +36,15 @@ public partial class WorldClient
         if (loot.AcquireReason == LootType.None)
         {
             loot.FailureReason = (LootError)packet.ReadUInt8();
+            // The 3.4.3 and 4.4.2 clients say why from a response they did not acquire, as
+            // TrinityCore wotlk_classic and cata_classic send one. Dropped, a second Pick Pocket on
+            // the same target ("already pickpocketed") or a corpse someone else may loot answered
+            // nothing at all.
+            if (ModernVersion.IsWotLKClassicOrLater)
+            {
+                loot.Acquired = false;
+                SendPacketToClient(loot);
+            }
             return;
         }
         loot.LootMethod = state.GetCurrentLootMethod();
@@ -42,6 +52,10 @@ public partial class WorldClient
         loot.Coins = packet.ReadUInt32();
 
         var itemsCount = packet.ReadUInt8();
+        // 4.3.4 counts the currencies here too and lists them after the items (TrinityCore 4.3.4
+        // LootResponse::Write). Read as 3.3.5a, that count became the first item's slot and the
+        // loot window never opened.
+        byte currencyCount = IsCataLegacy ? packet.ReadUInt8() : (byte)0;
         for (var i = 0; i < itemsCount; ++i)
         {
             LootItemData lootItem = new();
@@ -55,6 +69,18 @@ public partial class WorldClient
             lootItem.UIType = uiType.CastEnum<LootSlotTypeModern>();
             loot.Items.Add(lootItem);
             state.RemainingLootSlots.Add(lootItem.LootListID);
+        }
+        // A currency slot counts from the same list as the items. Its amount is as the server
+        // stores it, in hundredths for the currencies the client keeps in hundredths.
+        for (var i = 0; i < currencyCount; ++i)
+        {
+            LootCurrency currency = new();
+            currency.LootListID = packet.ReadUInt8();
+            currency.CurrencyID = ModernCurrencyId(packet.ReadUInt32());
+            currency.Quantity = packet.ReadUInt32();
+            currency.UIType = (byte)LootSlotTypeModern.AllowLoot;
+            loot.Currencies.Add(currency);
+            state.RemainingLootCurrencySlots.Add(currency.LootListID);
         }
         state.RemainingLootCoins = loot.Coins;
         SendMasterLootListIfApplicable();
@@ -79,7 +105,7 @@ public partial class WorldClient
         // way, and this release is the only close the client will get.
         bool gateActive = ModernVersion.IsWotLKClassicOrLater;
         bool clientAsked = state.ExpectingLootReleaseResponse;
-        bool drained = state.RemainingLootSlots.Count == 0 && state.RemainingLootCoins == 0;
+        bool drained = state.LootDrained;
         bool serverOpened = !state.LootClientActed;
 
         // V3_4_3 client expects Owner = the looting player's own GUID (see TC's
@@ -94,6 +120,7 @@ public partial class WorldClient
             state.LastMasterLootSentTarget = default;
             state.ExpectingLootReleaseResponse = false;
             state.RemainingLootSlots.Clear();
+            state.RemainingLootCurrencySlots.Clear();
             state.RemainingLootCoins = 0;
             state.LootMoneyPreClaimed = false;
         }
@@ -131,11 +158,37 @@ public partial class WorldClient
         SendPacketToClient(loot);
 
         if (ModernVersion.IsWotLKClassicOrLater
-            && state.RemainingLootSlots.Count == 0
-            && state.RemainingLootCoins == 0)
+            && state.LootDrained)
         {
             // Last item drained: synthesize the close that we will have suppressed (or
             // that the legacy server may still send) so the V3_4_3 UI auto-closes.
+            LootReleaseResponse synth = new();
+            synth.Owner = state.CurrentPlayerGuid;
+            synth.LootObj = state.LastLootTargetGuid.ToLootGuid();
+            SendPacketToClient(synth);
+            state.LastMasterLootSentTarget = default;
+        }
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>SendNotifyCurrencyLootRemoved</c>: the slot of a currency taken out of
+    /// the loot. The 4.4.2 client has no packet of its own for that and clears a currency slot as
+    /// it clears an item's.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_CURRENCY_LOOT_REMOVED)]
+    internal void HandleCurrencyLootRemoved(WorldPacket packet)
+    {
+        var state = GetSession().GameState;
+        LootRemoved loot = new();
+        loot.Owner = state.LastLootTargetGuid.To128(state);
+        loot.LootObj = state.LastLootTargetGuid.ToLootGuid();
+        loot.LootListID = packet.ReadUInt8();
+        state.RemainingLootCurrencySlots.Remove(loot.LootListID);
+        SendPacketToClient(loot);
+
+        // The last of it: the close the client waits for, as for the last item.
+        if (state.LootDrained)
+        {
             LootReleaseResponse synth = new();
             synth.Owner = state.CurrentPlayerGuid;
             synth.LootObj = state.LastLootTargetGuid.ToLootGuid();
@@ -159,8 +212,7 @@ public partial class WorldClient
         // *before* the notify. Fire here once the session is fully drained.
         var state = GetSession().GameState;
         if (ModernVersion.IsWotLKClassicOrLater
-            && state.RemainingLootSlots.Count == 0
-            && state.RemainingLootCoins == 0)
+            && state.LootDrained)
         {
             LootReleaseResponse synth = new();
             synth.Owner = state.CurrentPlayerGuid;
@@ -256,6 +308,25 @@ public partial class WorldClient
         loot.Item.Loot.RandomPropertiesSeed = packet.ReadUInt32();
         loot.Item.Loot.RandomPropertiesID = packet.ReadUInt32();
         loot.Item.Quantity = 1;
+        if (IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 Group::SendLootRoll: the roll is an int32, and a choice just made
+            // is a negative one (-1 pass, -7 greed, -8 disenchant; need is 0 with type 0) where
+            // 3.3.5a sent 128. Read as a byte, the type came out of the middle of the number.
+            int rollNumber = packet.ReadInt32();
+            byte cataRollType = packet.ReadUInt8();
+            if (rollNumber == -1)
+                loot.RollType = RollType.Pass;
+            else if (rollNumber == 0 && cataRollType == 0)
+                loot.RollType = RollType.Need;
+            else
+                loot.RollType = (RollType)cataRollType;
+            loot.Roll = rollNumber > 0 ? rollNumber : 0;
+            loot.Autopassed = packet.ReadBool();
+            SendPacketToClient(loot);
+            return;
+        }
+
         loot.Roll = packet.ReadUInt8();
 
         byte rollType = packet.ReadUInt8();
@@ -288,7 +359,8 @@ public partial class WorldClient
         loot.Item.Loot.RandomPropertiesID = packet.ReadUInt32();
         loot.Item.Quantity = 1;
         loot.Winner = packet.ReadGuid().To128(GetSession().GameState);
-        loot.Roll = packet.ReadUInt8();
+        // 4.3.4 Group::SendLootRollWon: the roll is an int32 here too.
+        loot.Roll = IsCataLegacy ? packet.ReadInt32() : packet.ReadUInt8();
         loot.RollType = (RollType)packet.ReadUInt8();
         if (loot.RollType == RollType.Need)
             loot.MainSpec = 128;
@@ -322,6 +394,37 @@ public partial class WorldClient
 
         // The roll is over; drop the remembered loot object so the slot can be reused.
         GetSession().GameState.LootRollObjects.Remove(loot.Item.LootListID);
+    }
+
+    /// <summary>
+    /// Who may loot a creature that died to a group: its master looter and its round robin
+    /// winner, sent to the group at the kill (3.3.5a and 4.3.4: the creature's full GUID, then
+    /// both as packed GUIDs, empty when there is none). The modern packet also names the loot
+    /// object, the one <see cref="HandleLootResponse"/> gives the client for that creature.
+    /// </summary>
+    /// <remarks>
+    /// Passed on to a 3.4.3 or later client, whose layout and opcode were read from the client
+    /// (3.4.3 and 4.4.2). The 1.14 and 2.5 tables have not been checked for this opcode.
+    /// </remarks>
+    [HandlesSmsg(Opcode.SMSG_LOOT_LIST)]
+    internal void HandleLootList(WorldPacket packet)
+    {
+        if (!ModernVersion.IsWotLKClassicOrLater)
+            return;
+
+        var gameState = GetSession().GameState;
+        WowGuid64 owner = packet.ReadGuid();
+        WowGuid64 master = packet.ReadPackedGuid();
+        WowGuid64 roundRobinWinner = packet.ReadPackedGuid();
+
+        LootList list = new LootList();
+        list.Owner = owner.To128(gameState);
+        list.LootObj = owner.ToLootGuid();
+        if (!master.IsEmpty())
+            list.Master = master.To128(gameState);
+        if (!roundRobinWinner.IsEmpty())
+            list.RoundRobinWinner = roundRobinWinner.To128(gameState);
+        SendPacketToClient(list);
     }
 
     [HandlesSmsg(Opcode.SMSG_LOOT_MASTER_LIST)]

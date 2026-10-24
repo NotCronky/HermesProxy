@@ -149,7 +149,8 @@ public class UnitSectionEquivalenceTests
     {
         const uint UNIT_FLAG2_CLONED = 0x00000010;
         var session = CreateGameSession();
-        var guid = WowGuid128.Create(HighGuidType703.Creature, 0, 31216, 1);
+        // Any creature but the Mage's Mirror Image (31216), which keeps the bit.
+        var guid = WowGuid128.Create(HighGuidType703.Creature, 0, 70001, 1);
         var builder = MakeBuilder(guid, session, out var update);
 
         var unit = update.UnitData!;
@@ -469,7 +470,8 @@ public class UnitSectionEquivalenceTests
     {
         const uint UNIT_FLAG2_CLONED = 0x00000010;
         var session = CreateGameSession();
-        var guid = WowGuid128.Create(HighGuidType703.Creature, 0, 31216, 1);
+        // Any creature but the Mage's Mirror Image (31216), which keeps the bit.
+        var guid = WowGuid128.Create(HighGuidType703.Creature, 0, 70001, 1);
         var builder = MakeBuilder(guid, session, out var update);
 
         update.UnitData!.Flags2 = UNIT_FLAG2_CLONED | 0x00000020u;   // CLONED + arbitrary other bit

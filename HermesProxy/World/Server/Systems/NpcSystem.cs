@@ -2,6 +2,7 @@ using System;
 using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
+using HermesProxy.World.Client;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
@@ -40,9 +41,38 @@ public static class NpcSystem
         ctx.SendPacketToServer(packet);
     }
 
+    /// <summary>
+    /// The 4.4.2 wardrobe offers the appearances the client counts as usable. A 4.3.4 server keeps
+    /// no collection and transmogrifies from what the player carries, so that is the list, sent
+    /// as the player's ConditionalTransmog right before the window opens.
+    /// </summary>
+    static void SendCarriedAppearances(in SessionContext ctx)
+    {
+        var session = ctx.GetSession();
+        var state = session.GameState;
+        if (state.CurrentPlayerGuid.IsEmpty())
+            return;
+
+        var update = new ObjectUpdate(state.CurrentPlayerGuid, UpdateTypeModern.Values, session);
+        update.EnsureActivePlayerData().ConditionalTransmog = state.GetCarriedItemAppearances();
+        var packet = new UpdateObject(state);
+        packet.ObjectUpdates.Add(update);
+        ctx.SendPacketToClient(packet);
+    }
+
     [HandlesCmsg(Opcode.CMSG_TALK_TO_GOSSIP)]
     public static void HandleTalkToGossip(in InteractWithNPC interact, in SessionContext ctx)
     {
+        // A 4.3.4 reforger or transmogrifier has no gossip: its client opened the window from the
+        // NPC flag alone. The 4.4.2 client asks with a gossip hello and waits for it to be opened.
+        if (WorldClient.IsCataLegacy && ctx.GetSession().GameState.GossipInteractions.TryGetValue(interact.CreatureGUID, out var interaction))
+        {
+            if (interaction == PlayerInteractionType.Transmogrifier)
+                SendCarriedAppearances(in ctx);
+            ctx.SendPacket(new NpcInteractionOpenResult(interact.CreatureGUID, interaction));
+            return;
+        }
+
         // V3_4_3 re-talks to the same NPC right after RequestItems. Replay once
         // so the frame stays bound. A later talk is Cancel / the multi-quest list.
         if (ModernVersion.Build == HermesProxy.Enums.ClientVersionBuild.V3_4_3_54261
@@ -104,6 +134,9 @@ public static class NpcSystem
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_TRAINER_BUY_SPELL);
         packet.WriteGuid(buy.TrainerGUID.To64());
+        // TrinityCore 4.3.4 TrainerBuySpell::Read: the trainer id from SMSG_TRAINER_LIST.
+        if (WorldClient.IsCataLegacy)
+            packet.WriteUInt32(buy.TrainerID);
         // The class this replaced overwrote its own SpellID field here. A data-only packet is
         // readonly, so the remapped id lives in a local; nothing else about the body changed.
         uint spellId = buy.SpellID;

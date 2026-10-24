@@ -56,12 +56,42 @@ public class BattlefieldMgrTranslationTests
             BattlefieldMgrTranslation.TimeoutMs(100, 200));
     }
 
+    [Fact]
+    public void TolBarad_IsItsOwnBattle()
+    {
+        Assert.Equal(1116u, BattlefieldMgrTranslation.ListIdForBattle(21));
+        Assert.Equal(732u, BattlefieldMgrTranslation.MapIdForBattle(21));
+        Assert.Equal(571u, BattlefieldMgrTranslation.MapIdForBattle(1));
+        Assert.Equal(21u, BattlefieldMgrTranslation.BattleIdForZone(5095));
+        Assert.Equal(1u, BattlefieldMgrTranslation.BattleIdForZone(4197));
+        Assert.Equal(0u, BattlefieldMgrTranslation.BattleIdForZone(1519));
+        Assert.Equal(5095u, BattlefieldMgrTranslation.ZoneIdForBattle(21));
+
+        Assert.True(BattlefieldMgrTranslation.TryDecodeTicket(
+            BattlefieldMgrTranslation.TicketFor(21, BattlefieldMgrTicketKind.Queue), out uint battle, out var kind));
+        Assert.Equal(21u, battle);
+        Assert.Equal(BattlefieldMgrTicketKind.Queue, kind);
+    }
+
+    [Theory]
+    [InlineData(1u, false, 71, 80)]   // Wintergrasp on a 3.3.5a server
+    [InlineData(1u, true, 71, 85)]    // and on a 4.3.4 one: the 4.4.2 client's row runs to 85
+    [InlineData(21u, true, 85, 85)]   // Tol Barad
+    public void LevelsForBattle_FollowTheClientsBattlemasterList(uint battleId, bool cataLegacy, int min, int max)
+    {
+        var (lo, hi) = BattlefieldMgrTranslation.LevelsForBattle(battleId, cataLegacy);
+        Assert.Equal(min, lo);
+        Assert.Equal(max, hi);
+    }
+
     [Theory]
     [InlineData(4197u, true, true)]
     [InlineData(4197u, false, false)]
+    [InlineData(5095u, true, true)]
+    [InlineData(5095u, false, false)]
     [InlineData(1519u, true, false)]
     [InlineData(0u, true, false)]
-    public void ShouldRouteLeaveToMgr_OnlyWhileInWintergraspWithTicket(
+    public void ShouldRouteLeaveToMgr_OnlyWhileInABattlefieldZoneWithTicket(
         uint zoneId, bool hasTicket, bool expected)
     {
         Assert.Equal(expected, BattlefieldMgrTranslation.ShouldRouteLeaveToMgr(zoneId, hasTicket));

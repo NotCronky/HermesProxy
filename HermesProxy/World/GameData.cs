@@ -60,6 +60,26 @@ public static partial class GameData
     public static FrozenDictionary<(uint MapId, uint DifficultyId), uint> InstanceDifficultySizes
         = FrozenDictionary<(uint MapId, uint DifficultyId), uint>.Empty;
 
+    /// <summary>
+    /// A 3.3.5a instance difficulty, 0-1 in a dungeon (normal, heroic) and 0-3 in a raid (10, 25,
+    /// 10 heroic, 25 heroic), as the modern client numbers it on that map, with its group size.
+    /// 0 keeps the map's first difficulty; a map that is no instance is (0, 0).
+    /// </summary>
+    public static (uint DifficultyId, uint GroupSize) ModernInstanceDifficulty(uint mapId, uint legacyDifficulty)
+    {
+        (uint difficultyId, uint groupSize) = DefaultInstanceDifficulty.GetValueOrDefault(mapId);
+        if (legacyDifficulty != 0 && difficultyId != 0)
+        {
+            uint modern = difficultyId is (uint)DifficultyModern.Normal or (uint)DifficultyModern.Heroic
+                ? (uint)DifficultyModern.Heroic
+                : (uint)RaidDifficulties.ToLegacyId((byte)legacyDifficulty);
+            // An instance without that difficulty in the client's data keeps its first one.
+            if (InstanceDifficultySizes.TryGetValue((mapId, modern), out uint size))
+                return (modern, size);
+        }
+        return (difficultyId, groupSize);
+    }
+
     /// Every currency the modern client can display on this build, keyed by currency id.
     public static FrozenDictionary<uint, CurrencyTypeRecord> CurrencyTypeStore
         = FrozenDictionary<uint, CurrencyTypeRecord>.Empty;
@@ -97,7 +117,7 @@ public static partial class GameData
     public static FrozenDictionary<uint, uint> Gems = FrozenDictionary<uint, uint>.Empty;
     // BarberShopStyle.dbc, keyed by PackBarberShopStyleKey(type, race, sex, data). The legacy
     // barber validates the row ids the client sends against its own DBC, so the proxy has to
-    // turn the modern choice values back into row ids. See CSV/BarberShopStyle3.csv.
+    // turn the modern choice values back into row ids. See CSV/BarberShopStyle*.csv.
     public static FrozenDictionary<uint, uint> BarberShopStyles = FrozenDictionary<uint, uint>.Empty;
     public static FrozenDictionary<ushort, uint> GlyphSpellById = FrozenDictionary<ushort, uint>.Empty;
     public static FrozenSet<int> Heirlooms = FrozenSet<int>.Empty;
@@ -117,6 +137,7 @@ public static partial class GameData
     public static FrozenSet<uint> MountAuras = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> NextMeleeSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> AutoRepeatSpells = FrozenSet<uint>.Empty;
+    public static FrozenSet<uint> CooldownOnEventSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> AuraSpells = FrozenSet<uint>.Empty;
     public static FrozenSet<uint> PassiveSpells = FrozenSet<uint>.Empty;
     public static FrozenDictionary<uint, int> AuraDurations = FrozenDictionary<uint, int>.Empty;
@@ -164,6 +185,29 @@ public static partial class GameData
             return data;
 
         return null;
+    }
+
+    /// <summary>
+    /// An item's base level and where it is worn: as the server described it when it did, else
+    /// from the client's own item data.
+    /// </summary>
+    public static bool TryGetItemLevel(uint entry, out InventoryType inventoryType, out uint itemLevel)
+    {
+        if (ItemTemplates.TryGetValue(entry, out var template))
+        {
+            inventoryType = (InventoryType)template.InventoryType;
+            itemLevel = template.ItemLevel;
+            return true;
+        }
+        if (ItemSparseRecordsStore.TryGetValue(entry, out var row))
+        {
+            inventoryType = (InventoryType)row.InventoryType;
+            itemLevel = row.ItemLevel;
+            return true;
+        }
+        inventoryType = InventoryType.NonEquip;
+        itemLevel = 0;
+        return false;
     }
 
     public static void StoreQuestTemplate(uint entry, QuestTemplate template)
@@ -274,6 +318,9 @@ public static partial class GameData
         return null;
     }
 
+    public static ItemModifiedAppearance? GetItemModifiedAppearance(uint id)
+        => ItemModifiedAppearanceStore.TryGetValue(id, out var appearance) ? appearance : null;
+
     public static ItemModifiedAppearance? GetItemModifiedAppearanceByItemId(uint itemId)
     {
         foreach (var item in ItemModifiedAppearanceStore)
@@ -381,6 +428,15 @@ public static partial class GameData
         if (ItemEnchantVisuals.TryGetValue(enchantId, out visualId))
             return visualId;
         return 0;
+    }
+
+    // PLAYER_VISIBLE_ITEM_X_ENCHANTMENT (3.x and 4.x servers) holds the permanent enchant in its low
+    // half and the temporary one in its high half (Player::SetVisibleItemSlot). The temporary one
+    // shows, as on the older layout's two fields.
+    public static uint GetVisibleItemEnchantVisual(uint packedEnchants)
+    {
+        uint visualId = GetItemEnchantVisual(packedEnchants >> 16);
+        return visualId != 0 ? visualId : GetItemEnchantVisual(packedEnchants & 0xFFFF);
     }
 
     public static uint GetSpellVisual(uint spellId)
@@ -709,6 +765,7 @@ public static partial class GameData
             LoadMountAuras,
             LoadMeleeSpells,
             LoadAutoRepeatSpells,
+            LoadCooldownOnEventSpells,
             LoadAuraSpells,
             LoadPassiveSpells,
             LoadAuraDurations,
@@ -716,6 +773,7 @@ public static partial class GameData
             LoadTaxiPathNodesGraph,
             LoadQuestBits,
             LoadWorldMapAreaIDToUiMapID,
+            LoadFactionReputation,
             LoadHotfixes
         );
 
@@ -1499,15 +1557,16 @@ public static partial class GameData
         TotemSpells = dict.ToFrozenDictionary();
     }
 
-    // BarberShopStyle.dbc (3.3.5a). Extracted from the WotLK client data the legacy backend
-    // itself loads, so the row ids match what the server validates against. Barber shops only
-    // exist from 3.0.2 on, so the table ships for the WotLK build alone.
+    // BarberShopStyle.dbc of the legacy server (3.3.5a, 4.3.4), extracted from the client data
+    // the backend itself loads, so the row ids match what the server validates against. Barber
+    // shops exist from 3.0.2 on, and on the modern clients from 3.4.3. Keyed by the modern build
+    // alone, a 4.4.2 client had no table and every change was refused before it left the proxy.
     public static void LoadBarberShopStyles()
     {
-        if (ModernVersion.ExpansionVersion != 3)
+        if (ModernVersion.ExpansionVersion < 3 || LegacyVersion.ExpansionVersion < 3)
             return;
 
-        var path = Path.Combine("CSV", "BarberShopStyle3.csv");
+        var path = Path.Combine("CSV", $"BarberShopStyle{LegacyVersion.ExpansionVersion}.csv");
 
         if (!File.Exists(path))
             return;
@@ -1542,6 +1601,12 @@ public static partial class GameData
             return;
         }
 
+        Gems = ReadGems(path).ToFrozenDictionary();
+    }
+
+    /// <summary>Parses a Gems*.csv: gem enchantment id → gem item id.</summary>
+    internal static Dictionary<uint, uint> ReadGems(string path)
+    {
         using var reader = Sep.Reader(o => o with { HasHeader = true }).FromFile(path);
         var dict = new Dictionary<uint, uint>(EstimateRowCount(path, 20));
 
@@ -1551,7 +1616,7 @@ public static partial class GameData
             uint itemId = uint.Parse(row[1].Span);
             dict.Add(enchantId, itemId);
         }
-        Gems = dict.ToFrozenDictionary();
+        return dict;
     }
 
     // GlyphProperties.dbc — maps GlyphID (row ID, what 3.3.5a sends in PLAYER_FIELD_GLYPHS_*
@@ -1992,6 +2057,21 @@ public static partial class GameData
         }
         AutoRepeatSpells = set.ToFrozenSet();
     }
+
+    public static void LoadCooldownOnEventSpells()
+    {
+        var path = Path.Combine("CSV", $"CooldownOnEventSpells{ModernVersion.ExpansionVersion}.csv");
+
+        if (!File.Exists(path))
+            return;
+
+        using var reader = Sep.Reader(o => o with { HasHeader = true }).FromFile(path);
+        var set = new HashSet<uint>(EstimateRowCount(path, 8));
+        foreach (var row in reader)
+            set.Add(uint.Parse(row[0].Span));
+        CooldownOnEventSpells = set.ToFrozenSet();
+    }
+
     public static void LoadAuraSpells()
     {
         var path = Path.Combine("CSV", $"AuraSpells{LegacyVersion.ExpansionVersion}.csv");
@@ -2273,6 +2353,35 @@ public static partial class GameData
     public static int GetUiMapId(int worldMapAreaId) =>
         WorldMapAreaIDToUiMapID.TryGetValue(worldMapAreaId, out int uiMapId) ? uiMapId : worldMapAreaId;
 
+    /// <summary>
+    /// Faction id by reputation list index, from the client's Faction table. Legacy servers name a
+    /// reputation by its list index; from 4.4.2 the client names it by faction id. Empty for
+    /// builds without the file, which do not need it.
+    /// </summary>
+    public static int[] FactionIdByReputationIndex = [];
+
+    public static void LoadFactionReputation()
+    {
+        var path = Path.Combine("CSV", $"FactionReputation{ModernVersion.ExpansionVersion}.csv");
+        if (!File.Exists(path))
+            return;
+
+        using var reader = Sep.Reader(o => o with { HasHeader = true }).FromFile(path);
+
+        Dictionary<int, int> byIndex = [];
+        foreach (var row in reader)
+            byIndex[int.Parse(row[1].Span)] = int.Parse(row[0].Span);
+
+        int[] table = new int[byIndex.Count == 0 ? 0 : byIndex.Keys.Max() + 1];
+        foreach (var (index, factionId) in byIndex)
+            table[index] = factionId;
+        FactionIdByReputationIndex = table;
+    }
+
+    /// <summary>The faction id for a reputation list index, or 0 when the client has none.</summary>
+    public static int GetFactionIdForReputationIndex(int index) =>
+        (uint)index < (uint)FactionIdByReputationIndex.Length ? FactionIdByReputationIndex[index] : 0;
+
     #endregion
     #region HotFixes
     // Stores
@@ -2398,31 +2507,58 @@ public static partial class GameData
                 // preceded it, so shipping a different subset silently re-keyed every
                 // record and defeated the diff. The AreaTrigger id space (max ~10546) fits
                 // inside this table's 100k window.
-                HotfixId = HotfixAreaTriggerBegin + at.Id
+                HotfixId = HotfixAreaTriggerBegin + at.Id + (AreaTriggerHasWideFields ? AreaTriggerWideFieldsIdShift : 0)
             };
             record.UniqueId = record.HotfixId;
             record.RecordId = at.Id;
             record.Status = HotfixStatus.Valid;
-            record.HotfixContent.WriteCString(at.Message);
-            record.HotfixContent.WriteFloat(at.PositionX);
-            record.HotfixContent.WriteFloat(at.PositionY);
-            record.HotfixContent.WriteFloat(at.PositionZ);
-            record.HotfixContent.WriteUInt32(at.Id);
-            record.HotfixContent.WriteUInt16(at.MapId);
-            record.HotfixContent.WriteUInt8(at.PhaseUseFlags);
-            record.HotfixContent.WriteUInt16(at.PhaseId);
-            record.HotfixContent.WriteUInt16(at.PhaseGroupId);
-            record.HotfixContent.WriteFloat(at.Radius);
-            record.HotfixContent.WriteFloat(at.BoxLength);
-            record.HotfixContent.WriteFloat(at.BoxWidth);
-            record.HotfixContent.WriteFloat(at.BoxHeight);
-            record.HotfixContent.WriteFloat(at.BoxYaw);
-            record.HotfixContent.WriteUInt8(at.ShapeType);
-            record.HotfixContent.WriteUInt16(at.ShapeId);
-            record.HotfixContent.WriteUInt16(at.ActionSetId);
-            record.HotfixContent.WriteUInt8(at.Flags);
+            WriteAreaTriggerRecord(record.HotfixContent, at, AreaTriggerHasWideFields);
             Hotfixes[record.HotfixId] = record;
         }
+    }
+
+    /// <summary>
+    /// The client's AreaTrigger record changed shape: layout B4ACA6C2, which Cataclysm Classic
+    /// has from its first build and the Wrath line took at 3.4.4, holds PhaseUseFlags and
+    /// AreaTriggerActionSetID as 32 bits where 3.4.3 and the older clients have 8 and 16.
+    /// </summary>
+    /// <remarks>
+    /// A row in the other shape is not refused. The 4.4.2 client stored the 3.4.3 one as valid and
+    /// read its radius and box from the wrong place, so none of the added triggers ever fired: no
+    /// way into the Dark Portal from the Blasted Lands, and no flag capture in Warsong Gulch.
+    /// </remarks>
+    public static bool AreaTriggerHasWideFields => ModernVersion.AddedInVersion(3, 4, 4);
+
+    // A client that was sent these rows in the wrong shape keeps them under their push ids and
+    // would not ask again. The rows in the right shape go out under ids it has not seen.
+    private const uint AreaTriggerWideFieldsIdShift = 20_000;
+
+    public static void WriteAreaTriggerRecord(ByteBuffer content, AreaTrigger at, bool wideFields)
+    {
+        content.WriteCString(at.Message);
+        content.WriteFloat(at.PositionX);
+        content.WriteFloat(at.PositionY);
+        content.WriteFloat(at.PositionZ);
+        content.WriteUInt32(at.Id);
+        content.WriteUInt16(at.MapId);
+        if (wideFields)
+            content.WriteUInt32(at.PhaseUseFlags);
+        else
+            content.WriteUInt8(at.PhaseUseFlags);
+        content.WriteUInt16(at.PhaseId);
+        content.WriteUInt16(at.PhaseGroupId);
+        content.WriteFloat(at.Radius);
+        content.WriteFloat(at.BoxLength);
+        content.WriteFloat(at.BoxWidth);
+        content.WriteFloat(at.BoxHeight);
+        content.WriteFloat(at.BoxYaw);
+        content.WriteUInt8(at.ShapeType);
+        content.WriteUInt16(at.ShapeId);
+        if (wideFields)
+            content.WriteUInt32(at.ActionSetId);
+        else
+            content.WriteUInt16(at.ActionSetId);
+        content.WriteUInt8(at.Flags);
     }
     public static void LoadSkillLineHotfixes()
     {

@@ -2,10 +2,12 @@
 using HermesProxy.Enums;
 using HermesProxy.World.Dispatch;
 using HermesProxy.World.Enums;
+using HermesProxy.World.Logging;
 using HermesProxy.World.Server;
 using HermesProxy.World.Server.Packets;
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 namespace HermesProxy.World.Client;
 
@@ -43,9 +45,180 @@ public partial class WorldClient
         SendPacketToClient(offer);
     }
 
+    /// <summary>
+    /// Keeps the queue's ticket as a 4.3.4 server sends it (whoever queued, its id, type and
+    /// time) for the requests that name the queue, and gives the client the session's own. The
+    /// server's ticket does not stay the same over a queue: its id is the player's team, and the
+    /// first update of a party's role check carries the ticket of the player's previous queue
+    /// (TrinityCore 4.3.4 LFGMgr::JoinLfg sends it before it stores the new one). The client took
+    /// that for a second queue, which no later update removed.
+    /// </summary>
+    private RideTicket CataLfgTicket(ulong requester, uint id, uint type, uint time)
+    {
+        GetSession().GameState.SetLfgServerTicket(new RideTicket
+        {
+            RequesterGuid = requester != 0 ? new WowGuid64(requester).To128(GetSession().GameState) : GetSession().GameState.CurrentPlayerGuid,
+            Id = id,
+            Type = (RideType)type,
+            Time = time,
+        });
+        return MakeLfgTicket();
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGJoinResult::Write</c>: the ticket's numbers around the result, the
+    /// masks of the ticket's GUID and of each member that cannot go with the count of their
+    /// locks, then the locks (reason, item levels, dungeon) and the GUIDs' bytes.
+    /// </summary>
+    internal void HandleLFGJoinResultCata(WorldPacket packet)
+    {
+        uint type = packet.ReadUInt32();
+        byte result = packet.ReadUInt8();
+        uint id = packet.ReadUInt32();
+        byte resultDetail = packet.ReadUInt8();
+        uint time = packet.ReadUInt32();
+
+        Span<bool> ticketMask = stackalloc bool[8];
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [2, 7, 3, 0]);
+        int memberCount = (int)packet.ReadBits<uint>(24);
+        if (memberCount > MaxLfgEntries)
+            return;
+        bool[] memberMasks = new bool[memberCount * 8];
+        int[] lockCounts = new int[memberCount];
+        for (int i = 0; i < memberCount; i++)
+        {
+            MaskedGuid.ReadMaskBits(packet, memberMasks.AsSpan(i * 8, 8), [7, 5, 3, 6, 0, 2, 4, 1]);
+            lockCounts[i] = (int)packet.ReadBits<uint>(22);
+            if (lockCounts[i] > MaxLfgEntries)
+                return;
+        }
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [4, 5, 1, 6]);
+
+        DFJoinResult joinResult = new DFJoinResult();
+        Span<byte> guidBytes = stackalloc byte[8];
+        for (int i = 0; i < memberCount; i++)
+        {
+            DFJoinBlackList member = new DFJoinBlackList();
+            for (int j = 0; j < lockCounts[i]; j++)
+            {
+                DFJoinBlackListSlot slot = new DFJoinBlackListSlot();
+                slot.Reason = packet.ReadUInt32();
+                slot.SubReason1 = packet.ReadInt32();   // item level needed
+                slot.SubReason2 = packet.ReadInt32();   // item level had
+                slot.Slot = packet.ReadUInt32();
+                member.Slots.Add(slot);
+            }
+            guidBytes.Clear();
+            MaskedGuid.ReadBytes(packet, memberMasks.AsSpan(i * 8, 8), guidBytes, [2, 5, 1, 0, 4, 3, 6, 7]);
+            member.PlayerGuid = new WowGuid64(MaskedGuid.ToUInt64(guidBytes)).To128(GetSession().GameState);
+            joinResult.BlackList.Add(member);
+        }
+        guidBytes.Clear();
+        MaskedGuid.ReadBytes(packet, ticketMask, guidBytes, [1, 4, 3, 5, 0, 7, 2, 6]);
+
+        joinResult.Ticket = CataLfgTicket(MaskedGuid.ToUInt64(guidBytes), id, type, time);
+        joinResult.Result = LfgJoinResults.CataToModern(result);
+        joinResult.ResultDetail = resultDetail;
+        SendPacketToClient(joinResult);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGUpdateStatus::Write</c>, which takes the place of 3.3.5a's
+    /// SMSG_LFG_UPDATE_PLAYER and _PARTY: the flags among the bits of the ticket's GUID, the
+    /// reason, the comment, the ticket's numbers and the dungeons.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_LFG_UPDATE_STATUS)]
+    internal void HandleLFGUpdateStatusCata(WorldPacket packet)
+    {
+        Span<bool> mask = stackalloc bool[8];
+        Span<byte> guidBytes = stackalloc byte[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [1]);
+        bool isParty = packet.HasBit();
+        int slotCount = (int)packet.ReadBits<uint>(24);
+        MaskedGuid.ReadMaskBits(packet, mask, [6]);
+        bool joined = packet.HasBit();
+        uint commentLength = packet.ReadBits<uint>(9);
+        MaskedGuid.ReadMaskBits(packet, mask, [4, 7, 2]);
+        bool lfgJoined = packet.HasBit();
+        MaskedGuid.ReadMaskBits(packet, mask, [0, 3, 5]);
+        bool queued = packet.HasBit();
+        if (slotCount > MaxLfgEntries)
+            return;
+
+        byte reason = packet.ReadUInt8();
+        packet.ReadString(commentLength);
+        uint id = packet.ReadUInt32();
+        uint time = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [6]);
+        packet.ReadUInt8();
+        packet.ReadUInt8();
+        packet.ReadUInt8();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [1, 2, 4, 3, 5, 0]);
+        uint type = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [7]);
+
+        DFUpdateStatus status = new DFUpdateStatus();
+        status.Ticket = CataLfgTicket(MaskedGuid.ToUInt64(guidBytes), id, type, time);
+        for (int i = 0; i < slotCount; i++)
+            status.Slots.Add(GetSession().GameState.GetLfgSlotForDungeon(packet.ReadUInt32()));
+        status.IsParty = isParty;
+        status.Joined = joined;
+        status.LfgJoined = lfgJoined;
+        status.Queued = queued;
+        status.NotifyUI = true;
+        status.SubType = LfgUpdateTypes.ModernQueueDungeon;
+        status.Reason = LfgUpdateTypes.CataToModern(reason);
+        status.RequestedRoles = GetSession().GameState.LfgRequestedRoles;
+
+        if (status.Slots.Count > 0)
+            GetSession().GameState.LfgQueuedSlots = new List<uint>(status.Slots);
+        else if (!status.LfgJoined)
+            GetSession().GameState.LfgQueuedSlots = [];
+        SendPacketToClient(status);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGQueueStatus::Write</c>: the waits around the bytes of the ticket's
+    /// GUID, the roles still missing with their waits first.
+    /// </summary>
+    internal void HandleLFGQueueStatusCata(WorldPacket packet)
+    {
+        Span<bool> mask = stackalloc bool[8];
+        Span<byte> guidBytes = stackalloc byte[8];
+        MaskedGuid.ReadMaskBits(packet, mask, [3, 0, 2, 6, 5, 7, 1, 4]);
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [0]);
+
+        DFQueueStatus status = new DFQueueStatus();
+        for (int i = 0; i < 3; i++)
+        {
+            status.LastNeeded[i] = packet.ReadUInt8();
+            status.AvgWaitTimeByRole[i] = (uint)packet.ReadInt32();
+        }
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [4, 6]);
+        status.AvgWaitTime = (uint)packet.ReadInt32();
+        uint time = packet.ReadUInt32();
+        uint slot = packet.ReadUInt32();
+        status.QueuedTime = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [5, 7, 3]);
+        uint id = packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, mask, guidBytes, [1, 2]);
+        status.AvgWaitTimeMe = (uint)packet.ReadInt32();
+        uint type = packet.ReadUInt32();
+
+        status.Ticket = CataLfgTicket(MaskedGuid.ToUInt64(guidBytes), id, type, time);
+        status.Slot = ToQueueStatusSlot(slot);
+        SendPacketToClient(status);
+    }
+
     [HandlesSmsg(Opcode.SMSG_LFG_JOIN_RESULT)]
     internal void HandleLFGJoinResult(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGJoinResultCata(packet);
+            return;
+        }
+
         DFJoinResult result = new DFJoinResult();
         result.Ticket = MakeLfgTicket();
         // The legacy and V3_4_3 LfgJoinResult enums do not share numbering, so forwarding the
@@ -172,6 +345,12 @@ public partial class WorldClient
     [HandlesSmsg(Opcode.SMSG_LFG_QUEUE_STATUS)]
     internal void HandleLFGQueueStatus(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGQueueStatusCata(packet);
+            return;
+        }
+
         DFQueueStatus status = new DFQueueStatus();
         status.Ticket = MakeLfgTicket();
         status.Slot = ToQueueStatusSlot(packet.ReadUInt32());
@@ -207,9 +386,87 @@ public partial class WorldClient
         return (slot & 0xFF000000) != 0 ? slot : LfgSlots.PackSlot(LfgSlots.LfgTypeDungeon, slot);
     }
 
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGProposalUpdate::Write</c>: the ticket's numbers, the masks of the
+    /// ticket's GUID and of the instance's around the silent flag and the members' five flags,
+    /// then the GUIDs' bytes with every member's roles in the middle.
+    /// </summary>
+    internal void HandleLFGProposalUpdateCata(WorldPacket packet)
+    {
+        uint time = packet.ReadUInt32();
+        uint completedMask = packet.ReadUInt32();
+        uint id = packet.ReadUInt32();
+        uint type = packet.ReadUInt32();
+        uint slot = packet.ReadUInt32();
+        uint proposalId = packet.ReadUInt32();
+        byte state = packet.ReadUInt8();
+
+        Span<bool> ticketMask = stackalloc bool[8];
+        Span<bool> instanceMask = stackalloc bool[8];
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [4]);
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [3, 7, 0]);
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [1]);
+        bool silent = packet.HasBit();
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [4, 5]);
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [3]);
+        int playerCount = (int)packet.ReadBits<uint>(23);
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [7]);
+        if (playerCount > MaxLfgEntries)
+            return;
+
+        DFProposalUpdate prop = new DFProposalUpdate();
+        for (int i = 0; i < playerCount; i++)
+        {
+            DFProposalPlayer player = new DFProposalPlayer();
+            player.SameParty = packet.HasBit();
+            player.MyParty = packet.HasBit();
+            player.Accepted = packet.HasBit();
+            player.Responded = packet.HasBit();
+            player.Me = packet.HasBit();
+            prop.Players.Add(player);
+        }
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [5]);
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [6]);
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [2, 6]);
+        MaskedGuid.ReadMaskBits(packet, ticketMask, [2, 1]);
+        MaskedGuid.ReadMaskBits(packet, instanceMask, [0]);
+
+        Span<byte> ticketBytes = stackalloc byte[8];
+        Span<byte> instanceBytes = stackalloc byte[8];
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [5]);
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [3, 6]);
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [6, 0]);
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [5]);
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [1]);
+        foreach (DFProposalPlayer player in prop.Players)
+            player.Roles = (byte)packet.ReadUInt32();
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [7]);
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [4]);
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [0, 1]);
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [2, 7]);
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [2]);
+        MaskedGuid.ReadBytes(packet, ticketMask, ticketBytes, [3]);
+        MaskedGuid.ReadBytes(packet, instanceMask, instanceBytes, [4]);
+
+        prop.Ticket = CataLfgTicket(MaskedGuid.ToUInt64(ticketBytes), id, type, time);
+        prop.InstanceID = MaskedGuid.ToUInt64(instanceBytes);
+        prop.ProposalID = proposalId;
+        prop.Slot = GetSession().GameState.GetLfgSlotForDungeon(slot);
+        prop.State = (sbyte)state;
+        prop.CompletedMask = completedMask;
+        prop.ProposalSilent = silent;
+        SendPacketToClient(prop);
+    }
+
     [HandlesSmsg(Opcode.SMSG_LFG_PROPOSAL_UPDATE)]
     internal void HandleLFGProposalUpdate(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGProposalUpdateCata(packet);
+            return;
+        }
+
         DFProposalUpdate prop = new DFProposalUpdate();
         prop.Ticket = MakeLfgTicket();
         uint dungeonEntry = packet.ReadUInt32();
@@ -272,9 +529,43 @@ public partial class WorldClient
         SendPacketToClient(chosen);
     }
 
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LfgBootInfo</c>: four flag bytes, the GUID of whoever is voted on, the
+    /// votes cast and for, the seconds left and the votes needed, then the reason as the rest of
+    /// the packet with no terminator. 3.3.5a has three flag bytes and a terminated reason.
+    /// </summary>
+    [HandlesSmsg(Opcode.SMSG_LFG_BOOT_PROPOSAL_UPDATE)]
+    internal void HandleLFGBootProposalUpdate(WorldPacket packet)
+    {
+        // A 3.3.5a server sends the same opcode; no 3.3.5a session has been played with it.
+        if (!IsCataLegacy)
+            return;
+
+        LfgBootPlayer boot = new LfgBootPlayer();
+        boot.VoteInProgress = packet.ReadUInt8() != 0;
+        boot.VotePassed = packet.ReadUInt8() != 0;
+        boot.MyVoteCompleted = packet.ReadUInt8() != 0;
+        boot.MyVote = packet.ReadUInt8() != 0;
+        boot.Target = packet.ReadGuid().To128(GetSession().GameState);
+        boot.TotalVotes = packet.ReadUInt32();
+        boot.BootVotes = packet.ReadUInt32();
+        boot.TimeLeft = packet.ReadInt32();
+        boot.VotesNeeded = packet.ReadUInt32();
+        boot.Reason = Encoding.UTF8.GetString(packet.GetRemainingSpan());
+        LfgLogMessages.BootVote(_melLog, boot.VoteInProgress, boot.VotePassed, boot.MyVoteCompleted, boot.MyVote,
+            boot.TotalVotes, boot.BootVotes, boot.VotesNeeded);
+        SendPacketToClient(boot);
+    }
+
     [HandlesSmsg(Opcode.SMSG_LFG_PARTY_INFO)]
     internal void HandleLFGPartyInfo(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGPartyInfoCata(packet);
+            return;
+        }
+
         LFGPartyInfo info = new LFGPartyInfo();
         byte playerCount = packet.ReadUInt8();
         for (byte i = 0; i < playerCount; i++)
@@ -319,9 +610,172 @@ public partial class WorldClient
         }
     }
 
+    // Counts past these are a misread, not a dungeon list.
+    private const int MaxLfgEntries = 1024;
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGPartyInfo::Write</c>: the locks of each other member, by a plain
+    /// GUID, four numbers a lock (the dungeon, the reason, the item level needed and had).
+    /// </summary>
+    internal void HandleLFGPartyInfoCata(WorldPacket packet)
+    {
+        LFGPartyInfo info = new LFGPartyInfo();
+        byte playerCount = packet.ReadUInt8();
+        for (int i = 0; i < playerCount; i++)
+        {
+            LFGBlackListEntry entry = new LFGBlackListEntry();
+            entry.PlayerGuid = packet.ReadGuid().To128(GetSession().GameState);
+            uint lockCount = packet.ReadUInt32();
+            if (lockCount > MaxLfgEntries)
+                return;
+            var alreadyListed = new HashSet<uint>((int)lockCount);
+            for (uint j = 0; j < lockCount; j++)
+            {
+                LFGLockInfoData lockInfo = new LFGLockInfoData();
+                lockInfo.Slot = packet.ReadUInt32();
+                lockInfo.LockStatus = LfgSlots.ToDisplayLockStatus(packet.ReadUInt32());
+                lockInfo.SubReason1 = packet.ReadUInt32();
+                lockInfo.SubReason2 = packet.ReadUInt32();
+                lockInfo.SoftLock = LfgSlots.ToPartySoftLock(lockInfo.LockStatus);
+                entry.Locks.Add(lockInfo);
+                alreadyListed.Add(LfgSlots.GetDungeonId(lockInfo.Slot));
+                GetSession().GameState.RememberLfgSlot(lockInfo.Slot);
+            }
+            // the party's dungeon list reads these, not the player's (as on 3.4.3)
+            foreach (uint packed in LfgSlots.GetCataHideSlots(alreadyListed))
+                entry.Locks.Add(new LFGLockInfoData { Slot = packed, LockStatus = (uint)LFGLockStatus.NotInSeason, SoftLock = (uint)LFGSoftLock.Unk2 });
+            info.Players.Add(entry);
+        }
+        SendPacketToClient(info);
+    }
+
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGPlayerInfo::Write</c>: the dungeons the player may queue for, each
+    /// with what it pays and how often it may be had, a shortage reward per role and the rewards
+    /// themselves; then the locked dungeons, four numbers each.
+    /// </summary>
+    /// <remarks>
+    /// 3.3.5a sends a dungeon's slot, a done flag and the rewards only; 4.3.4 sends the numbers a
+    /// modern client wants, so they go on as they came.
+    /// </remarks>
+    internal void HandleLFGPlayerInfoCata(WorldPacket packet)
+    {
+        LFGPlayerInfoPkt info = new LFGPlayerInfoPkt();
+        var session = GetSession().GameState;
+
+        byte dungeonCount = packet.ReadUInt8();
+        for (int i = 0; i < dungeonCount; i++)
+        {
+            LFGPlayerDungeonInfo dungeon = new LFGPlayerDungeonInfo();
+            dungeon.Slot = packet.ReadUInt32();
+            dungeon.FirstReward = packet.ReadUInt8() != 0;
+            dungeon.CompletionQuantity = packet.ReadInt32();
+            dungeon.CompletionLimit = packet.ReadInt32();
+            dungeon.CompletionCurrencyID = packet.ReadInt32();
+            dungeon.SpecificQuantity = packet.ReadInt32();
+            dungeon.SpecificLimit = packet.ReadInt32();
+            dungeon.OverallQuantity = packet.ReadInt32();
+            dungeon.OverallLimit = packet.ReadInt32();
+            dungeon.PurseWeeklyQuantity = packet.ReadInt32();
+            dungeon.PurseWeeklyLimit = packet.ReadInt32();
+            dungeon.PurseQuantity = packet.ReadInt32();
+            dungeon.PurseLimit = packet.ReadInt32();
+            dungeon.Quantity = packet.ReadInt32();
+            dungeon.CompletedMask = packet.ReadUInt32();
+
+            // A role mask and a reward for each of three roles when a role is short, else the
+            // masks alone. The modern packet's shortage rewards are not filled.
+            bool shortageEligible = packet.ReadUInt8() != 0;
+            for (int role = 0; role < 3; role++)
+            {
+                packet.ReadUInt32();
+                if (shortageEligible)
+                    ReadLfgRewardCata(packet);
+            }
+
+            dungeon.Rewards = ReadLfgRewardCata(packet);
+            info.Dungeons.Add(dungeon);
+        }
+
+        LFGBlackList blackList = new LFGBlackList();
+        blackList.Slots = new List<LFGBlackListSlot>();
+        uint lockCount = packet.ReadUInt32();
+        if (lockCount > MaxLfgEntries)
+            return;
+        for (uint i = 0; i < lockCount; i++)
+        {
+            LFGBlackListSlot slot = new LFGBlackListSlot();
+            slot.Slot = packet.ReadUInt32();
+            // A gear lock goes on as one: unlike 3.3.5a, 4.3.4 sends the item level needed and
+            // had, which the client's "Requires: N. Currently M." is made of.
+            slot.Reason = packet.ReadUInt32();
+            slot.SubReason1 = packet.ReadInt32();
+            slot.SubReason2 = packet.ReadInt32();
+            slot.SoftLock = LfgSlots.ToSoftLock(slot.Reason);
+            blackList.Slots.Add(slot);
+        }
+
+        // The client's own dungeons the server does not have would show as open and queue
+        // into nothing; listed as out of season with the soft lock that hides a row.
+        var alreadyListed = new HashSet<uint>(blackList.Slots.Count + info.Dungeons.Count);
+        foreach (var existing in blackList.Slots)
+            alreadyListed.Add(LfgSlots.GetDungeonId(existing.Slot));
+        foreach (var dungeon in info.Dungeons)
+            alreadyListed.Add(LfgSlots.GetDungeonId(dungeon.Slot));
+        foreach (uint packed in LfgSlots.GetCataHideSlots(alreadyListed))
+            blackList.Slots.Add(new LFGBlackListSlot { Slot = packed, Reason = (uint)LFGLockStatus.NotInSeason, SoftLock = (uint)LFGSoftLock.Unk2 });
+        info.BlackList = blackList;
+
+        var known = session.LfgKnownDungeonIds;
+        foreach (var dungeon in info.Dungeons)
+        {
+            known.Add(dungeon.Slot & 0xFFFFFF);
+            session.RememberLfgSlot(dungeon.Slot);
+        }
+        foreach (var locked in blackList.Slots)
+        {
+            known.Add(locked.Slot & 0xFFFFFF);
+            session.RememberLfgSlot(locked.Slot);
+        }
+        SendPacketToClient(info);
+    }
+
+    /// <summary>
+    /// A 4.3.4 dungeon reward: money, experience, then items and currencies in one list, each
+    /// marked by its last byte (1 a currency, 0 an item).
+    /// </summary>
+    private static LFGPlayerQuestReward ReadLfgRewardCata(WorldPacket packet)
+    {
+        LFGPlayerQuestReward rewards = new LFGPlayerQuestReward();
+        rewards.Items = new List<LFGPlayerQuestRewardItem>();
+        rewards.Currency = new List<LFGPlayerQuestRewardCurrency>();
+        rewards.BonusCurrency = new List<LFGPlayerQuestRewardCurrency>();
+        rewards.RewardMoney = packet.ReadInt32();
+        rewards.RewardXP = packet.ReadInt32();
+        byte count = packet.ReadUInt8();
+        for (int i = 0; i < count; i++)
+        {
+            int id = packet.ReadInt32();
+            packet.ReadInt32();     // an item's display, 0 for a currency
+            int quantity = packet.ReadInt32();
+            bool isCurrency = packet.ReadUInt8() != 0;
+            if (isCurrency)
+                rewards.Currency.Add(new LFGPlayerQuestRewardCurrency { CurrencyID = id, Quantity = quantity });
+            else
+                rewards.Items.Add(new LFGPlayerQuestRewardItem { ItemID = id, Quantity = quantity });
+        }
+        return rewards;
+    }
+
     [HandlesSmsg(Opcode.SMSG_LFG_PLAYER_INFO)]
     internal void HandleLFGPlayerInfo(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGPlayerInfoCata(packet);
+            return;
+        }
+
         LFGPlayerInfoPkt info = new LFGPlayerInfoPkt();
 
         // Random / available dungeons
@@ -426,9 +880,39 @@ public partial class WorldClient
         }
     }
 
+    /// <summary>
+    /// TrinityCore 4.3.4 <c>LFGPlayerReward::Write</c>: the two dungeons, money and XP with none of
+    /// 3.3.5a's fillers, and each reward carries whether it is a currency.
+    /// </summary>
+    internal void HandleLFGPlayerRewardCata(WorldPacket packet)
+    {
+        LFGPlayerReward reward = new LFGPlayerReward();
+        reward.QueuedSlot = GetSession().GameState.GetLfgSlotForDungeon(packet.ReadUInt32());
+        reward.ActualSlot = GetSession().GameState.GetLfgSlotForDungeon(packet.ReadUInt32());
+        reward.RewardMoney = (int)packet.ReadUInt32();
+        reward.AddedXP = (int)packet.ReadUInt32();
+        byte count = packet.ReadUInt8();
+        for (int i = 0; i < count; i++)
+        {
+            LFGPlayerRewardItem item = new LFGPlayerRewardItem();
+            item.ItemID = packet.ReadUInt32();
+            packet.ReadUInt32();    // display id
+            item.Quantity = packet.ReadUInt32();
+            item.IsCurrency = packet.ReadUInt8() != 0;
+            reward.Rewards.Add(item);
+        }
+        SendPacketToClient(reward);
+    }
+
     [HandlesSmsg(Opcode.SMSG_LFG_PLAYER_REWARD)]
     internal void HandleLFGPlayerReward(WorldPacket packet)
     {
+        if (IsCataLegacy)
+        {
+            HandleLFGPlayerRewardCata(packet);
+            return;
+        }
+
         LFGPlayerReward reward = new LFGPlayerReward();
         reward.QueuedSlot = packet.ReadUInt32();        // rdungeonEntry
         reward.ActualSlot = packet.ReadUInt32();        // sdungeonEntry

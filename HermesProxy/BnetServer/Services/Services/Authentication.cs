@@ -16,6 +16,10 @@ namespace BNetServer.Services;
 
 public partial class BnetServices
 {
+    // From the logon request; handed to the game session when its ticket is verified.
+    private TimeSpan? _clientUtcOffset;
+    private TimeZoneInfo? _clientTimeZone;
+
     [Service(ServiceRequirement.Unauthorized, OriginalHash.AuthenticationService, 1)]
     BattlenetRpcErrorCode HandleLogon(LogonRequest logonRequest, NoData response)
     {
@@ -43,6 +47,10 @@ public partial class BnetServices
             return BattlenetRpcErrorCode.BadLocale;
         }
 
+        _clientUtcOffset = ClientTimeZone.FromDeviceId(logonRequest.DeviceId);
+        _clientTimeZone = _clientUtcOffset is TimeSpan offset ? HermesProxy.World.CalendarClock.ZoneFor(offset, TimeZoneInfo.Local) : null;
+        BnetServicesLogMessages.ClientTimeZone(_melServer, _clientUtcOffset, _clientTimeZone?.Id ?? "its offset");
+
         // Launcher login supplies the REST-issued ticket in the initial Logon request.
         // Use the same expiry/ban/session checks as the interactive web login flow.
         if (logonRequest.CachedWebCredentials.Length != 0)
@@ -55,7 +63,7 @@ public partial class BnetServices
 
         ChallengeExternalRequest externalChallenge = new();
         externalChallenge.PayloadType = "web_auth_url";            
-        externalChallenge.Payload = ByteString.CopyFromUtf8($"https://{endpoint.Address}:{endpoint.Port}/bnetserver/login/{logonRequest.Platform}/{logonRequest.ApplicationVersion}/{logonRequest.Locale}/");
+        externalChallenge.Payload = ByteString.CopyFromUtf8($"{LoginServiceManager.Scheme}://{endpoint.Address}:{endpoint.Port}/bnetserver/login/{logonRequest.Platform}/{logonRequest.ApplicationVersion}/{logonRequest.Locale}/");
 
         SendRequest(OriginalHash.ChallengeListener, 3, externalChallenge);
         return BattlenetRpcErrorCode.Ok;
@@ -77,6 +85,8 @@ public partial class BnetServices
         }
 
         tmpSession.AccountInfo = new AccountInfo(tmpSession.Username);
+        tmpSession.ClientUtcOffset = _clientUtcOffset;
+        tmpSession.ClientTimeZone = _clientTimeZone;
 
         if (tmpSession.AccountInfo.LoginTicketExpiry < Time.UnixTime)
         {

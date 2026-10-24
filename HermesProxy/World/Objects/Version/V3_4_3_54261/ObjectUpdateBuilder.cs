@@ -573,11 +573,14 @@ public partial class ObjectUpdateBuilder
 
     internal void WriteCreateUnitOwnerFloatPairs(WorldPacket data, UnitData src)
     {
-        // IF IsOwner: 10× (Float 0, Float 0). Generator wraps the call in if (IsOwner).
+        // IF IsOwner: 10× (PowerRegenFlatModifier, PowerRegenInterruptedFlatModifier). Generator
+        // wraps the call in if (IsOwner).
+        var flat = src.PowerRegenFlatModifier;
+        var interrupted = src.PowerRegenInterruptedFlatModifier;
         for (int j = 0; j < 10; j++)
         {
-            data.WriteFloat(0f);
-            data.WriteFloat(0f);
+            data.WriteFloat(j < flat.Length ? flat[j].GetValueOrDefault() : 0f);
+            data.WriteFloat(j < interrupted.Length ? interrupted[j].GetValueOrDefault() : 0f);
         }
     }
 
@@ -743,6 +746,10 @@ public partial class ObjectUpdateBuilder
         if (src.MaxPower.Length > maxLen) maxLen = src.MaxPower.Length;
         for (int pi = 0; pi < maxLen; pi++)
         {
+            if (pi < src.PowerRegenFlatModifier.Length && src.PowerRegenFlatModifier[pi].HasValue)
+                data.WriteFloat(src.PowerRegenFlatModifier[pi].Value);
+            if (pi < src.PowerRegenInterruptedFlatModifier.Length && src.PowerRegenInterruptedFlatModifier[pi].HasValue)
+                data.WriteFloat(src.PowerRegenInterruptedFlatModifier[pi].Value);
             if (pi < src.Power.Length && src.Power[pi].HasValue)
                 data.WriteInt32(src.Power[pi].Value);
             if (pi < src.MaxPower.Length && src.MaxPower[pi].HasValue)
@@ -794,19 +801,25 @@ public partial class ObjectUpdateBuilder
     // appearance copy, so stripping the flag should leave the clones rendering via their
     // own (already mage-shaped) DisplayID instead of invisible. Revisit if Mirror Image
     // visuals regress.
+    //
+    // It did: the client asks for a mirror image's look (CMSG_GET_MIRROR_IMAGE_DATA) when the
+    // bit is there, and only then, so without it the Mage's images were drawn as the bare race
+    // model. The Mage's Mirror Image keeps it; it is told apart by its entry.
     private const uint UNIT_FLAG2_CLONED = 0x00000010;
+    private const uint MageMirrorImageEntry = 31216;
     private uint SanitizeFlags2(uint flags2, WowGuid128? createdBy)
     {
         if ((flags2 & UNIT_FLAG2_CLONED) == 0)
             return flags2;
 
-        bool isCreature = _updateData.Guid.GetHighType() == HighGuidType.Creature;
-        uint outFlags = isCreature ? (flags2 & ~UNIT_FLAG2_CLONED) : flags2;
+        bool strip = _updateData.Guid.GetHighType() == HighGuidType.Creature
+            && _updateData.Guid.GetEntry() != MageMirrorImageEntry;
+        uint outFlags = strip ? (flags2 & ~UNIT_FLAG2_CLONED) : flags2;
 
         if (Framework.Logging.Log.IsTraceEnabled)
         {
             Framework.Logging.Log.Print(Framework.Logging.LogType.Trace,
-                $"[SanitizeFlags2] guid={_updateData.Guid} highType={_updateData.Guid.GetHighType()} in=0x{flags2:X8} out=0x{outFlags:X8} stripped={isCreature} createdBy={(createdBy?.ToString() ?? "null")}");
+                $"[SanitizeFlags2] guid={_updateData.Guid} highType={_updateData.Guid.GetHighType()} in=0x{flags2:X8} out=0x{outFlags:X8} stripped={strip} createdBy={(createdBy?.ToString() ?? "null")}");
         }
         return outFlags;
     }
@@ -1041,7 +1054,7 @@ public partial class ObjectUpdateBuilder
             data.WriteUInt32(_gameState.ActiveGlyphSlotIds[g]);
             data.WriteUInt32(_gameState.ActiveGlyphs[g]);
         }
-        data.WriteUInt8(_gameState.GlyphsEnabled);
+        data.WriteUInt8((byte)_gameState.GlyphsEnabled);
     }
 
     // NumStableSlots. A zero placeholder here makes every stable slot render locked even
@@ -1053,8 +1066,9 @@ public partial class ObjectUpdateBuilder
     }
 
     // Dynamic-field payloads, in WPP wire order: KnownTitles (folded to 64-bit words),
-    // then Heirlooms[Count], HeirloomFlags[Count], then Toys[Count]. Counts were
-    // written earlier by the resize prefixes, so payload length has to agree with them.
+    // then Heirlooms[Count], HeirloomFlags[Count], Toys[Count], then (Transmog and
+    // ConditionalTransmog being empty) SelfResSpells. Counts were written earlier by the
+    // resize prefixes, so payload length has to agree with them.
     internal void WriteCreateActivePlayerDynamicPayloads(WorldPacket data, ActivePlayerData src)
     {
         Span<ulong> foldedTitles = stackalloc ulong[6];
@@ -1068,14 +1082,19 @@ public partial class ObjectUpdateBuilder
         var usableToys = _gameState.GetUsableToysOrdered();
         for (int i = 0; i < usableToys.Length; i++)
             data.WriteInt32((int)usableToys[i]);
+        WriteSelfResSpells(data, src);
     }
 
-    // Toys.Resize + the seven empty prefixes after it (Transmog through TaskQuests).
-    // Missing LearnedToys still writes Resize 0 so the later payload length stays valid.
+    // Toys.Resize and the seven prefixes after it, Transmog through TaskQuests, all empty but
+    // SelfResSpells. Missing LearnedToys still writes Resize 0 so the later payload length
+    // stays valid.
     internal void WriteCreateActivePlayerToyResizePrefixes(WorldPacket data, ActivePlayerData src)
     {
         data.WriteUInt32((uint)_gameState.GetUsableToysOrdered().Length);
-        for (int i = 0; i < 7; i++)
+        data.WriteUInt32(0u);   // Transmog
+        data.WriteUInt32(0u);   // ConditionalTransmog
+        data.WriteUInt32((uint)GetSelfResSpellCount(src));
+        for (int i = 0; i < 4; i++)
             data.WriteUInt32(0u);
     }
 
@@ -1284,12 +1303,31 @@ public partial class ObjectUpdateBuilder
 
     internal static int GetToyCount(ActivePlayerData src) => src.Toys?.Count ?? 0;
 
+    // The native 3.4.3 server writes the dynamic masks after KnownTitles' (Toys, SelfResSpells
+    // among them) in a bit section of their own, after bits 1-3 and a flush. The first of them
+    // writes the flush and both masks.
+    private static void WriteLaterDynamicMasks(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
+    {
+        data.FlushBits();
+        if (blocks.IsBitSet(9))
+        {
+            int count = GetToyCount(src);
+            data.WriteBits((uint)count, 32);
+            for (int i = 0; i < count; i++)
+                data.WriteBit(true);
+        }
+        if (blocks.IsBitSet(12))
+        {
+            int count = GetSelfResSpellCount(src);
+            data.WriteBits((uint)count, 32);
+            for (int i = 0; i < count; i++)
+                data.WriteBit(true);
+        }
+    }
+
     internal void WriteUpdateActivePlayerToysPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
     {
-        int count = GetToyCount(src);
-        data.WriteBits((uint)count, 32);
-        for (int i = 0; i < count; i++)
-            data.WriteBit(true);
+        WriteLaterDynamicMasks(data, ref blocks, src);
     }
 
     internal void WriteUpdateActivePlayerToysBody(WorldPacket data, ActivePlayerData src)
@@ -1298,6 +1336,37 @@ public partial class ObjectUpdateBuilder
             return;
         foreach (int itemId in src.Toys)
             data.WriteInt32(itemId);
+    }
+
+    // A 3.3.5a server has one self-res spell field and clears it to 0, where the list goes empty.
+    internal static int GetSelfResSpellCount(ActivePlayerData src)
+    {
+        int count = 0;
+        if (src.SelfResSpells != null)
+            foreach (uint spellId in src.SelfResSpells)
+                if (spellId != 0)
+                    count++;
+        return count;
+    }
+
+    internal void WriteUpdateActivePlayerSelfResSpellsPreamble(WorldPacket data, ref Framework.Util.StackBitMask blocks, ActivePlayerData src)
+    {
+        if (!blocks.IsBitSet(9))
+            WriteLaterDynamicMasks(data, ref blocks, src);
+    }
+
+    internal void WriteUpdateActivePlayerSelfResSpellsBody(WorldPacket data, ActivePlayerData src)
+    {
+        WriteSelfResSpells(data, src);
+    }
+
+    private static void WriteSelfResSpells(WorldPacket data, ActivePlayerData src)
+    {
+        if (src.SelfResSpells == null)
+            return;
+        foreach (uint spellId in src.SelfResSpells)
+            if (spellId != 0)
+                data.WriteInt32((int)spellId);
     }
 
     // Skill (bit 32) — nested SkillInfo write via existing WriteUpdateSkillInfo helper.

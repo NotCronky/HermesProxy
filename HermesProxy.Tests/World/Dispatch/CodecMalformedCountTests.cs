@@ -70,6 +70,50 @@ public class CodecMalformedCountTests
         Assert.IsNotType<OutOfMemoryException>(caught);
     }
 
+    [Theory]
+    [InlineData(0x7FFFFFFFu)]
+    [InlineData(0xFFFFFFFFu)]
+    public void LearnPreviewTalents_AbsurdCount_ThrowsOnUnderflowWithoutReserving(uint count)
+    {
+        byte[] payload = [.. BitConverter.GetBytes(count), .. BitConverter.GetBytes(-1)];
+
+        Exception? caught = null;
+        try
+        {
+            var r = ReaderOver(payload);
+            LearnPreviewTalentsCodec.Read(ref r, out _);
+        }
+        catch (Exception e)
+        {
+            caught = e;
+        }
+
+        Assert.NotNull(caught);
+        Assert.IsNotType<OutOfMemoryException>(caught);
+    }
+
+    [Theory]
+    [InlineData(0x7FFFFFFFu)]
+    [InlineData(0xFFFFFFFFu)]
+    public void LearnPreviewTalentsPet_AbsurdCount_ThrowsOnUnderflowWithoutReserving(uint count)
+    {
+        byte[] payload = [0, 0, .. BitConverter.GetBytes(count)];
+
+        Exception? caught = null;
+        try
+        {
+            var r = ReaderOver(payload);
+            LearnPreviewTalentsPetCodec.Read(ref r, out _);
+        }
+        catch (Exception e)
+        {
+            caught = e;
+        }
+
+        Assert.NotNull(caught);
+        Assert.IsNotType<OutOfMemoryException>(caught);
+    }
+
     /// <summary>A well-formed list still round-trips, so the clamp never costs a real packet.</summary>
     [Fact]
     public void QueryPlayerNames_WellFormed_ReadsEveryGuid()
@@ -156,5 +200,35 @@ public class CodecMalformedCountTests
         }
 
         Assert.NotNull(caught);
+    }
+    /// <summary>CMSG_TRANSMOGRIFY_ITEMS: the slots are the packet's array, so a count it cannot hold is refused.</summary>
+    [Theory]
+    [InlineData(0x7FFFFFFFu)]
+    [InlineData(0xFFFFFFFFu)]
+    [InlineData(14u)]
+    public void TransmogrifyItems_AbsurdCount_ThrowsArgumentOutOfRange(uint count)
+    {
+        using var w = new WorldPacket(1u);
+        w.WriteUInt32(count);
+        w.WritePackedGuid128(WowGuid128.Empty);
+        w.WriteInt32(1);        // one slot's worth, fewer than the count claims
+        w.WriteUInt32(15);
+        w.WriteInt32(0);
+        w.WriteInt32(0);
+        byte[] payload = w.GetData();
+
+        ArgumentOutOfRangeException? caught = null;
+        try
+        {
+            var r = ReaderOver(payload);
+            TransmogrifyItemsCodec.Read(ref r, out _);
+        }
+        catch (ArgumentOutOfRangeException e)
+        {
+            caught = e;
+        }
+
+        Assert.NotNull(caught);
+        Assert.Contains("slots", caught.Message);
     }
 }

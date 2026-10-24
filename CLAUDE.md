@@ -35,7 +35,8 @@ session). Then repeat the action in game.
 | Edit | What happens |
 |---|---|
 | A method body: handler, codec `Read`, layout `Write`, anything in `Framework` | patched in |
-| A `[LoggerMessage]` text, or a new log method | patched in |
+| A `[LoggerMessage]` text | patched in |
+| A new log method | patched in, but its first call has thrown `NullReferenceException`: add it with a restart (Ctrl+R) |
 | A `[Descriptor*]` attribute on a `*Field` enum | generator reruns, the writer is patched in |
 | A new `[HandlesCmsg]` / `[HandlesSmsg]`, method, class, or field on a class | patched in |
 | A new enum member (`ENC0021`) | proxy restarts |

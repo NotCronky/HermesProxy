@@ -106,6 +106,10 @@ public class UnitData
     public byte? SexId { get => _cold?.SexId; set { if (value.HasValue || _cold != null) Cold.SexId = value; } }
     public uint? DisplayPower { get => _cold?.DisplayPower; set { if (value.HasValue || _cold != null) Cold.DisplayPower = value; } }
     public uint? OverrideDisplayPowerID { get => _cold?.OverrideDisplayPowerID; set { if (value.HasValue || _cold != null) Cold.OverrideDisplayPowerID = value; } }
+    public ReadOnlySpan<float?> PowerRegenFlatModifier => _cold?.PowerRegenFlatModifier ?? _emptyFloat7;
+    public float?[] EnsurePowerRegenFlatModifier() => Cold.PowerRegenFlatModifier ??= new float?[7];
+    public ReadOnlySpan<float?> PowerRegenInterruptedFlatModifier => _cold?.PowerRegenInterruptedFlatModifier ?? _emptyFloat7;
+    public float?[] EnsurePowerRegenInterruptedFlatModifier() => Cold.PowerRegenInterruptedFlatModifier ??= new float?[7];
     public ReadOnlySpan<float?> ModPowerRegen => _cold?.ModPowerRegen ?? _emptyFloat7;
     public float?[] EnsureModPowerRegen() => Cold.ModPowerRegen ??= new float?[7];
     public int? Level { get => _cold?.Level; set { if (value.HasValue || _cold != null) Cold.Level = value; } }
@@ -222,6 +226,8 @@ internal sealed class UnitDataCold
     public byte? SexId;
     public uint? DisplayPower;
     public uint? OverrideDisplayPowerID;
+    public float?[]? PowerRegenFlatModifier;
+    public float?[]? PowerRegenInterruptedFlatModifier;
     public float?[]? ModPowerRegen;
     public int? Level;
     public int? EffectiveLevel;

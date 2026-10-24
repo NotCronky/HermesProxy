@@ -228,85 +228,119 @@ public class SupercededSpells : ServerPacket, ISpanWritable
     public List<int> FavoriteSpellID = new();
 }
 
-public class LearnedSpells : ServerPacket, ISpanWritable
+public sealed class LearnedSpells : ServerPacket, ISpanWritable
 {
     // Practical cap - usually 1 spell per trainer click, hunter pet quest ~5
     private const int MaxSpells = 8;
 
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<LearnedSpells>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new FlatLayout()),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.Zero, new PerSpellBitsLayout()));
+
+    private static readonly ServerPacketLayout<LearnedSpells> Layout = Layouts.ForRunningClient();
+
     public LearnedSpells() : base(Opcode.SMSG_LEARNED_SPELLS, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        // V3_4_3 (WotLK Classic) layout differs from modern retail. Per WotLK
-        // client (and HermesProxy-WOTLK fork LearnedSpells.cs:27-44):
-        //   int32 Count + uint32 SpecializationID + 1-bit SuppressMessaging +
-        //   per-spell { int32 SpellID + 4 bits (IsFavorite, _, HasSuperceded,
-        //   _) + optional int32 SupercededID }.
-        // Our retail layout (flat list + separate favorites + trailing bit)
-        // doesn't match the V3_4_3 cascade — without the per-spell bit gates,
-        // the client mis-parses every entry and the spellbook silently ignores
-        // newly-learned trainer spells (until logout/login resets via
-        // SMSG_SEND_KNOWN_SPELLS, which has its own correct format).
-        if (ModernVersion.IsWotLKClassicOrLater)
-        {
-            _worldPacket.WriteInt32(Spells.Count);
-            _worldPacket.WriteUInt32(SpecializationID);
-            _worldPacket.WriteBit(SuppressMessaging);
-            _worldPacket.FlushBits();
-            foreach (uint spell in Spells)
-            {
-                _worldPacket.WriteInt32((int)spell);
-                _worldPacket.WriteBit(FavoriteSpellID.Contains((int)spell));
-                _worldPacket.WriteBit(false);   // field_8 — reserved
-                _worldPacket.WriteBit(false);   // HasSuperceded — none for this path
-                _worldPacket.WriteBit(false);   // HasTraitDefinitionID — N/A in WotLK
-                _worldPacket.FlushBits();
-            }
-            return;
-        }
-
-        _worldPacket.WriteInt32(Spells.Count);
-        _worldPacket.WriteInt32(FavoriteSpellID.Count);
-        _worldPacket.WriteUInt32(SpecializationID);
-
-        foreach (uint spell in Spells)
-            _worldPacket.WriteUInt32(spell);
-
-        foreach (int spell in FavoriteSpellID)
-            _worldPacket.WriteInt32(spell);
-
-        _worldPacket.WriteBit(SuppressMessaging);
-        _worldPacket.FlushBits();
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     // MaxSize: 3 int32 (12) + 2 lists capped at 8 (64) + 1 bit byte = 77
     public int MaxSize => 12 + MaxSpells * 4 * 2 + 1;
 
     public int WriteToSpan(Span<byte> buffer)
     {
-        // V3_4_3 uses a different bit-packed cascade (see Write()). Fall back to
-        // the boxed Write path for V3_4_3 by returning -1 — the framework will
-        // detect the overflow sentinel and re-emit via Write().
-        if (ModernVersion.IsWotLKClassicOrLater)
-            return -1;
-
         if (Spells.Count > MaxSpells || FavoriteSpellID.Count > MaxSpells)
             return -1;
 
-        var writer = new SpanPacketWriter(buffer);
-        writer.WriteInt32(Spells.Count);
-        writer.WriteInt32(FavoriteSpellID.Count);
-        writer.WriteUInt32(SpecializationID);
+        return Layout.WriteToSpan(this, buffer);
+    }
 
-        foreach (uint spell in Spells)
-            writer.WriteUInt32(spell);
+    /// <summary>Up to 2.5: the spells, then the favourites, then the bit.</summary>
+    internal sealed class FlatLayout : ServerPacketLayout<LearnedSpells>
+    {
+        public override int MaxSize => 12 + MaxSpells * 4 * 2 + 1;
 
-        foreach (int spell in FavoriteSpellID)
-            writer.WriteInt32(spell);
+        public override void Write(LearnedSpells packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Spells.Count);
+            data.WriteInt32(packet.FavoriteSpellID.Count);
+            data.WriteUInt32(packet.SpecializationID);
 
-        writer.WriteBit(SuppressMessaging);
-        writer.FlushBits();
-        return writer.Position;
+            foreach (uint spell in packet.Spells)
+                data.WriteUInt32(spell);
+
+            foreach (int spell in packet.FavoriteSpellID)
+                data.WriteInt32(spell);
+
+            data.WriteBit(packet.SuppressMessaging);
+            data.FlushBits();
+        }
+
+        public override int WriteToSpan(LearnedSpells packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Spells.Count);
+            writer.WriteInt32(packet.FavoriteSpellID.Count);
+            writer.WriteUInt32(packet.SpecializationID);
+
+            foreach (uint spell in packet.Spells)
+                writer.WriteUInt32(spell);
+
+            foreach (int spell in packet.FavoriteSpellID)
+                writer.WriteInt32(spell);
+
+            writer.WriteBit(packet.SuppressMessaging);
+            writer.FlushBits();
+            return writer.Position;
+        }
+    }
+
+    /// <summary>
+    /// 3.4.3 on: int32 Count, uint32 SpecializationID, the SuppressMessaging bit, then per spell an
+    /// int32 and four bits (IsFavorite, reserved, HasSuperceded, HasTraitDefinitionID). Without the
+    /// per-spell bits the client mis-parses every entry and the spellbook ignores trainer spells
+    /// until the next login. The span writer used to return -1 here, sending every learned spell
+    /// down the boxed path with an "exceeded MaxSize" warning (#407).
+    /// </summary>
+    internal sealed class PerSpellBitsLayout : ServerPacketLayout<LearnedSpells>
+    {
+        // count and specialization, the bit's byte, then per spell an int32 and its bits' byte
+        public override int MaxSize => 8 + 1 + MaxSpells * 5;
+
+        public override void Write(LearnedSpells packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Spells.Count);
+            data.WriteUInt32(packet.SpecializationID);
+            data.WriteBit(packet.SuppressMessaging);
+            data.FlushBits();
+            foreach (uint spell in packet.Spells)
+            {
+                data.WriteInt32((int)spell);
+                data.WriteBit(packet.FavoriteSpellID.Contains((int)spell));
+                data.WriteBit(false);
+                data.WriteBit(false);
+                data.WriteBit(false);
+                data.FlushBits();
+            }
+        }
+
+        public override int WriteToSpan(LearnedSpells packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Spells.Count);
+            writer.WriteUInt32(packet.SpecializationID);
+            writer.WriteBit(packet.SuppressMessaging);
+            writer.FlushBits();
+            foreach (uint spell in packet.Spells)
+            {
+                writer.WriteInt32((int)spell);
+                writer.WriteBit(packet.FavoriteSpellID.Contains((int)spell));
+                writer.WriteBit(false);
+                writer.WriteBit(false);
+                writer.WriteBit(false);
+                writer.FlushBits();
+            }
+            return writer.Position;
+        }
     }
 
     public List<uint> Spells = new();
@@ -516,6 +550,9 @@ public class SpellChargeEntry
 
 public readonly record struct CancelAura(uint SpellID, WowGuid128 CasterGUID);
 
+/// <summary>Data only — parsing lives in <c>GetMirrorImageDataCodec</c>, behaviour in <c>SpellSystem</c>.</summary>
+public readonly record struct GetMirrorImageData(WowGuid128 UnitGUID, uint DisplayID);
+
 public class CancelAutoRepeat : ServerPacket, ISpanWritable
 {
     public CancelAutoRepeat() : base(Opcode.SMSG_CANCEL_AUTO_REPEAT) { }
@@ -719,9 +756,29 @@ public readonly record struct PetCastSpell(WowGuid128 PetGUID, SpellCastRequest 
 
 public readonly record struct UseItem(byte PackSlot, byte Slot, WowGuid128 CastItem, SpellCastRequest Cast);
 
+/// <summary>Which client's <see cref="SpellCastRequest"/> is on the wire; the codec picks it.</summary>
+public enum SpellCastRequestShape
+{
+    /// <summary>V1_14 / V2_5: two counts, no crafting order bit.</summary>
+    Classic,
+    /// <summary>3.4.3: a third count (removed modifications) and a crafting order bit.</summary>
+    WotLKClassic,
+    /// <summary>
+    /// 4.4.2: a CraftingFlags byte after the three counts (TrinityCore cata_classic, and the
+    /// client's writer). Read as 3.4.3, every bit after it came out one byte early: the target
+    /// flags read as 0, so a cast lost its target and the server fell back to the selection.
+    /// </summary>
+    CataClassic,
+}
+
 public class SpellCastRequest
 {
-    public void Read(WorldPacket data)
+    public static SpellCastRequestShape RunningClientShape =>
+        ModernVersion.IsWotLKClassicOrLater ? SpellCastRequestShape.WotLKClassic : SpellCastRequestShape.Classic;
+
+    public void Read(WorldPacket data) => Read(data, RunningClientShape);
+
+    public void Read(WorldPacket data, SpellCastRequestShape shape)
     {
         CastID = data.ReadPackedGuid128();
         Misc[0] = data.ReadUInt32();
@@ -740,8 +797,10 @@ public class SpellCastRequest
         var optionalReagentsCount = data.ReadUInt32();
         var optionalCurrenciesCount = data.ReadUInt32();
         // V3_4_1+ wire field; not present in V1_14 / V2_5 SpellCastRequest layout.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             _ = data.ReadUInt32(); // removedModificationsCount — count only, no per-entry payload in 54261
+        if (shape >= SpellCastRequestShape.CataClassic)
+            _ = data.ReadUInt8(); // CraftingFlags
 
         for (var i = 0; i < optionalReagentsCount; ++i)
         {
@@ -761,9 +820,9 @@ public class SpellCastRequest
         bool hasMoveUpdate = data.HasBit();
         var weightCount = data.ReadBits<uint>(2);
         // V3_4_1+ bit; not present in V1_14 / V2_5 SpellCastRequest layout.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             _ = data.HasBit(); // hasCraftingOrderID — bit only, no UInt64 follow-up in 54261
-        Target.Read(data);
+        Target.Read(data, shape);
 
         if (hasMoveUpdate)
         {
@@ -784,7 +843,10 @@ public class SpellCastRequest
     }
 
     /// <inheritdoc cref="Read(WorldPacket)"/>
-    public void Read(ref SpanPacketReader data)
+    public void Read(ref SpanPacketReader data) => Read(ref data, RunningClientShape);
+
+    /// <inheritdoc cref="Read(WorldPacket, SpellCastRequestShape)"/>
+    public void Read(ref SpanPacketReader data, SpellCastRequestShape shape)
     {
         CastID = data.ReadPackedGuid128();
         Misc[0] = data.ReadUInt32();
@@ -803,8 +865,10 @@ public class SpellCastRequest
         var optionalReagentsCount = data.ReadUInt32();
         var optionalCurrenciesCount = data.ReadUInt32();
         // V3_4_1+ wire field; not present in V1_14 / V2_5 SpellCastRequest layout.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             _ = data.ReadUInt32(); // removedModificationsCount — count only, no per-entry payload in 54261
+        if (shape >= SpellCastRequestShape.CataClassic)
+            _ = data.ReadUInt8(); // CraftingFlags
 
         for (var i = 0; i < optionalReagentsCount; ++i)
         {
@@ -824,9 +888,9 @@ public class SpellCastRequest
         bool hasMoveUpdate = data.HasBit();
         var weightCount = data.ReadBits<uint>(2);
         // V3_4_1+ bit; not present in V1_14 / V2_5 SpellCastRequest layout.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             _ = data.HasBit(); // hasCraftingOrderID — bit only, no UInt64 follow-up in 54261
-        Target.Read(ref data);
+        Target.Read(ref data, shape);
 
         if (hasMoveUpdate)
         {
@@ -1101,8 +1165,42 @@ public class SpellFailedOther : ServerPacket, ISpanWritable
     public byte Reason;
 }
 
-public class SpellStart : ServerPacket
+public sealed class SpellStart : ServerPacket
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellStart>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new ClassicEraLayout()),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.V4_4_2_60895, new WotLKClassicLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new CataClassicLayout()));
+
+    private static readonly ServerPacketLayout<SpellStart> Layout = Layouts.ForRunningClient();
+
+    /// <summary>1.14 and 2.5.</summary>
+    internal sealed class ClassicEraLayout : ServerPacketLayout<SpellStart>
+    {
+        public override void Write(SpellStart packet, WorldPacket data)
+        {
+            packet.Cast.WriteClassicEra(data);
+        }
+    }
+
+    /// <summary>3.4.3.</summary>
+    internal sealed class WotLKClassicLayout : ServerPacketLayout<SpellStart>
+    {
+        public override void Write(SpellStart packet, WorldPacket data)
+        {
+            packet.Cast.WriteWotLKClassic(data);
+        }
+    }
+
+    /// <summary>4.4.2.</summary>
+    internal sealed class CataClassicLayout : ServerPacketLayout<SpellStart>
+    {
+        public override void Write(SpellStart packet, WorldPacket data)
+        {
+            packet.Cast.WriteCataClassic(data);
+        }
+    }
+
     /// <summary>
     /// Set by whoever builds the packet, which is every caller. Building one here as well cost a
     /// second <see cref="SpellCastData"/> — five lists, a target and a heal prediction — that was
@@ -1114,24 +1212,58 @@ public class SpellStart : ServerPacket
     {
     }
 
-    public override void Write()
-    {
-        Cast.Write(_worldPacket);
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 }
 
-class SpellGo : ServerPacket
+sealed class SpellGo : ServerPacket
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellGo>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new ClassicEraLayout()),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.V4_4_2_60895, new WotLKClassicLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new CataClassicLayout()));
+
+    private static readonly ServerPacketLayout<SpellGo> Layout = Layouts.ForRunningClient();
+
+    /// <summary>1.14 and 2.5.</summary>
+    internal sealed class ClassicEraLayout : ServerPacketLayout<SpellGo>
+    {
+        public override void Write(SpellGo packet, WorldPacket data)
+        {
+            packet.Cast.WriteClassicEra(data);
+            packet.WriteLogData(data);
+        }
+    }
+
+    /// <summary>3.4.3.</summary>
+    internal sealed class WotLKClassicLayout : ServerPacketLayout<SpellGo>
+    {
+        public override void Write(SpellGo packet, WorldPacket data)
+        {
+            packet.Cast.WriteWotLKClassic(data);
+            packet.WriteLogData(data);
+        }
+    }
+
+    /// <summary>4.4.2.</summary>
+    internal sealed class CataClassicLayout : ServerPacketLayout<SpellGo>
+    {
+        public override void Write(SpellGo packet, WorldPacket data)
+        {
+            packet.Cast.WriteCataClassic(data);
+            packet.WriteLogData(data);
+        }
+    }
+
     public SpellGo() : base(Opcode.SMSG_SPELL_GO, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        Cast.Write(_worldPacket);
+    public override void Write() => Layout.Write(this, _worldPacket);
 
-        _worldPacket.WriteBit(LogData != null);
+    private void WriteLogData(WorldPacket data)
+    {
+        data.WriteBit(LogData != null);
         if (LogData != null)
-            LogData.Write(_worldPacket);
-        _worldPacket.FlushBits();
+            LogData.Write(data);
+        data.FlushBits();
     }
 
     /// <summary>Set by whoever builds the packet — see <see cref="SpellStart.Cast"/>.</summary>
@@ -1141,7 +1273,7 @@ class SpellGo : ServerPacket
 
 public class SpellCastData
 {
-    public void Write(WorldPacket data)
+    private void WriteHead(WorldPacket data)
     {
         data.WritePackedGuid128(CasterGUID);
         data.WritePackedGuid128(CasterUnit);
@@ -1169,53 +1301,93 @@ public class SpellCastData
         data.WriteBit(AmmoDisplayId != null);
         data.WriteBit(AmmoInventoryType != null);
         data.FlushBits();
+    }
 
-        // Field order changed at V3_4_3.51505 (per WPP V3_4_0_45166 ReadSpellCastData
-        // lines 126-140): pre-3.4.3.51505 reads MissStatus first, then Target;
-        // 3.4.3.51505+ reads Target / HitTargets / MissTargets / MissStatus.
-        // Mis-ordering scrambles the bit-stream for any spell with misses
-        // (Death Grip on an immune target observed crashing the V3_4_3 client) and
-        // misaligns the embedded RuneData. Branch on ModernVersion so V1_14 / V2_5
-        // (pre-3.4.3.51505) keep the layout they've used since the codebase shipped.
-        if (ModernVersion.IsWotLKClassicOrLater)
-        {
-            Target.Write(data);
+    /// <summary>1.14 and 2.5: MissStatus before Target.</summary>
+    public void WriteClassicEra(WorldPacket data)
+    {
+        WriteHead(data);
 
-            foreach (WowGuid128 hitTarget in HitTargets)
-                data.WritePackedGuid128(hitTarget);
+        foreach (SpellMissStatus missStatus in MissStatus)
+            missStatus.Write(data);
 
-            foreach (WowGuid128 missTarget in MissTargets)
-                data.WritePackedGuid128(missTarget);
+        Target.Write(data);
 
-            foreach (SpellMissStatus missStatus in MissStatus)
-                missStatus.Write(data);
+        foreach (WowGuid128 hitTarget in HitTargets)
+            data.WritePackedGuid128(hitTarget);
 
-            foreach (SpellPowerData power in RemainingPower)
-                power.Write(data);
+        foreach (WowGuid128 missTarget in MissTargets)
+            data.WritePackedGuid128(missTarget);
 
-            if (RemainingRunes != null)
-                RemainingRunes.Write(data);
-        }
-        else
-        {
-            foreach (SpellMissStatus missStatus in MissStatus)
-                missStatus.Write(data);
+        foreach (SpellPowerData power in RemainingPower)
+            power.Write(data);
 
-            Target.Write(data);
+        if (RemainingRunes != null)
+            RemainingRunes.Write(data);
 
-            foreach (WowGuid128 hitTarget in HitTargets)
-                data.WritePackedGuid128(hitTarget);
+        WriteTail(data);
+    }
 
-            foreach (WowGuid128 missTarget in MissTargets)
-                data.WritePackedGuid128(missTarget);
+    // Field order changed at V3_4_3.51505 (per WPP V3_4_0_45166 ReadSpellCastData
+    // lines 126-140): pre-3.4.3.51505 reads MissStatus first, then Target;
+    // 3.4.3.51505+ reads Target / HitTargets / MissTargets / MissStatus.
+    // Mis-ordering scrambles the bit-stream for any spell with misses
+    // (Death Grip on an immune target observed crashing the V3_4_3 client) and
+    // misaligns the embedded RuneData.
+    public void WriteWotLKClassic(WorldPacket data)
+    {
+        WriteHead(data);
 
-            foreach (SpellPowerData power in RemainingPower)
-                power.Write(data);
+        Target.Write(data);
 
-            if (RemainingRunes != null)
-                RemainingRunes.Write(data);
-        }
+        foreach (WowGuid128 hitTarget in HitTargets)
+            data.WritePackedGuid128(hitTarget);
 
+        foreach (WowGuid128 missTarget in MissTargets)
+            data.WritePackedGuid128(missTarget);
+
+        foreach (SpellMissStatus missStatus in MissStatus)
+            missStatus.Write(data);
+
+        foreach (SpellPowerData power in RemainingPower)
+            power.Write(data);
+
+        if (RemainingRunes != null)
+            RemainingRunes.Write(data);
+
+        WriteTail(data);
+    }
+
+    /// <summary>
+    /// 4.4.2 (TrinityCore cata_classic, and the client's reader): the 3.4.3 order, with each
+    /// remaining-power entry as (Type, Cost) instead of (Cost, Type).
+    /// </summary>
+    public void WriteCataClassic(WorldPacket data)
+    {
+        WriteHead(data);
+
+        Target.Write(data);
+
+        foreach (WowGuid128 hitTarget in HitTargets)
+            data.WritePackedGuid128(hitTarget);
+
+        foreach (WowGuid128 missTarget in MissTargets)
+            data.WritePackedGuid128(missTarget);
+
+        foreach (SpellMissStatus missStatus in MissStatus)
+            missStatus.Write(data);
+
+        foreach (SpellPowerData power in RemainingPower)
+            power.WriteTypeFirst(data);
+
+        if (RemainingRunes != null)
+            RemainingRunes.Write(data);
+
+        WriteTail(data);
+    }
+
+    private void WriteTail(WorldPacket data)
+    {
         foreach (TargetLocation targetLoc in TargetPoints)
             targetLoc.Write(data);
 
@@ -1313,7 +1485,9 @@ public class TargetLocation
 
 public class SpellTargetData
 {
-    public void Read(WorldPacket data)
+    public void Read(WorldPacket data) => Read(data, SpellCastRequest.RunningClientShape);
+
+    public void Read(WorldPacket data, SpellCastRequestShape shape)
     {
         // WPP V8_0_1 ReadSpellTargetData calls packet.ResetBitReader() FIRST, discarding
         // any unread bits in the cached partial byte left over from the prior section.
@@ -1326,11 +1500,11 @@ public class SpellTargetData
         // hasCraftingOrderID bit was added to SpellCastRequest.Read).
         // Gated to V3_4_3_54261: V1_14 / V2_5 SpellCastRequest doesn't leave dangling
         // cached bits, so a reset there would not corrupt anything but is unnecessary.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             data.ResetBitReader();
 
         // V3_4_3 client uses 28-bit target flags (WPP V3_4_0 module gates 28 at V3_4_1+).
-        int flagBits = ModernVersion.IsWotLKClassicOrLater ? 28 : 26;
+        int flagBits = shape >= SpellCastRequestShape.WotLKClassic ? 28 : 26;
         Flags = (SpellCastTargetFlags)data.ReadBits<uint>(flagBits);
         if (data.HasBit())
             SrcLocation = new();
@@ -1361,7 +1535,10 @@ public class SpellTargetData
     }
 
     /// <inheritdoc cref="Read(WorldPacket)"/>
-    public void Read(ref SpanPacketReader data)
+    public void Read(ref SpanPacketReader data) => Read(ref data, SpellCastRequest.RunningClientShape);
+
+    /// <inheritdoc cref="Read(WorldPacket, SpellCastRequestShape)"/>
+    public void Read(ref SpanPacketReader data, SpellCastRequestShape shape)
     {
         // WPP V8_0_1 ReadSpellTargetData calls packet.ResetBitReader() FIRST, discarding
         // any unread bits in the cached partial byte left over from the prior section.
@@ -1374,11 +1551,11 @@ public class SpellTargetData
         // hasCraftingOrderID bit was added to SpellCastRequest.Read).
         // Gated to V3_4_3_54261: V1_14 / V2_5 SpellCastRequest doesn't leave dangling
         // cached bits, so a reset there would not corrupt anything but is unnecessary.
-        if (ModernVersion.IsWotLKClassicOrLater)
+        if (shape >= SpellCastRequestShape.WotLKClassic)
             data.ResetBitReader();
 
         // V3_4_3 client uses 28-bit target flags (WPP V3_4_0 module gates 28 at V3_4_1+).
-        int flagBits = ModernVersion.IsWotLKClassicOrLater ? 28 : 26;
+        int flagBits = shape >= SpellCastRequestShape.WotLKClassic ? 28 : 26;
         Flags = (SpellCastTargetFlags)data.ReadBits<uint>(flagBits);
         if (data.HasBit())
             SrcLocation = new();
@@ -1456,6 +1633,13 @@ public struct SpellPowerData
         data.WriteInt8((sbyte)Type);
     }
 
+    // 4.4.2 swapped the two fields.
+    public void WriteTypeFirst(WorldPacket data)
+    {
+        data.WriteInt8((sbyte)Type);
+        data.WriteInt32(Cost);
+    }
+
     public int Cost;
     public PowerType Type;
 }
@@ -1475,6 +1659,61 @@ public class RuneData
     public byte Start;
     public byte Count;
     public List<byte> Cooldowns = new();
+}
+
+/// <summary>
+/// A death knight's rune turned into another type, a death rune or back to its own (4.4.2 client).
+/// TrinityCore cata_classic leaves the rune list in front empty.
+/// </summary>
+public sealed class ConvertRune : ServerPacket, ISpanWritable
+{
+    public ConvertRune() : base(Opcode.SMSG_CONVERT_RUNE) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt8(0);  // Start
+        _worldPacket.WriteUInt8(0);  // Count
+        _worldPacket.WriteInt32(0);  // cooldowns
+        _worldPacket.WriteUInt32(Index);
+        _worldPacket.WriteUInt32(Rune);
+    }
+
+    public int MaxSize => 14;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteUInt8(0);
+        writer.WriteUInt8(0);
+        writer.WriteInt32(0);
+        writer.WriteUInt32(Index);
+        writer.WriteUInt32(Rune);
+        return writer.Position;
+    }
+
+    public uint Index;
+    public uint Rune;  // Blood 0, Frost 1, Unholy 2, Death 3
+}
+
+/// <summary>
+/// The runes a spell made ready at once (Blood Tap, Empower Rune Weapon), as a mask of rune slots.
+/// </summary>
+public sealed class AddRunePower : ServerPacket, ISpanWritable
+{
+    public AddRunePower() : base(Opcode.SMSG_ADD_RUNE_POWER, ConnectionType.Instance) { }
+
+    public override void Write() => _worldPacket.WriteUInt32(AddedRunesMask);
+
+    public int MaxSize => 4;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteUInt32(AddedRunesMask);
+        return writer.Position;
+    }
+
+    public uint AddedRunesMask;
 }
 
 
@@ -1601,6 +1840,43 @@ public class CooldownEvent : ServerPacket, ISpanWritable
     public uint SpellID;
 }
 
+/// <summary>
+/// What a mirror image looks like: the caster's model, race, sex and class, their appearance as
+/// customization choices and the display of each visible item.
+/// </summary>
+public sealed class MirrorImageComponentedData : ServerPacket
+{
+    public MirrorImageComponentedData() : base(Opcode.SMSG_MIRROR_IMAGE_COMPONENTED_DATA) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(UnitGUID);
+        _worldPacket.WriteInt32(DisplayID);
+        _worldPacket.WriteUInt8(RaceID);
+        _worldPacket.WriteUInt8(Gender);
+        _worldPacket.WriteUInt8(ClassID);
+        _worldPacket.WriteInt32(Customizations.Count);
+        _worldPacket.WritePackedGuid128(GuildGUID);
+        _worldPacket.WriteInt32(ItemDisplayIDs.Count);
+        foreach (ChrCustomizationChoice customization in Customizations)
+        {
+            _worldPacket.WriteUInt32(customization.ChrCustomizationOptionID);
+            _worldPacket.WriteUInt32(customization.ChrCustomizationChoiceID);
+        }
+        foreach (int itemDisplayId in ItemDisplayIDs)
+            _worldPacket.WriteInt32(itemDisplayId);
+    }
+
+    public WowGuid128 UnitGUID;
+    public int DisplayID;
+    public byte RaceID;
+    public byte Gender;
+    public byte ClassID;
+    public List<ChrCustomizationChoice> Customizations = [];
+    public WowGuid128 GuildGUID = WowGuid128.Empty;
+    public List<int> ItemDisplayIDs = [];
+}
+
 public class ClearCooldown : ServerPacket, ISpanWritable
 {
     public ClearCooldown() : base(Opcode.SMSG_CLEAR_COOLDOWN, ConnectionType.Instance) { }
@@ -1628,6 +1904,38 @@ public class ClearCooldown : ServerPacket, ISpanWritable
     public bool IsPet;
     public uint SpellID;
     public bool ClearOnHold;
+}
+
+public sealed class ModifyCooldown : ServerPacket, ISpanWritable
+{
+    public ModifyCooldown() : base(Opcode.SMSG_MODIFY_COOLDOWN, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteInt32(SpellID);
+        _worldPacket.WriteInt32(DeltaTime);
+        _worldPacket.WriteBit(IsPet);
+        _worldPacket.WriteBit(WithoutCategoryCooldown);
+        _worldPacket.FlushBits();
+    }
+
+    public int MaxSize => 9; // two ints + 1 byte for 2 bits
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WriteInt32(SpellID);
+        writer.WriteInt32(DeltaTime);
+        writer.WriteBit(IsPet);
+        writer.WriteBit(WithoutCategoryCooldown);
+        writer.FlushBits();
+        return writer.Position;
+    }
+
+    public int SpellID;
+    public int DeltaTime;
+    public bool IsPet;
+    public bool WithoutCategoryCooldown;
 }
 
 public class CooldownCheat : ServerPacket, ISpanWritable
@@ -2053,52 +2361,76 @@ class SpellPeriodicAuraLog : ServerPacket
     }
 }
 
-class SpellEnergizeLog : ServerPacket, ISpanWritable
+sealed class SpellEnergizeLog : ServerPacket, ISpanWritable
 {
     // Cap for power types in SpellCastLogData
     private const int MaxPowerDataEntries = 10;
 
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellEnergizeLog>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new PowerTypeLayout(bytePowerType: false)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new PowerTypeLayout(bytePowerType: true)));
+
+    private static readonly ServerPacketLayout<SpellEnergizeLog> Layout = Layouts.ForRunningClient();
+
     public SpellEnergizeLog() : base(Opcode.SMSG_SPELL_ENERGIZE_LOG, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        _worldPacket.WritePackedGuid128(TargetGUID);
-        _worldPacket.WritePackedGuid128(CasterGUID);
-
-        _worldPacket.WriteUInt32(SpellID);
-        _worldPacket.WriteUInt32((uint)Type);
-        _worldPacket.WriteInt32(Amount);
-        _worldPacket.WriteInt32(OverEnergize);
-
-        _worldPacket.WriteBit(LogData != null);
-        _worldPacket.FlushBits();
-
-        if (LogData != null)
-            LogData.Write(_worldPacket);
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     // MaxSize: 2 GUIDs (36) + 4 ints (16) + bit (1) + SpellCastLogData (22 + 10*12) = 195
     public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size * 2 + 16 + 1 + 22 + MaxPowerDataEntries * 12;
 
-    public int WriteToSpan(Span<byte> buffer)
-    {
-        var writer = new SpanPacketWriter(buffer);
-        writer.WritePackedGuid128(TargetGUID.Low, TargetGUID.High);
-        writer.WritePackedGuid128(CasterGUID.Low, CasterGUID.High);
-        writer.WriteUInt32(SpellID);
-        writer.WriteUInt32((uint)Type);
-        writer.WriteInt32(Amount);
-        writer.WriteInt32(OverEnergize);
-        writer.WriteBit(LogData != null);
-        writer.FlushBits();
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
 
-        if (LogData != null)
+    /// <summary>
+    /// The power type is a uint32 up to 3.4.3 and a byte from 4.4.2 (TrinityCore cata_classic,
+    /// and the client's reader). Written as a uint32 on 4.4.2, the amount and overflow read three
+    /// bytes early.
+    /// </summary>
+    internal sealed class PowerTypeLayout(bool bytePowerType) : ServerPacketLayout<SpellEnergizeLog>
+    {
+        public override void Write(SpellEnergizeLog packet, WorldPacket data)
         {
-            if (!SpellPacketHelpers.WriteSpellCastLogData(ref writer, LogData, MaxPowerDataEntries))
-                return -1;
+            data.WritePackedGuid128(packet.TargetGUID);
+            data.WritePackedGuid128(packet.CasterGUID);
+
+            data.WriteUInt32(packet.SpellID);
+            if (bytePowerType)
+                data.WriteUInt8((byte)packet.Type);
+            else
+                data.WriteUInt32((uint)packet.Type);
+            data.WriteInt32(packet.Amount);
+            data.WriteInt32(packet.OverEnergize);
+
+            data.WriteBit(packet.LogData != null);
+            data.FlushBits();
+
+            if (packet.LogData != null)
+                packet.LogData.Write(data);
         }
 
-        return writer.Position;
+        public override int WriteToSpan(SpellEnergizeLog packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WritePackedGuid128(packet.TargetGUID.Low, packet.TargetGUID.High);
+            writer.WritePackedGuid128(packet.CasterGUID.Low, packet.CasterGUID.High);
+            writer.WriteUInt32(packet.SpellID);
+            if (bytePowerType)
+                writer.WriteUInt8((byte)packet.Type);
+            else
+                writer.WriteUInt32((uint)packet.Type);
+            writer.WriteInt32(packet.Amount);
+            writer.WriteInt32(packet.OverEnergize);
+            writer.WriteBit(packet.LogData != null);
+            writer.FlushBits();
+
+            if (packet.LogData != null)
+            {
+                if (!SpellPacketHelpers.WriteSpellCastLogData(ref writer, packet.LogData, MaxPowerDataEntries))
+                    return -1;
+            }
+
+            return writer.Position;
+        }
     }
 
     public WowGuid128 TargetGUID;
@@ -2225,31 +2557,88 @@ class EnvironmentalDamageLog : ServerPacket, ISpanWritable
     public SpellCastLogData LogData = null!;
 }
 
-public class SpellInstakillLog : ServerPacket, ISpanWritable
+public sealed class SpellInstakillLog : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellInstakillLog>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V3_4_3_54261, new GuidOrderLayout(casterFirst: false)),
+        (ClientVersionBuild.V3_4_3_54261, ClientVersionBuild.Zero, new GuidOrderLayout(casterFirst: true)));
+
+    private static readonly ServerPacketLayout<SpellInstakillLog> Layout = Layouts.ForRunningClient();
+
     public SpellInstakillLog() : base(Opcode.SMSG_SPELL_INSTAKILL_LOG, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        _worldPacket.WritePackedGuid128(TargetGUID);
-        _worldPacket.WritePackedGuid128(CasterGUID);
-        _worldPacket.WriteUInt32(SpellID);
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size * 2 + 4; // 2 GUIDs + uint
 
-    public int WriteToSpan(Span<byte> buffer)
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    /// <summary>
+    /// The 3.4.3 and 4.4.2 clients log the first GUID as the SPELL_INSTAKILL source, the one whose
+    /// spell "instantly kills" the other. TrinityCore wotlk_classic and cata_classic and
+    /// WowPacketParser call the first GUID the target, and with the target first both clients
+    /// logged the victim as the killer of the caster. The 1.14 and 2.5 clients are untested and keep
+    /// the target first.
+    /// </summary>
+    internal sealed class GuidOrderLayout(bool casterFirst) : ServerPacketLayout<SpellInstakillLog>
     {
-        var writer = new SpanPacketWriter(buffer);
-        writer.WritePackedGuid128(TargetGUID.Low, TargetGUID.High);
-        writer.WritePackedGuid128(CasterGUID.Low, CasterGUID.High);
-        writer.WriteUInt32(SpellID);
-        return writer.Position;
+        public override void Write(SpellInstakillLog packet, WorldPacket data)
+        {
+            var (first, second) = casterFirst ? (packet.CasterGUID, packet.TargetGUID) : (packet.TargetGUID, packet.CasterGUID);
+            data.WritePackedGuid128(first);
+            data.WritePackedGuid128(second);
+            data.WriteUInt32(packet.SpellID);
+        }
+
+        public override int WriteToSpan(SpellInstakillLog packet, Span<byte> buffer)
+        {
+            var (first, second) = casterFirst ? (packet.CasterGUID, packet.TargetGUID) : (packet.TargetGUID, packet.CasterGUID);
+            var writer = new SpanPacketWriter(buffer);
+            writer.WritePackedGuid128(first.Low, first.High);
+            writer.WritePackedGuid128(second.Low, second.High);
+            writer.WriteUInt32(packet.SpellID);
+            return writer.Position;
+        }
     }
 
     public WowGuid128 TargetGUID;
     public WowGuid128 CasterGUID;
     public uint SpellID;
+}
+
+/// <summary>
+/// A cast cut short by another spell (Kick, Counterspell), for the combat log: TrinityCore
+/// cata_classic SpellInterruptLog, the caster and the victim, then the interrupted spell and the
+/// one that interrupted it.
+/// </summary>
+public sealed class SpellInterruptLog : ServerPacket, ISpanWritable
+{
+    public SpellInterruptLog() : base(Opcode.SMSG_SPELL_INTERRUPT_LOG, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WritePackedGuid128(Caster);
+        _worldPacket.WritePackedGuid128(Victim);
+        _worldPacket.WriteInt32(InterruptedSpellID);
+        _worldPacket.WriteInt32(SpellID);
+    }
+
+    public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size * 2 + 8;
+
+    public int WriteToSpan(Span<byte> buffer)
+    {
+        var writer = new SpanPacketWriter(buffer);
+        writer.WritePackedGuid128(Caster.Low, Caster.High);
+        writer.WritePackedGuid128(Victim.Low, Victim.High);
+        writer.WriteInt32(InterruptedSpellID);
+        writer.WriteInt32(SpellID);
+        return writer.Position;
+    }
+
+    public WowGuid128 Caster;
+    public WowGuid128 Victim;
+    public int InterruptedSpellID;
+    public int SpellID;
 }
 
 class SpellDispellLog : ServerPacket, ISpanWritable
@@ -2456,187 +2845,262 @@ class TotemCreated : ServerPacket, ISpanWritable
 
 public readonly record struct TotemDestroyed(byte Slot, WowGuid128 Guid);
 
-public class SetSpellModifier : ServerPacket, ISpanWritable
+public sealed class SetSpellModifier : ServerPacket, ISpanWritable
 {
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SetSpellModifier>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new IntValueLayout()),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new FloatValueLayout()));
+
+    private static readonly ServerPacketLayout<SetSpellModifier> Layout = Layouts.ForRunningClient();
+
     public SetSpellModifier(Opcode opcode) : base(opcode, ConnectionType.Instance) { }
 
-    public override void Write()
+    public override void Write() => Layout.Write(this, _worldPacket);
+
+    // Sized from this packet's own modifiers: the count, then per modifier its index and count and
+    // 5 bytes per value. The set the proxy sends again when the player is created holds every
+    // modifier the character has, past any fixed cap: a level 80 death knight's went down the
+    // boxed path with an "exceeded MaxSize" warning at every map change.
+    public int MaxSize
     {
-        _worldPacket.WriteInt32(Modifiers.Count);
-        foreach (SpellModifierInfo spellMod in Modifiers)
-            spellMod.Write(_worldPacket);
-    }
-
-    private const int MaxModifiers = 8;
-    private const int MaxDataPerModifier = 8;
-    // 4 (count) + 8 * (1 + 4 + 8 * 5) = 4 + 8 * 45 = 364 bytes
-    public int MaxSize => 4 + MaxModifiers * (1 + 4 + MaxDataPerModifier * 5);
-
-    public int WriteToSpan(Span<byte> buffer)
-    {
-        if (Modifiers.Count > MaxModifiers)
-            return -1;
-
-        var writer = new SpanPacketWriter(buffer);
-        writer.WriteInt32(Modifiers.Count);
-        foreach (SpellModifierInfo spellMod in Modifiers)
+        get
         {
-            if (spellMod.ModifierData.Count > MaxDataPerModifier)
-                return -1;
-
-            writer.WriteUInt8(spellMod.ModIndex);
-            writer.WriteInt32(spellMod.ModifierData.Count);
-            foreach (SpellModifierData modData in spellMod.ModifierData)
-            {
-                writer.WriteInt32(modData.ModifierValue);
-                writer.WriteUInt8(modData.ClassIndex);
-            }
+            int size = 4;
+            foreach (SpellModifierInfo spellMod in Modifiers)
+                size += 1 + 4 + spellMod.ModifierData.Count * 5;
+            return size;
         }
-        return writer.Position;
     }
+
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
 
     public List<SpellModifierInfo> Modifiers = new();
-}
 
-public class SpellModifierInfo
-{
-    public void Write(WorldPacket data)
+    /// <summary>Up to 4.4.0 (WowPacketParser reads an int32 until 3.4.4 and 4.4.1): the value is an int32.</summary>
+    internal sealed class IntValueLayout : ServerPacketLayout<SetSpellModifier>
     {
-        data.WriteUInt8(ModIndex);
-        data.WriteInt32(ModifierData.Count);
-        foreach (SpellModifierData modData in ModifierData)
-            modData.Write(data);
+        public override void Write(SetSpellModifier packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Modifiers.Count);
+            foreach (SpellModifierInfo spellMod in packet.Modifiers)
+            {
+                data.WriteUInt8(spellMod.ModIndex);
+                data.WriteInt32(spellMod.ModifierData.Count);
+                foreach (SpellModifierData modData in spellMod.ModifierData)
+                {
+                    data.WriteInt32(modData.ModifierValue);
+                    data.WriteUInt8(modData.ClassIndex);
+                }
+            }
+        }
+
+        public override int WriteToSpan(SetSpellModifier packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Modifiers.Count);
+            foreach (SpellModifierInfo spellMod in packet.Modifiers)
+            {
+                writer.WriteUInt8(spellMod.ModIndex);
+                writer.WriteInt32(spellMod.ModifierData.Count);
+                foreach (SpellModifierData modData in spellMod.ModifierData)
+                {
+                    writer.WriteInt32(modData.ModifierValue);
+                    writer.WriteUInt8(modData.ClassIndex);
+                }
+            }
+            return writer.Position;
+        }
     }
 
+    /// <summary>
+    /// 4.4.2 (TrinityCore cata_classic, WowPacketParser from 4.4.1): the value is a float, still
+    /// the summed amount for flat and percent modifiers alike. The int32 bits read as a float are
+    /// a denormal next to zero, so a +5 yard range glyph added nothing to the client's spell range.
+    /// </summary>
+    internal sealed class FloatValueLayout : ServerPacketLayout<SetSpellModifier>
+    {
+        public override void Write(SetSpellModifier packet, WorldPacket data)
+        {
+            data.WriteInt32(packet.Modifiers.Count);
+            foreach (SpellModifierInfo spellMod in packet.Modifiers)
+            {
+                data.WriteUInt8(spellMod.ModIndex);
+                data.WriteInt32(spellMod.ModifierData.Count);
+                foreach (SpellModifierData modData in spellMod.ModifierData)
+                {
+                    data.WriteFloat(modData.ModifierValue);
+                    data.WriteUInt8(modData.ClassIndex);
+                }
+            }
+        }
+
+        public override int WriteToSpan(SetSpellModifier packet, Span<byte> buffer)
+        {
+            var writer = new SpanPacketWriter(buffer);
+            writer.WriteInt32(packet.Modifiers.Count);
+            foreach (SpellModifierInfo spellMod in packet.Modifiers)
+            {
+                writer.WriteUInt8(spellMod.ModIndex);
+                writer.WriteInt32(spellMod.ModifierData.Count);
+                foreach (SpellModifierData modData in spellMod.ModifierData)
+                {
+                    writer.WriteFloat(modData.ModifierValue);
+                    writer.WriteUInt8(modData.ClassIndex);
+                }
+            }
+            return writer.Position;
+        }
+    }
+}
+
+public sealed class SpellModifierInfo
+{
     public byte ModIndex;
     public List<SpellModifierData> ModifierData = new();
 }
 
 public struct SpellModifierData
 {
-    public void Write(WorldPacket data)
-    {
-        data.WriteInt32(ModifierValue);
-        data.WriteUInt8(ClassIndex);
-    }
-
     public int ModifierValue;
     public byte ClassIndex;
 }
 
-class SpellExecuteLog : ServerPacket, ISpanWritable
+sealed class SpellExecuteLog : ServerPacket, ISpanWritable
 {
     private const int MaxEffects = 3;
     private const int MaxTargets = 8;
 
+    internal static readonly ServerPacketLayouts<ServerPacketLayout<SpellExecuteLog>> Layouts = new(
+        (ClientVersionBuild.Zero, ClientVersionBuild.V4_4_2_60895, new EffectsLayout(bytePowerType: false)),
+        (ClientVersionBuild.V4_4_2_60895, ClientVersionBuild.Zero, new EffectsLayout(bytePowerType: true)));
+
+    private static readonly ServerPacketLayout<SpellExecuteLog> Layout = Layouts.ForRunningClient();
+
     public SpellExecuteLog() : base(Opcode.SMSG_SPELL_EXECUTE_LOG, ConnectionType.Instance) { }
 
-    public override void Write()
-    {
-        _worldPacket.WritePackedGuid128(Caster);
-        _worldPacket.WriteInt32(SpellID);
-        _worldPacket.WriteUInt32((uint)Effects.Count);
-        foreach (var effect in Effects)
-        {
-            _worldPacket.WriteInt32(effect.Effect);
-            _worldPacket.WriteUInt32((uint)effect.PowerDrainTargets.Count);
-            _worldPacket.WriteUInt32((uint)effect.ExtraAttacksTargets.Count);
-            _worldPacket.WriteUInt32((uint)effect.DurabilityDamageTargets.Count);
-            _worldPacket.WriteUInt32((uint)effect.GenericVictimTargets.Count);
-            _worldPacket.WriteUInt32((uint)effect.TradeSkillTargets.Count);
-            _worldPacket.WriteUInt32((uint)effect.FeedPetTargets.Count);
-
-            foreach (var t in effect.PowerDrainTargets)
-            {
-                _worldPacket.WritePackedGuid128(t.Victim);
-                _worldPacket.WriteUInt32(t.Points);
-                _worldPacket.WriteUInt32(t.PowerType);
-                _worldPacket.WriteFloat(t.Amplitude);
-            }
-            foreach (var t in effect.ExtraAttacksTargets)
-            {
-                _worldPacket.WritePackedGuid128(t.Victim);
-                _worldPacket.WriteUInt32(t.NumAttacks);
-            }
-            foreach (var t in effect.DurabilityDamageTargets)
-            {
-                _worldPacket.WritePackedGuid128(t.Victim);
-                _worldPacket.WriteInt32(t.ItemID);
-                _worldPacket.WriteInt32(t.Amount);
-            }
-            foreach (var t in effect.GenericVictimTargets)
-                _worldPacket.WritePackedGuid128(t);
-            foreach (int itemId in effect.TradeSkillTargets)
-                _worldPacket.WriteInt32(itemId);
-            foreach (int itemId in effect.FeedPetTargets)
-                _worldPacket.WriteInt32(itemId);
-        }
-
-        _worldPacket.WriteBit(false);
-        _worldPacket.FlushBits();
-    }
+    public override void Write() => Layout.Write(this, _worldPacket);
 
     public int MaxSize => PackedGuidHelper.MaxPackedGuid128Size + 8 + 1
         + MaxEffects * (28 + MaxTargets * (PackedGuidHelper.MaxPackedGuid128Size + 12));
 
-    public int WriteToSpan(Span<byte> buffer)
+    public int WriteToSpan(Span<byte> buffer) => Layout.WriteToSpan(this, buffer);
+
+    /// <summary>
+    /// A power drain target's power type is a uint32 up to 3.4.3 and a byte from 4.4.2
+    /// (TrinityCore cata_classic, and the client's reader).
+    /// </summary>
+    internal sealed class EffectsLayout(bool bytePowerType) : ServerPacketLayout<SpellExecuteLog>
     {
-        if (Effects.Count > MaxEffects)
-            return -1;
-        foreach (var effect in Effects)
+        public override void Write(SpellExecuteLog packet, WorldPacket data)
         {
-            if (effect.PowerDrainTargets.Count > MaxTargets
-                || effect.ExtraAttacksTargets.Count > MaxTargets
-                || effect.DurabilityDamageTargets.Count > MaxTargets
-                || effect.GenericVictimTargets.Count > MaxTargets
-                || effect.TradeSkillTargets.Count > MaxTargets
-                || effect.FeedPetTargets.Count > MaxTargets)
+            data.WritePackedGuid128(packet.Caster);
+            data.WriteInt32(packet.SpellID);
+            data.WriteUInt32((uint)packet.Effects.Count);
+            foreach (var effect in packet.Effects)
+            {
+                data.WriteInt32(effect.Effect);
+                data.WriteUInt32((uint)effect.PowerDrainTargets.Count);
+                data.WriteUInt32((uint)effect.ExtraAttacksTargets.Count);
+                data.WriteUInt32((uint)effect.DurabilityDamageTargets.Count);
+                data.WriteUInt32((uint)effect.GenericVictimTargets.Count);
+                data.WriteUInt32((uint)effect.TradeSkillTargets.Count);
+                data.WriteUInt32((uint)effect.FeedPetTargets.Count);
+
+                foreach (var t in effect.PowerDrainTargets)
+                {
+                    data.WritePackedGuid128(t.Victim);
+                    data.WriteUInt32(t.Points);
+                    if (bytePowerType)
+                        data.WriteUInt8((byte)t.PowerType);
+                    else
+                        data.WriteUInt32(t.PowerType);
+                    data.WriteFloat(t.Amplitude);
+                }
+                foreach (var t in effect.ExtraAttacksTargets)
+                {
+                    data.WritePackedGuid128(t.Victim);
+                    data.WriteUInt32(t.NumAttacks);
+                }
+                foreach (var t in effect.DurabilityDamageTargets)
+                {
+                    data.WritePackedGuid128(t.Victim);
+                    data.WriteInt32(t.ItemID);
+                    data.WriteInt32(t.Amount);
+                }
+                foreach (var t in effect.GenericVictimTargets)
+                    data.WritePackedGuid128(t);
+                foreach (int itemId in effect.TradeSkillTargets)
+                    data.WriteInt32(itemId);
+                foreach (int itemId in effect.FeedPetTargets)
+                    data.WriteInt32(itemId);
+            }
+
+            data.WriteBit(false);
+            data.FlushBits();
+        }
+
+        public override int WriteToSpan(SpellExecuteLog packet, Span<byte> buffer)
+        {
+            if (packet.Effects.Count > MaxEffects)
                 return -1;
+            foreach (var effect in packet.Effects)
+            {
+                if (effect.PowerDrainTargets.Count > MaxTargets
+                    || effect.ExtraAttacksTargets.Count > MaxTargets
+                    || effect.DurabilityDamageTargets.Count > MaxTargets
+                    || effect.GenericVictimTargets.Count > MaxTargets
+                    || effect.TradeSkillTargets.Count > MaxTargets
+                    || effect.FeedPetTargets.Count > MaxTargets)
+                    return -1;
+            }
+
+            var writer = new SpanPacketWriter(buffer);
+            writer.WritePackedGuid128(packet.Caster.Low, packet.Caster.High);
+            writer.WriteInt32(packet.SpellID);
+            writer.WriteUInt32((uint)packet.Effects.Count);
+            foreach (var effect in packet.Effects)
+            {
+                writer.WriteInt32(effect.Effect);
+                writer.WriteUInt32((uint)effect.PowerDrainTargets.Count);
+                writer.WriteUInt32((uint)effect.ExtraAttacksTargets.Count);
+                writer.WriteUInt32((uint)effect.DurabilityDamageTargets.Count);
+                writer.WriteUInt32((uint)effect.GenericVictimTargets.Count);
+                writer.WriteUInt32((uint)effect.TradeSkillTargets.Count);
+                writer.WriteUInt32((uint)effect.FeedPetTargets.Count);
+
+                foreach (var t in effect.PowerDrainTargets)
+                {
+                    writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
+                    writer.WriteUInt32(t.Points);
+                    if (bytePowerType)
+                        writer.WriteUInt8((byte)t.PowerType);
+                    else
+                        writer.WriteUInt32(t.PowerType);
+                    writer.WriteFloat(t.Amplitude);
+                }
+                foreach (var t in effect.ExtraAttacksTargets)
+                {
+                    writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
+                    writer.WriteUInt32(t.NumAttacks);
+                }
+                foreach (var t in effect.DurabilityDamageTargets)
+                {
+                    writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
+                    writer.WriteInt32(t.ItemID);
+                    writer.WriteInt32(t.Amount);
+                }
+                foreach (var t in effect.GenericVictimTargets)
+                    writer.WritePackedGuid128(t.Low, t.High);
+                foreach (int itemId in effect.TradeSkillTargets)
+                    writer.WriteInt32(itemId);
+                foreach (int itemId in effect.FeedPetTargets)
+                    writer.WriteInt32(itemId);
+            }
+
+            writer.WriteBit(false);
+            writer.FlushBits();
+            return writer.Position;
         }
-
-        var writer = new SpanPacketWriter(buffer);
-        writer.WritePackedGuid128(Caster.Low, Caster.High);
-        writer.WriteInt32(SpellID);
-        writer.WriteUInt32((uint)Effects.Count);
-        foreach (var effect in Effects)
-        {
-            writer.WriteInt32(effect.Effect);
-            writer.WriteUInt32((uint)effect.PowerDrainTargets.Count);
-            writer.WriteUInt32((uint)effect.ExtraAttacksTargets.Count);
-            writer.WriteUInt32((uint)effect.DurabilityDamageTargets.Count);
-            writer.WriteUInt32((uint)effect.GenericVictimTargets.Count);
-            writer.WriteUInt32((uint)effect.TradeSkillTargets.Count);
-            writer.WriteUInt32((uint)effect.FeedPetTargets.Count);
-
-            foreach (var t in effect.PowerDrainTargets)
-            {
-                writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
-                writer.WriteUInt32(t.Points);
-                writer.WriteUInt32(t.PowerType);
-                writer.WriteFloat(t.Amplitude);
-            }
-            foreach (var t in effect.ExtraAttacksTargets)
-            {
-                writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
-                writer.WriteUInt32(t.NumAttacks);
-            }
-            foreach (var t in effect.DurabilityDamageTargets)
-            {
-                writer.WritePackedGuid128(t.Victim.Low, t.Victim.High);
-                writer.WriteInt32(t.ItemID);
-                writer.WriteInt32(t.Amount);
-            }
-            foreach (var t in effect.GenericVictimTargets)
-                writer.WritePackedGuid128(t.Low, t.High);
-            foreach (int itemId in effect.TradeSkillTargets)
-                writer.WriteInt32(itemId);
-            foreach (int itemId in effect.FeedPetTargets)
-                writer.WriteInt32(itemId);
-        }
-
-        writer.WriteBit(false);
-        writer.FlushBits();
-        return writer.Position;
     }
 
     public WowGuid128 Caster;
@@ -2766,4 +3230,19 @@ class DispelFailed : ServerPacket, ISpanWritable
     public WowGuid128 VictimGUID;
     public uint SpellID;
     public List<int> FailedSpells = new();
+}
+
+/// <summary>Why a mount could not be mounted.</summary>
+public sealed class MountResult : ServerPacket
+{
+    // TrinityCore cata_classic sends it on the instance connection; on the realm one the 4.4.2
+    // client drops it, and a refused mount said nothing.
+    public MountResult() : base(Opcode.SMSG_MOUNT_RESULT, ConnectionType.Instance) { }
+
+    public override void Write()
+    {
+        _worldPacket.WriteUInt32(Result);
+    }
+
+    public uint Result;
 }

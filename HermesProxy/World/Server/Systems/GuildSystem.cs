@@ -36,7 +36,56 @@ public static class GuildSystem
     public static void HandleQueryGuildInfo(in QueryGuildInfo query, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_QUERY_GUILD_INFO);
-        packet.WriteUInt32((uint)query.GuildGuid.GetCounter());
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleGuildQueryOpcode: the guild's GUID and a member's, both
+            // whole. It answers only when that player is in that guild, and the 4.4.2 client
+            // leaves the player empty (seen in a capture), so name a member the session knows.
+            WowGuid128 member = query.PlayerGuid;
+            if (member.IsEmpty())
+                member = ctx.GetSession().GameState.GetKnownGuildMember((uint)query.GuildGuid.GetCounter());
+            packet.WriteUInt64(CataGuildGuid(query.GuildGuid.GetCounter()));
+            packet.WriteGuid(member.To64());
+        }
+        else
+            packet.WriteUInt32((uint)query.GuildGuid.GetCounter());
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A 4.3.4 guild GUID: the guild id under the guild high type (TrinityCore 4.3.4
+    /// <c>ObjectGuid(HighGuid::Guild, id)</c>, 0x1FF shifted by 52).
+    /// </summary>
+    internal static ulong CataGuildGuid(ulong guildId) => guildId == 0 ? 0 : (0x1FFul << 52) | guildId;
+
+    /// <summary>
+    /// The modern client asks for the ranks by themselves. A 4.3.4 server answers that with
+    /// SMSG_GUILD_RANKS; the older ones have no such request and send the ranks inside the roster,
+    /// which is where the proxy takes them from.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_GET_RANKS)]
+    public static void HandleGuildGetRanks(in GuildGetRanks query, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_GET_RANKS);
+        MaskedGuid.Write(packet, CataGuildGuid(query.GuildGuid.GetCounter()), [2, 3, 0, 6, 4, 7, 5, 1], [3, 4, 5, 7, 1, 0, 6, 2]);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// What the guild's members can craft. Only a 4.x server has guild recipes (TrinityCore 4.3.4
+    /// GuildQueryRecipes::Read: the guild's GUID masked).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_QUERY_RECIPES)]
+    public static void HandleGuildQueryRecipes(in GuildQueryRecipes query, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_QUERY_RECIPES);
+        MaskedGuid.Write(packet, CataGuildGuid(query.GuildGuid.GetCounter()), [5, 6, 1, 4, 2, 7, 0, 3], [3, 1, 0, 5, 4, 2, 6, 7]);
         ctx.SendPacketToServer(packet);
     }
 
@@ -45,6 +94,13 @@ public static class GuildSystem
     {
         if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             return;
+
+        // 4.3.4 asks and answers with a pair of its own (TrinityCore 4.3.4 HandleGuildPermissionsQuery).
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_GUILD_PERMISSIONS_QUERY));
+            return;
+        }
 
         WorldPacket packet = new WorldPacket(Opcode.MSG_GUILD_PERMISSIONS);
         ctx.SendPacketToServer(packet);
@@ -56,6 +112,13 @@ public static class GuildSystem
         if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             return;
 
+        // 4.3.4 HandleGuildBankMoneyWithdrawn: its own request, answered with a 64-bit amount.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_GUILD_BANK_REMAINING_WITHDRAW_MONEY_QUERY));
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(Opcode.MSG_GUILD_BANK_MONEY_WITHDRAWN);
         ctx.SendPacketToServer(packet);
     }
@@ -63,8 +126,12 @@ public static class GuildSystem
     [HandlesCmsg(Opcode.CMSG_GUILD_GET_ROSTER)]
     public static void HandleGuildGetRoster(in EmptyClientPacket query, in SessionContext ctx)
     {
-        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_INFO);
-        ctx.SendPacketToServer(packet);
+        // 4.3.4 has no CMSG_GUILD_INFO: its roster carries the creation date and the account count.
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_INFO);
+            ctx.SendPacketToServer(packet);
+        }
 
         WorldPacket packet2 = new WorldPacket(Opcode.CMSG_GUILD_GET_ROSTER);
         ctx.SendPacketToServer(packet2);
@@ -74,7 +141,10 @@ public static class GuildSystem
     public static void HandleGuildUpdateMotdText(in GuildUpdateMotdText text, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_UPDATE_MOTD_TEXT);
-        packet.WriteCString(text.MotdText);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            WriteCataText(packet, text.MotdText, 11);   // 4.3.4 HandleGuildMOTDOpcode
+        else
+            packet.WriteCString(text.MotdText);
         ctx.SendPacketToServer(packet);
     }
 
@@ -82,13 +152,44 @@ public static class GuildSystem
     public static void HandleGuildUpdateInfoText(in GuildUpdateInfoText text, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_UPDATE_INFO_TEXT);
-        packet.WriteCString(text.InfoText);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            WriteCataText(packet, text.InfoText, 12);   // 4.3.4 HandleGuildChangeInfoTextOpcode
+        else
+            packet.WriteCString(text.InfoText);
         ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>4.3.4 sends a guild text as a bit-counted length and the bytes, no terminator.</summary>
+    private static void WriteCataText(WorldPacket packet, ReadOnlySpan<char> text, int lengthBits)
+    {
+        string value = text.ToString();
+        packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(value), lengthBits);
+        packet.FlushBits();
+        packet.WriteString(value);
     }
 
     [HandlesCmsg(Opcode.CMSG_GUILD_SET_MEMBER_NOTE)]
     public static void HandleGuildSetMemberNote(in GuildSetMemberNote note, in SessionContext ctx)
     {
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // 4.3.4 has one opcode for both notes and names the member by GUID
+            // (TrinityCore 4.3.4 HandleGuildSetNoteOpcode).
+            ulong member = note.NoteeGUID.To64().Low;
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_GUILD_SET_NOTE);
+            MaskedGuid.WriteMaskBits(cata, member, [1, 4, 5, 3, 0, 7]);
+            cata.WriteBit(note.IsPublic);
+            MaskedGuid.WriteMaskBits(cata, member, [6]);
+            cata.WriteBits(System.Text.Encoding.UTF8.GetByteCount(note.Note), 8);
+            MaskedGuid.WriteMaskBits(cata, member, [2]);
+            cata.FlushBits();
+            MaskedGuid.WriteBytes(cata, member, [4, 5, 0, 3, 1, 6, 7]);
+            cata.WriteString(note.Note);
+            MaskedGuid.WriteBytes(cata, member, [2]);
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(note.IsPublic ? Opcode.CMSG_GUILD_SET_PUBLIC_NOTE : Opcode.CMSG_GUILD_SET_OFFICER_NOTE);
         packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(note.NoteeGUID));
         packet.WriteCString(note.Note);
@@ -99,7 +200,12 @@ public static class GuildSystem
     public static void HandleGuildPromoteMember(in GuildPromoteMember promote, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_PROMOTE_MEMBER);
-        packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(promote.Promotee));
+        // 4.3.4 names the member by GUID in all three (TrinityCore 4.3.4 HandleGuildPromoteOpcode,
+        // HandleGuildDemoteOpcode, HandleGuildRemoveOpcode), each with its own bit and byte order.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            MaskedGuid.Write(packet, promote.Promotee.To64().Low, [7, 2, 5, 6, 1, 0, 3, 4], [0, 5, 2, 3, 6, 4, 1, 7]);
+        else
+            packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(promote.Promotee));
         ctx.SendPacketToServer(packet);
     }
 
@@ -107,7 +213,58 @@ public static class GuildSystem
     public static void HandleGuildDemoteMember(in GuildDemoteMember demote, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_DEMOTE_MEMBER);
-        packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(demote.Demotee));
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            MaskedGuid.Write(packet, demote.Demotee.To64().Low, [7, 1, 5, 6, 2, 3, 0, 4], [1, 2, 7, 5, 6, 0, 4, 3]);
+        else
+            packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(demote.Demotee));
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// The 4.4.2 client sends its promote, its demote and its rank drop-down all as a rank to give
+    /// the member. 4.3.4 has the same request (TrinityCore 4.3.4 HandleGuildAssignRankOpcode: the
+    /// rank, then the member's and the setter's GUID as interleaved masked bits). The older servers
+    /// only move a member one rank, so there it becomes a promote or a demote, judged against the
+    /// member's rank in the last roster; the clients before 4.4.2 keep no roster, and theirs stays
+    /// unanswered as it was.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_ASSIGN_MEMBER_RANK)]
+    public static void HandleGuildAssignMemberRank(in GuildAssignMemberRank assign, in SessionContext ctx)
+    {
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            ulong member = assign.Member.To64().Low;
+            ulong setter = ctx.GameState.CurrentPlayerGuid.To64().Low;
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_GUILD_ASSIGN_MEMBER_RANK);
+            cata.WriteUInt32((uint)assign.RankOrder);
+            MaskedGuid.WriteMaskBits(cata, member, [1, 7]);
+            MaskedGuid.WriteMaskBits(cata, setter, [4, 2]);
+            MaskedGuid.WriteMaskBits(cata, member, [4, 5, 6]);
+            MaskedGuid.WriteMaskBits(cata, setter, [1, 7]);
+            MaskedGuid.WriteMaskBits(cata, member, [2, 3, 0]);
+            MaskedGuid.WriteMaskBits(cata, setter, [6, 3, 0, 5]);
+            cata.FlushBits();
+            MaskedGuid.WriteBytes(cata, member, [0]);
+            MaskedGuid.WriteBytes(cata, setter, [1, 3, 5]);
+            MaskedGuid.WriteBytes(cata, member, [7, 3]);
+            MaskedGuid.WriteBytes(cata, setter, [0]);
+            MaskedGuid.WriteBytes(cata, member, [1]);
+            MaskedGuid.WriteBytes(cata, setter, [6]);
+            MaskedGuid.WriteBytes(cata, member, [2, 5, 4]);
+            MaskedGuid.WriteBytes(cata, setter, [2, 4]);
+            MaskedGuid.WriteBytes(cata, member, [6]);
+            MaskedGuid.WriteBytes(cata, setter, [7]);
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
+        int current = ctx.GameState.GuildClub.RankOf(assign.Member);
+        if (current < 0 || current == assign.RankOrder)
+            return;
+        WorldPacket packet = new WorldPacket(assign.RankOrder < current
+            ? Opcode.CMSG_GUILD_PROMOTE_MEMBER
+            : Opcode.CMSG_GUILD_DEMOTE_MEMBER);
+        packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(assign.Member));
         ctx.SendPacketToServer(packet);
     }
 
@@ -115,7 +272,10 @@ public static class GuildSystem
     public static void HandleGuildOfficerRemoveMember(in GuildOfficerRemoveMember remove, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_OFFICER_REMOVE_MEMBER);
-        packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(remove.Removee));
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            MaskedGuid.Write(packet, remove.Removee.To64().Low, [6, 5, 4, 0, 1, 3, 7, 2], [2, 6, 5, 7, 1, 4, 3, 0]);
+        else
+            packet.WriteCString(ctx.GetSession().GameState.GetPlayerName(remove.Removee));
         ctx.SendPacketToServer(packet);
     }
 
@@ -126,7 +286,10 @@ public static class GuildSystem
         if (invite.ArenaTeamId == 0)
         {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_INVITE_BY_NAME);
-            packet.WriteCString(name);
+            if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+                WriteCataText(packet, name, 7);         // 4.3.4 HandleGuildInviteOpcode
+            else
+                packet.WriteCString(name);
             ctx.SendPacketToServer(packet);
         }
         else
@@ -175,6 +338,25 @@ public static class GuildSystem
     internal static WorldPacket BuildLegacyGuildRank(GuildSetRankPermissions rank)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_SET_RANK_PERMISSIONS);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleGuildSetRankPermissionsOpcode: old and new rights, eight
+            // bank tabs, then the gold limit, the rank's id again and the bit-counted name.
+            packet.WriteUInt32(rank.RankID);
+            packet.WriteUInt32(rank.OldFlags | HermesProxy.World.Client.WorldClient.CataRankRightEmpty);
+            packet.WriteUInt32(rank.Flags | HermesProxy.World.Client.WorldClient.CataRankRightEmpty);
+            for (var i = 0; i < GuildConst.MaxBankTabsCata; i++)
+            {
+                packet.WriteUInt32(rank.TabFlags[i]);
+                packet.WriteUInt32(rank.TabWithdrawItemLimit[i]);
+            }
+            packet.WriteInt32(rank.WithdrawGoldLimit);
+            packet.WriteUInt32(rank.RankID);
+            packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(rank.RankName), 7);
+            packet.FlushBits();
+            packet.WriteString(rank.RankName);
+            return packet;
+        }
         packet.WriteUInt32(rank.RankID);
         packet.WriteUInt32(rank.Flags);
         packet.WriteCString(rank.RankName);
@@ -194,7 +376,16 @@ public static class GuildSystem
     public static void HandleGuildAddRank(in GuildAddRank rank, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_ADD_RANK);
-        packet.WriteCString(rank.Name);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 HandleGuildAddRankOpcode: the rank's place, then the name.
+            packet.WriteUInt32((uint)rank.RankOrder);
+            packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(rank.Name), 7);
+            packet.FlushBits();
+            packet.WriteString(rank.Name);
+        }
+        else
+            packet.WriteCString(rank.Name);
         ctx.SendPacketToServer(packet);
     }
 
@@ -202,6 +393,9 @@ public static class GuildSystem
     public static void HandleGuildDeleteRank(in GuildDeleteRank rank, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_DELETE_RANK);
+        // 4.3.4 says which rank (HandleGuildDelRankOpcode); the older servers drop the last one.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            packet.WriteUInt32((uint)rank.RankOrder);
         ctx.SendPacketToServer(packet);
     }
 
@@ -209,8 +403,35 @@ public static class GuildSystem
     public static void HandleGuildSetGuildMaster(in GuildSetGuildMaster master, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_SET_GUILD_MASTER);
-        packet.WriteCString(LegacyPlayerName.StripRealmSuffix(master.NewMasterName));
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // TrinityCore 4.3.4 SetGuildMaster::Read: name length, the dethrone flag, the name.
+            string newMaster = StripGluedRealm(LegacyPlayerName.StripRealmSuffix(master.NewMasterName).ToString(), in ctx);
+            packet.WriteBits(System.Text.Encoding.UTF8.GetByteCount(newMaster), 7);
+            packet.WriteBit(false);
+            packet.FlushBits();
+            packet.WriteString(newMaster);
+        }
+        else
+            packet.WriteCString(LegacyPlayerName.StripRealmSuffix(master.NewMasterName));
         ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// The 4.4.2 client sends <c>/gleader Name-Realm</c> as the name and the realm's normalized
+    /// name run together, without the hyphen (<c>ElmagiTrinity4.3.4</c>, #416), and nothing at all
+    /// for the bare name. A name that ends in a known realm's normalized name loses it. Character
+    /// names are letters only, so this cannot cut into a name.
+    /// </summary>
+    internal static string StripGluedRealm(string name, in SessionContext ctx)
+    {
+        foreach (var realm in ctx.GetSession().RealmManager.GetRealms())
+        {
+            string suffix = realm.NormalizedName;
+            if (suffix.Length > 0 && name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal))
+                return name[..^suffix.Length];
+        }
+        return name;
     }
 
     [HandlesCmsg(Opcode.CMSG_GUILD_LEAVE)]
@@ -337,13 +558,26 @@ public static class GuildSystem
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_BANK_DEPOSIT_MONEY);
         packet.WriteGuid(deposit.BankGuid.To64());
-        packet.WriteUInt32((uint)deposit.Money);
+        // 4.3.4 counts bank money in 64 bits (GuildBankDepositMoney::Read, and the withdrawal below).
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            packet.WriteUInt64(deposit.Money);
+        else
+            packet.WriteUInt32((uint)deposit.Money);
         ctx.SendPacketToServer(packet);
     }
 
     [HandlesCmsg(Opcode.CMSG_GUILD_BANK_TEXT_QUERY)]
     public static void HandleGuildBankTextQuery(in GuildBankTextQuery query, in SessionContext ctx)
     {
+        // 4.3.4 split the two-way opcode into a request and an answer (GuildBankTextQuery::Read).
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_GUILD_BANK_TEXT_QUERY);
+            cata.WriteInt32(query.Tab);
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(Opcode.MSG_QUERY_GUILD_BANK_TEXT);
         packet.WriteUInt8((byte)query.Tab);
         ctx.SendPacketToServer(packet);
@@ -366,6 +600,15 @@ public static class GuildSystem
     [HandlesCmsg(Opcode.CMSG_GUILD_BANK_LOG_QUERY)]
     public static void HandleGuildBankLogQuery(in GuildBankLogQuery query, in SessionContext ctx)
     {
+        // 4.3.4 GuildBankLogQuery::Read: its own request, the tab as an int32.
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            WorldPacket cata = new WorldPacket(Opcode.CMSG_GUILD_BANK_LOG_QUERY);
+            cata.WriteInt32(query.Tab);
+            ctx.SendPacketToServer(cata);
+            return;
+        }
+
         WorldPacket packet = new WorldPacket(Opcode.MSG_GUILD_BANK_LOG_QUERY);
         packet.WriteUInt8((byte)query.Tab);
         ctx.SendPacketToServer(packet);
@@ -375,6 +618,14 @@ public static class GuildSystem
     public static void HandleGuildBankSetTabText(in GuildBankSetTabText query, in SessionContext ctx)
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_BANK_SET_TAB_TEXT);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+        {
+            // 4.3.4 GuildBankSetTabText::Read: the tab as an int32, the text counted in 14 bits.
+            packet.WriteInt32(query.Tab);
+            WriteCataText(packet, query.TabText, 14);
+            ctx.SendPacketToServer(packet);
+            return;
+        }
         packet.WriteUInt8((byte)query.Tab);
         packet.WriteCString(query.TabText);
         ctx.SendPacketToServer(packet);
@@ -394,7 +645,10 @@ public static class GuildSystem
     {
         WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_BANK_WITHDRAW_MONEY);
         packet.WriteGuid(withdraw.BankGuid.To64());
-        packet.WriteUInt32((uint)withdraw.Money);
+        if (HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            packet.WriteUInt64(withdraw.Money);
+        else
+            packet.WriteUInt32((uint)withdraw.Money);
         ctx.SendPacketToServer(packet);
     }
 
@@ -605,5 +859,126 @@ public static class GuildSystem
 
         packet.WriteUInt8(legacyBag);
         packet.WriteUInt8(legacySlot);
+    }
+    /// <summary>
+    /// Asked whenever the guild or the group changes: is this group a guild group? Only a 4.x
+    /// server knows the request (TrinityCore 4.3.4: CMSG_GUILD_REQUEST_PARTY_STATE).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_REQUEST_GUILD_PARTY_STATE)]
+    public static void HandleRequestGuildPartyState(in RequestGuildPartyState request, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_REQUEST_GUILD_PARTY_STATE);
+        MaskedGuid.Write(packet, CataGuildGuid(request.GuildGuid.GetCounter()), [0, 6, 7, 3, 5, 1, 2, 4], [6, 3, 2, 1, 5, 0, 7, 4]);
+        ctx.SendPacketToServer(packet);
+    }
+    /// <summary>
+    /// The guild window asks for the week's challenges. A 4.3.4 server has the request under a
+    /// name of its own (CMSG_GUILD_REQUEST_CHALLENGE_UPDATE); both are empty.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_CHALLENGE_UPDATE_REQUEST)]
+    public static void HandleGuildChallengeUpdateRequest(in EmptyClientPacket request, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_GUILD_REQUEST_CHALLENGE_UPDATE));
+    }
+    /// <summary>
+    /// The guild achievements the player tracks, sent at login and when the list changes. Only a
+    /// 4.x server knows the request (TrinityCore 4.3.4 <c>HandleGuildSetAchievementTracking</c>: a
+    /// 24-bit count, then the ids).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_SET_ACHIEVEMENT_TRACKING)]
+    public static void HandleGuildSetAchievementTracking(in GuildSetAchievementTracking tracking, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_SET_ACHIEVEMENT_TRACKING);
+        packet.WriteBits(tracking.AchievementIds.Length, 24);
+        packet.FlushBits();
+        foreach (uint achievementId in tracking.AchievementIds)
+            packet.WriteUInt32(achievementId);
+        ctx.SendPacketToServer(packet);
+    }
+    /// <summary>
+    /// The guild window's log tab. Empty on both sides; only a 4.3.4 server is asked.
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_EVENT_LOG_QUERY)]
+    public static void HandleGuildEventLogQuery(in EmptyClientPacket query, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        ctx.SendPacketToServer(new WorldPacket(Opcode.CMSG_GUILD_EVENT_LOG_QUERY));
+    }
+
+    /// <summary>
+    /// The guild window's rewards tab. The client sends the time of the list it has, in 64 bits;
+    /// a 4.3.4 server reads 32 (TrinityCore 4.3.4 <c>RequestGuildRewardsList::Read</c>).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_REQUEST_GUILD_REWARDS_LIST)]
+    public static void HandleRequestGuildRewardsList(in RequestGuildRewardsList request, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_REQUEST_GUILD_REWARDS_LIST);
+        packet.WriteUInt32((uint)request.CurrentVersion);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A 4.3.4 server numbers a guild's news from 0 (TrinityCore 4.3.4 <c>LogHolder::GetNextGUID</c>).
+    /// The 4.4.2 client shows the pin of entry 0 on the day's header line and not on the entry,
+    /// and then never asks to let it go; from 1 on it pins the entry. So the client is given
+    /// every id one higher than the server has it.
+    /// </summary>
+    internal const int CataNewsIdShift = 1;
+
+    /// <summary>
+    /// The guild window's news. Only a 4.x server keeps any. The request is the guild's GUID in
+    /// the 4.3.4 client's own bit and byte order (WowPacketParser's 4.3.4 parser; TrinityCore
+    /// 4.3.4 <c>HandleGuildQueryNewsOpcode</c> skips four bytes and reads none of it).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_QUERY_NEWS)]
+    public static void HandleGuildQueryNews(in GuildQueryNews query, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_QUERY_NEWS);
+        MaskedGuid.Write(packet, CataGuildGuid(query.GuildGuid.GetCounter()), [4, 2, 6, 3, 5, 0, 1, 7], [4, 1, 5, 6, 0, 3, 7, 2]);
+        ctx.SendPacketToServer(packet);
+    }
+
+    /// <summary>
+    /// A news entry pinned to the top of the list, or let go again (TrinityCore 4.3.4
+    /// <c>HandleGuildNewsUpdateStickyOpcode</c>: the entry's id, then the flag among the mask bits
+    /// of the guild's GUID).
+    /// </summary>
+    [HandlesCmsg(Opcode.CMSG_GUILD_NEWS_UPDATE_STICKY)]
+    public static void HandleGuildNewsUpdateSticky(in GuildNewsUpdateSticky sticky, in SessionContext ctx)
+    {
+        if (!HermesProxy.World.Client.WorldClient.IsCataLegacy)
+            return;
+
+        WorldPacket packet = new WorldPacket(Opcode.CMSG_GUILD_NEWS_UPDATE_STICKY);
+        WriteCataNewsUpdateSticky(packet, sticky);
+        ctx.SendPacketToServer(packet);
+    }
+
+    internal static void WriteCataNewsUpdateSticky(WorldPacket packet, GuildNewsUpdateSticky sticky)
+    {
+        ulong guild = CataGuildGuid(sticky.GuildGuid.GetCounter());
+        packet.WriteInt32(sticky.NewsId - CataNewsIdShift);
+        MaskedGuid.WriteMaskBits(packet, guild, [2, 4, 3, 0]);
+        packet.WriteBit(sticky.Sticky);
+        MaskedGuid.WriteMaskBits(packet, guild, [6, 7, 1, 5]);
+        packet.FlushBits();
+        MaskedGuid.WriteBytes(packet, guild, [6, 2, 1, 0, 5, 3, 7, 4]);
     }
 }
